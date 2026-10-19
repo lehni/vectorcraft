@@ -40,6 +40,8 @@ pub struct Scripts {
     log: Vec<LogLine>,
     /// The scripts folder as last listed, with the folder it lists.
     tree: Option<(PathBuf, Vec<Entry>)>,
+    /// The tool script the canvas sends pointer events to, while it is the active tool.
+    tool: Option<PathBuf>,
 }
 
 /// A line of script output.
@@ -75,11 +77,24 @@ struct Running {
     /// The document after the script's last change: while it is still the document, the next
     /// change adds to the same undo step.
     last: Option<Arc<Document>>,
+    /// Whether the script made a tool: it then stays loaded, to be the active tool.
+    tool: bool,
 }
 
 impl Scripts {
     pub fn is_running(&self) -> bool {
-        !self.running.is_empty() || self.console.as_ref().is_some_and(|c| c.runtime.is_running())
+        self.running.iter().any(|s| s.runtime.is_running()) || self.console.as_ref().is_some_and(|c| c.runtime.is_running())
+    }
+
+    /// The active tool script, while one is the active tool.
+    pub fn active_tool(&self) -> Option<&Path> {
+        self.tool.as_deref()
+    }
+
+    /// Makes the app's own tools active again: the canvas no longer sends pointer events to a
+    /// tool script. The script stays loaded.
+    pub fn deselect_tool(&mut self) {
+        self.tool = None;
     }
 
     /// The files of the running scripts.
@@ -165,14 +180,22 @@ pub(crate) fn run(app: &mut VectorcraftApp, p: &Value) -> Result<Value, String> 
     };
     let source = std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
     let name = Path::new(&path).file_name().map_or(path.clone(), |n| n.to_string_lossy().into_owned());
-    let mut script = start(app, name, Some(PathBuf::from(&path)))?;
+    let path = PathBuf::from(&path);
+    let mut script = start(app, name, Some(path.clone()))?;
     let result = execute(app, &mut script, &source);
     let running = result.is_ok() && script.runtime.is_running();
-    if running {
+    script.tool = result.is_ok() && script.runtime.has_tool(&script.scope).map_err(|e| e.to_string())?;
+    let tool = script.tool;
+    if running || tool {
+        // Run again, a script replaces the one that runs from the same file.
+        app.scripts.running.retain(|s| s.path.as_deref() != Some(&path));
         app.scripts.running.push(script);
     }
+    if tool {
+        app.scripts.tool = Some(path);
+    }
     let changed = result?;
-    Ok(json!({ "changed": changed, "running": running }))
+    Ok(json!({ "changed": changed, "running": running, "tool": tool }))
 }
 
 /// `ui.evaluateScript {code}`: run `code` in the console's project, made on the first line.
@@ -193,6 +216,7 @@ pub(crate) fn stop(app: &mut VectorcraftApp) -> Result<Value, String> {
     let stopped = app.scripts.running.len();
     app.scripts.running.clear();
     app.scripts.console = None;
+    app.scripts.tool = None;
     Ok(json!({ "stopped": stopped }))
 }
 
@@ -204,7 +228,7 @@ fn start(app: &VectorcraftApp, name: String, path: Option<PathBuf>) -> Result<Ru
     let mut runtime = Runtime::<PlatformEngine>::new().map_err(|e| e.to_string())?;
     let scope = runtime.create_scope(size.0, size.1).map_err(|e| e.to_string())?;
     runtime.bind(&scope, doc, selection).map_err(|e| e.to_string())?;
-    Ok(Running { name, path, runtime, scope, started: app.last_time, last: None })
+    Ok(Running { name, path, runtime, scope, started: app.last_time, last: None, tool: false })
 }
 
 /// Runs `source` in the script's project and writes back what it changed, even when it threw, as
@@ -233,7 +257,7 @@ pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
         return;
     }
     let mut scripts = std::mem::take(&mut app.scripts.running);
-    scripts.retain_mut(|script| tick(app, script, now));
+    scripts.retain_mut(|script| if script.runtime.is_running() { tick(app, script, now) || script.tool } else { script.tool });
     // Scripts started by a script's frame join the list.
     scripts.append(&mut app.scripts.running);
     app.scripts.running = scripts;
@@ -246,6 +270,48 @@ pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
     if app.scripts.is_running() {
         ctx.request_repaint();
     }
+}
+
+/// Sends a pointer event on the canvas to the active tool script. Returns whether there is one,
+/// which then has the event instead of the app's tool. Each drag is one undo step.
+pub(crate) fn pointer(app: &mut VectorcraftApp, ev: &vectorcraft_tools::PointerEvent) -> bool {
+    use vectorcraft_papercraft::{Modifiers, MouseEvent};
+    use vectorcraft_tools::PointerKind;
+    let Some(path) = app.scripts.tool.clone() else {
+        return false;
+    };
+    let Some(index) = app.scripts.running.iter().position(|s| s.path.as_deref() == Some(&path)) else {
+        app.scripts.tool = None;
+        return false;
+    };
+    let event = match ev.kind {
+        PointerKind::Down => MouseEvent::Down,
+        PointerKind::Drag => MouseEvent::Drag,
+        PointerKind::Up => MouseEvent::Up,
+        PointerKind::Move => MouseEvent::Move,
+        PointerKind::DoubleClick => return true,
+    };
+    // `cmd` is Command on macOS, Ctrl elsewhere, as Paper.js's `modifiers.command` is.
+    let mac = cfg!(target_os = "macos");
+    let modifiers = Modifiers { shift: ev.mods.shift, control: ev.mods.ctrl || (ev.mods.cmd && !mac), alt: ev.mods.alt, meta: ev.mods.cmd && mac };
+    let mut script = app.scripts.running.remove(index);
+    if event == MouseEvent::Down {
+        // A drag starts its own undo step.
+        script.last = None;
+    }
+    let result = catch_up(app, &mut script).and_then(|selected| {
+        script.runtime.tool_event(&script.scope, event, (ev.pos.x, ev.pos.y), modifiers).map_err(|e| e.to_string())?;
+        write_back(app, &mut script, &selected)
+    });
+    show_output(app, &mut script);
+    match result {
+        Ok(_) => app.scripts.running.insert(index.min(app.scripts.running.len()), script),
+        Err(e) => {
+            report(app, &script, &e);
+            app.scripts.tool = None;
+        }
+    }
+    true
 }
 
 /// One frame of a running script. Returns whether it keeps running.

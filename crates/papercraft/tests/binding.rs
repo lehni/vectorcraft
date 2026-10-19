@@ -161,6 +161,44 @@ fn selection_goes_both_ways<E: Engine>() {
     assert_eq!(runtime.selected_ids(&scope).unwrap().into_iter().collect::<Vec<_>>(), [b]);
 }
 
+fn tool_scripts_get_pointer_events<E: Engine>() {
+    use vectorcraft_papercraft::{Modifiers, MouseEvent};
+    let (s, _, _) = document();
+    let st = s.active().unwrap();
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(400.0, 300.0).unwrap();
+    runtime.bind(&scope, st.doc.clone(), st.selection.clone()).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "tool.minDistance = 10\n\
+             function onMouseDown(event) { console.log('down', event.point.x, event.modifiers.shift) }\n\
+             function onMouseDrag(event) { new Path.Circle({ center: event.point, radius: 2 }) }\n\
+             function onMouseUp(event) { console.log('up', event.point.x) }",
+        )
+        .unwrap();
+    assert!(runtime.has_tool(&scope).unwrap());
+    let shift = Modifiers { shift: true, ..Default::default() };
+    assert!(runtime.tool_event(&scope, MouseEvent::Down, (0.0, 0.0), shift).unwrap());
+    // Closer than minDistance: no drag event.
+    assert!(!runtime.tool_event(&scope, MouseEvent::Drag, (5.0, 0.0), Modifiers::default()).unwrap());
+    assert!(runtime.tool_event(&scope, MouseEvent::Drag, (20.0, 0.0), Modifiers::default()).unwrap());
+    assert!(runtime.tool_event(&scope, MouseEvent::Up, (20.0, 0.0), Modifiers::default()).unwrap());
+    assert_eq!(runtime.take_output(), ["down 0 true", "up 20"]);
+    let patch = runtime.take_patch(&scope).unwrap().unwrap();
+    assert_eq!(patch.params["insert"].as_array().unwrap().len(), 1, "one drag event drew one circle");
+}
+
+fn scripts_without_handlers_have_no_tool<E: Engine>() {
+    let (s, _, _) = document();
+    let st = s.active().unwrap();
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(400.0, 300.0).unwrap();
+    runtime.bind(&scope, st.doc.clone(), st.selection.clone()).unwrap();
+    runtime.execute(&scope, "console.log(project.activeLayer.children.length)").unwrap();
+    assert!(!runtime.has_tool(&scope).unwrap());
+}
+
 macro_rules! engine_tests {
     ($module:ident, $engine:ty $(, live_sync: $live_sync:meta)?) => {
         mod $module {
@@ -193,6 +231,16 @@ macro_rules! engine_tests {
             #[test]
             fn selection_goes_both_ways() {
                 super::selection_goes_both_ways::<$engine>();
+            }
+
+            #[test]
+            fn tool_scripts_get_pointer_events() {
+                super::tool_scripts_get_pointer_events::<$engine>();
+            }
+
+            #[test]
+            fn scripts_without_handlers_have_no_tool() {
+                super::scripts_without_handlers_have_no_tool::<$engine>();
             }
 
             #[test]

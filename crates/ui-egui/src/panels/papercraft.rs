@@ -35,6 +35,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     let mut open: BTreeSet<PathBuf> = pstate(ui.ctx(), OPEN);
     let mut run = None;
     let running = app.scripts.running_paths();
+    let active = app.scripts.active_tool().map(PathBuf::from);
     // Laid out from the bottom: the bar stays at the bottom, the tree takes the height above it.
     ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
         ui.horizontal(|ui| {
@@ -71,7 +72,12 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
                 let mut rows = Vec::new();
                 flatten(entries, 0, &open, &mut rows);
                 for (depth, entry) in rows {
-                    let state = (selected.as_deref() == Some(&entry.path), open.contains(&entry.path), running.contains(&entry.path));
+                    let state = Row {
+                        selected: selected.as_deref() == Some(&entry.path),
+                        open: open.contains(&entry.path),
+                        running: running.contains(&entry.path),
+                        active: active.as_deref() == Some(&entry.path),
+                    };
                     let action = row(ui, depth, entry, state);
                     match action {
                         Some(Action::Select) => selected = Some(entry.path.clone()),
@@ -114,8 +120,18 @@ fn flatten<'a>(entries: &'a [Entry], depth: usize, open: &BTreeSet<PathBuf>, row
     }
 }
 
-/// One row of the tree; `state` is whether it is selected, open (folders) and running (scripts).
-fn row(ui: &mut Ui, depth: usize, entry: &Entry, (selected, open, running): (bool, bool, bool)) -> Option<Action> {
+/// How a row of the tree shows.
+struct Row {
+    selected: bool,
+    /// A folder whose contents show.
+    open: bool,
+    /// A script that runs, or a tool script that is loaded.
+    running: bool,
+    /// The tool script that is the active tool.
+    active: bool,
+}
+
+fn row(ui: &mut Ui, depth: usize, entry: &Entry, Row { selected, open, running, active }: Row) -> Option<Action> {
     let t = Tokens::get(ui.ctx());
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW), Sense::click());
     if selected {
@@ -144,7 +160,7 @@ fn row(ui: &mut Ui, depth: usize, entry: &Entry, (selected, open, running): (boo
             }
         }
     };
-    icons::paint(ui, icon, icon_rect(x + 16.0), t.icon);
+    icons::paint(ui, icon, icon_rect(x + 16.0), if active { t.accent } else { t.icon });
     let color = if running { t.accent } else { t.text_strong };
     ui.painter().text(egui::pos2(x + 36.0, rect.center().y), Align2::LEFT_CENTER, &entry.name, FontId::proportional(12.5), color);
     if action.is_none() {

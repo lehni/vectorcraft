@@ -79,6 +79,8 @@ pub struct Runtime<E: Engine> {
     engine: E,
     host: Rc<RefCell<Host<E::Handle>>>,
     paper: E::Handle,
+    /// A function that does nothing, for the browser events tools get.
+    nothing: E::Handle,
 }
 
 /// A `PaperScope` with its own project and view.
@@ -92,7 +94,8 @@ impl<E: Engine> Runtime<E> {
         engine.eval(PAPER_JS)?;
         let global = engine.global()?;
         let paper = engine.with_call(|call| object(call, &global, "paper"))?;
-        Ok(Self { engine, host, paper })
+        let nothing = engine.function("nothing", |_, _, _| Ok(Value::Undefined))?;
+        Ok(Self { engine, host, paper, nothing })
     }
 
     /// Creates a scope whose view has the given size.
@@ -171,6 +174,68 @@ impl<E: Engine> Runtime<E> {
     /// Returns the lines printed with `console.log` since the last call.
     pub fn take_output(&mut self) -> Vec<String> {
         std::mem::take(&mut self.host.borrow_mut().output)
+    }
+}
+
+/// A pointer event for a script's tool.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MouseEvent {
+    Down,
+    Drag,
+    Up,
+    Move,
+}
+
+/// The keys held during a pointer event, as Paper.js's `Key.modifiers` has them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Modifiers {
+    pub shift: bool,
+    pub control: bool,
+    pub alt: bool,
+    pub meta: bool,
+}
+
+impl<E: Engine> Runtime<E> {
+    /// Whether the script in `scope` made a tool: it defines mouse or key handlers, or uses `tool`.
+    pub fn has_tool(&mut self, scope: &Scope<E::Handle>) -> Result<bool, Error> {
+        self.engine.with_call(|call| Ok(matches!(call.get(&scope.0, "tool")?, Value::Js(_))))
+    }
+
+    /// Sends a pointer event at `point`, in document coordinates, to the tool of the script in
+    /// `scope`: its `onMouseDown`, `onMouseDrag`, `onMouseUp` and `onMouseMove` run, drags as
+    /// often as `tool.minDistance`, `maxDistance` and `fixedDistance` say. Returns whether a
+    /// handler ran; without a tool, nothing happens.
+    pub fn tool_event(&mut self, scope: &Scope<E::Handle>, event: MouseEvent, point: (f64, f64), modifiers: Modifiers) -> Result<bool, Error> {
+        let (paper, nothing) = (&self.paper, &self.nothing);
+        self.engine.with_call(|call| {
+            let Value::Js(tool) = call.get(&scope.0, "tool")? else {
+                return Ok(false);
+            };
+            let key = object(call, paper, "Key")?;
+            let held = object(call, &key, "modifiers")?;
+            for (name, down) in [("shift", modifiers.shift), ("control", modifiers.control), ("alt", modifiers.alt), ("meta", modifiers.meta)] {
+                call.set(&held, name, &Value::Bool(down))?;
+            }
+            let (kind, flag) = match event {
+                MouseEvent::Down => ("mousedown", "down"),
+                MouseEvent::Drag => ("mousedrag", "drag"),
+                MouseEvent::Up => ("mouseup", "up"),
+                MouseEvent::Move => ("mousemove", "move"),
+            };
+            // What Paper.js reads of a browser's event: its type, and that it can be stopped.
+            let dom_event = call.new_object()?;
+            call.set(&dom_event, "type", &Value::String(kind.into()))?;
+            call.set(&dom_event, "preventDefault", &Value::Js(nothing.clone()))?;
+            call.set(&dom_event, "stopPropagation", &Value::Js(nothing.clone()))?;
+            let mouse = call.new_object()?;
+            call.set(&mouse, flag, &Value::Bool(true))?;
+            let constructor = object(call, paper, "Point")?;
+            let point = call.construct(&constructor, &[Value::Number(point.0), Value::Number(point.1)])?;
+            // Until Paper.js has a public way to send pointer events without a DOM (CHANNEL.md
+            // S4), the tool's own dispatch, which `View` calls in browsers.
+            let handled = method(call, &tool, "_handleMouseEvent", &[Value::String(kind.into()), Value::Js(dom_event), point, Value::Js(mouse)])?;
+            Ok(matches!(handled, Value::Bool(true)))
+        })
     }
 }
 

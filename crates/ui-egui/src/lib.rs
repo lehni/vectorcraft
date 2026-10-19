@@ -997,6 +997,7 @@ impl VectorcraftApp {
 
     /// Select a tool (also used by the toolbar and shortcuts).
     pub fn select_tool(&mut self, id: &str) {
+        self.scripts.deselect_tool();
         // The tip of a pen whose eraser end selected the Eraser doesn't undo this choice.
         self.pen_end.forget_tool();
         self.activate_tool(id, true);

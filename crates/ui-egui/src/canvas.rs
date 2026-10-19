@@ -1724,6 +1724,10 @@ pub(crate) fn release_over_panel(app: &mut VectorcraftApp, ctx: &egui::Context) 
 
 /// Send a pointer event to the active tool and act on UI requests (dialogs, tool switches).
 pub fn dispatch(app: &mut VectorcraftApp, ev: &PointerEvent, view: vectorcraft_engine::ViewInfo) {
+    // A PaperCraft tool script, while it is the active tool, has the event instead.
+    if crate::scripts::pointer(app, ev) {
+        return;
+    }
     let r = app.session.pointer(ev, view);
     // The artboard the Artboard tool makes active is the active one (the navigator's, the
     // Artboards panel's).
