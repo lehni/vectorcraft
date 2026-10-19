@@ -6,7 +6,7 @@ use std::sync::Arc;
 use serde_json::Value as Json;
 use vectorcraft_doc::{Document, Node, NodeId, Selection};
 
-use crate::source::{Columns, TYPE_NAMES, item_json};
+use crate::source::{Columns, TYPE_NAMES, flags, item_json};
 use crate::writeback::{self, Change};
 use crate::{Call, Engine, Error, Runtime, Scope, Value, handle, method, object};
 
@@ -62,11 +62,51 @@ impl<E: Engine> Runtime<E> {
         })
     }
 
+    /// Brings `scope`'s project up to `doc` and `selection`, as they are after edits made outside
+    /// the script: the items of the objects that changed reload from the document the next time
+    /// the script touches them. Objects that didn't change keep their items, and so does
+    /// everything when the document is the one the project already reads.
+    pub fn update(&mut self, scope: &Scope<E::Handle>, doc: Arc<Document>, selection: Selection) -> Result<(), Error> {
+        let changes = {
+            let mut host = self.host.borrow_mut();
+            let Some(bound) = host.bound.as_mut() else {
+                return Err(Error::Script("no document is bound".into()));
+            };
+            if Arc::ptr_eq(&bound.doc, &doc) && bound.selection == selection {
+                return Ok(());
+            }
+            let changes = Columns::of_changes(&bound.doc, &bound.selection, &doc, &selection);
+            *bound = Bound { doc, selection };
+            changes
+        };
+        if changes.keys.is_empty() {
+            return Ok(());
+        }
+        // Containers whose child list changed, loaded again right away (see below).
+        let reloaded: Vec<f64> =
+            changes.keys.iter().zip(&changes.flags).filter(|(_, f)| *f & flags::CHILDREN_CHANGED != 0).map(|(k, _)| *k).collect();
+        self.engine.with_call(|call| {
+            let columns = columns_object(call, &changes)?;
+            let project = object(call, &scope.0, "project")?;
+            method(call, &project, "invalidate", &[Value::Js(columns)])?;
+            // Until Paper.js keeps the children of a stale child list inserted, a script's change
+            // to one of them before the list reloads would be lost: reload it now
+            // (CHANNEL.md N12).
+            for key in reloaded {
+                if let Value::Js(item) = method(call, &project, "getItemByKey", &[Value::Number(key)])? {
+                    call.get(&item, "children")?;
+                }
+            }
+            Ok(())
+        })
+    }
+
     /// Gives the new items of an applied patch the ids `document.patch` returned, so later changes
-    /// to them replace them instead of adding them again.
-    pub fn apply_ids(&mut self, patch: Patch<E::Handle>, result: &Json, doc: Arc<Document>) -> Result<(), Error> {
+    /// to them replace them instead of adding them again, and makes the patched document the one
+    /// the project reads: what the script changed itself is never reloaded.
+    pub fn apply_ids(&mut self, patch: Patch<E::Handle>, result: &Json, doc: Arc<Document>, selection: Selection) -> Result<(), Error> {
         if let Some(bound) = self.host.borrow_mut().bound.as_mut() {
-            bound.doc = doc;
+            *bound = Bound { doc, selection };
         }
         let ids = result["ids"].as_array().cloned().unwrap_or_default();
         self.engine.with_call(|call| {
@@ -114,6 +154,11 @@ fn with_bound<H, R>(call: &mut dyn Call<H>, f: impl FnOnce(&Document, &Selection
 fn get_children<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let parent = key(args);
     let columns = with_bound(call, |doc, selection| Columns::of_children(doc, parent, selection))?.unwrap_or_default();
+    Ok(Value::Js(columns_object(call, &columns)?))
+}
+
+/// `columns` as the object Paper.js reads them from.
+fn columns_object<H: Clone>(call: &mut dyn Call<H>, columns: &Columns) -> Result<H, Error> {
     let result = call.new_object()?;
     let keys = call.new_float64_array(&columns.keys)?;
     let types = call.new_uint8_array(&columns.types)?;
@@ -128,7 +173,7 @@ fn get_children<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Valu
     for (key, value) in [("keys", keys), ("types", types), ("typeNames", type_names), ("flags", flags), ("boxes", boxes), ("names", names)] {
         call.set(&result, key, &Value::Js(value))?;
     }
-    Ok(Value::Js(result))
+    Ok(result)
 }
 
 /// `source.getItem(key)`: the item's own content as Paper.js JSON.

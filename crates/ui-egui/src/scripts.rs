@@ -1,17 +1,47 @@
-//! Window › PaperCraft › Run Script…: runs a PaperScript file (`.js`) on the active document with
-//! PaperCraft. The script sees the document as a Paper.js project, and what it changes comes back
-//! as one undo step. `ui.runScript {path?}`; without a path it asks for the file.
+//! Window › PaperCraft: PaperScript files (`.js`) run on the active document with PaperCraft. A
+//! script sees the document as a Paper.js project, and what it changes comes back as one undo
+//! step. A script with `onFrame` or an interval keeps running, driven by the app's frames, until
+//! it stops or Stop Running Scripts stops it; the whole run is one undo step while nothing else
+//! edits the document in between. Before each frame the script's project catches up with edits
+//! made outside it.
 //!
-//! The script's view is the first artboard, so `view.bounds` is its size. Output from
-//! `console.log` shows in the status bar.
+//! `ui.runScript {path?}` runs a script (without a path it asks for the file);
+//! `ui.stopScripts` stops the running ones. The script's view is the first artboard, so
+//! `view.bounds` is its size. The last line a script prints with `console.log` shows in the
+//! status bar.
+
+use std::sync::Arc;
 
 use serde_json::{Value, json};
-use vectorcraft_papercraft::{PlatformEngine, Runtime};
+use vectorcraft_doc::Document;
+use vectorcraft_papercraft::{Engine, PlatformEngine, Runtime, Scope};
 
 use crate::{FilePick, VectorcraftApp};
 
 /// Script files.
 const EXTS: &[&str] = &["js"];
+
+/// The scripts that keep running.
+#[derive(Default)]
+pub struct Scripts(Vec<Running>);
+
+struct Running {
+    /// The file name, for messages.
+    name: String,
+    runtime: Runtime<PlatformEngine>,
+    scope: Scope<<PlatformEngine as Engine>::Handle>,
+    /// The app's clock when it started, in seconds.
+    started: f64,
+    /// The document after the script's last change: while it is still the document, the next
+    /// change adds to the same undo step.
+    last: Option<Arc<Document>>,
+}
+
+impl Scripts {
+    pub fn is_running(&self) -> bool {
+        !self.0.is_empty()
+    }
+}
 
 /// `ui.runScript`: run the script at `path`, or the file the user picks.
 pub(crate) fn run(app: &mut VectorcraftApp, p: &Value) -> Result<Value, String> {
@@ -26,6 +56,7 @@ pub(crate) fn run(app: &mut VectorcraftApp, p: &Value) -> Result<Value, String> 
         }
     };
     let source = std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
+    let name = std::path::Path::new(&path).file_name().map_or(path.clone(), |n| n.to_string_lossy().into_owned());
     let state = app.session.doc().map_err(|e| e.to_string())?;
     let (doc, selection) = (state.doc.clone(), state.selection.clone());
     let size = doc.artboards.first().map_or((800.0, 600.0), |a| (a.rect.width(), a.rect.height()));
@@ -34,22 +65,85 @@ pub(crate) fn run(app: &mut VectorcraftApp, p: &Value) -> Result<Value, String> 
     let scope = runtime.create_scope(size.0, size.1).map_err(|e| e.to_string())?;
     runtime.bind(&scope, doc, selection).map_err(|e| e.to_string())?;
     let result = runtime.execute(&scope, &source);
-    let output = runtime.take_output();
+    let mut script = Running { name, runtime, scope, started: app.last_time, last: None };
     // What the script changed before an error still goes back, as in a browser.
-    let patch = runtime.take_patch(&scope).map_err(|e| e.to_string())?;
-    let changed = match patch {
-        Some(patch) => {
-            app.run("document.patch", patch.params)?;
-            true
-        }
-        None => false,
-    };
+    let changed = write_back(app, &mut script)?;
     if let Err(e) = result {
-        let path = std::path::Path::new(&path).file_name().map_or(path.clone(), |n| n.to_string_lossy().into_owned());
-        return Err(format!("{path}: {e}"));
+        return Err(format!("{}: {e}", script.name));
     }
-    if let Some(line) = output.last() {
-        app.status(line.clone());
+    show_output(app, &mut script);
+    let running = script.runtime.is_running();
+    if running {
+        app.scripts.0.push(script);
     }
-    Ok(json!({ "output": output, "changed": changed }))
+    Ok(json!({ "changed": changed, "running": running }))
+}
+
+/// `ui.stopScripts`: stop every running script.
+pub(crate) fn stop(app: &mut VectorcraftApp) -> Result<Value, String> {
+    let stopped = app.scripts.0.len();
+    app.scripts.0.clear();
+    Ok(json!({ "stopped": stopped }))
+}
+
+/// Drives the running scripts, once per frame: their timers and `onFrame` handlers run, and what
+/// they changed goes back to the document.
+pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
+    if app.scripts.0.is_empty() {
+        return;
+    }
+    let mut scripts = std::mem::take(&mut app.scripts.0);
+    scripts.retain_mut(|script| {
+        let result = catch_up(app, script)
+            .and_then(|()| script.runtime.run_timers((now - script.started) * 1000.0).map_err(|e| e.to_string()))
+            .and_then(|()| write_back(app, script));
+        show_output(app, script);
+        match result {
+            Ok(_) => script.runtime.is_running(),
+            Err(e) => {
+                app.status(format!("{}: {e}", script.name));
+                false
+            }
+        }
+    });
+    // Scripts started by a script's frame join the list.
+    scripts.append(&mut app.scripts.0);
+    app.scripts.0 = scripts;
+    if app.scripts.is_running() {
+        ctx.request_repaint();
+    }
+}
+
+/// Brings the script's project up to the document, after edits made outside it.
+fn catch_up(app: &VectorcraftApp, script: &mut Running) -> Result<(), String> {
+    let state = app.session.doc().map_err(|e| e.to_string())?;
+    script.runtime.update(&script.scope, state.doc.clone(), state.selection.clone()).map_err(|e| e.to_string())
+}
+
+/// Applies what the script changed since the last call, adding to its undo step while nothing else
+/// changed the document since. Returns whether anything changed.
+fn write_back(app: &mut VectorcraftApp, script: &mut Running) -> Result<bool, String> {
+    let Some(patch) = script.runtime.take_patch(&script.scope).map_err(|e| e.to_string())? else {
+        return Ok(false);
+    };
+    let mut params = patch.params.clone();
+    let current = app.session.doc().map_err(|e| e.to_string())?.doc.clone();
+    if script.last.as_ref().is_some_and(|last| Arc::ptr_eq(last, &current))
+        && let Some(params) = params.as_object_mut()
+    {
+        params.insert("extend".into(), json!(true));
+    }
+    let result = app.run("document.patch", params)?;
+    let state = app.session.doc().map_err(|e| e.to_string())?;
+    let (doc, selection) = (state.doc.clone(), state.selection.clone());
+    script.last = Some(doc.clone());
+    script.runtime.apply_ids(patch, &result, doc, selection).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// Shows the last line the script printed in the status bar.
+fn show_output(app: &mut VectorcraftApp, script: &mut Running) {
+    if let Some(line) = script.runtime.take_output().pop() {
+        app.status(line);
+    }
 }

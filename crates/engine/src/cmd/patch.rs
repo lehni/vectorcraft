@@ -19,7 +19,7 @@ pub fn specs() -> Vec<CommandSpec> {
         "Patch Document",
         [],
         None,
-        "{label?: undo step name (default \"Edit\"), remove?: [ids], insert?: [{parent: id|null (null: the layer list), index?: position among the parent's children (bottom first; default: on top), node: object JSON as document.node returns it (its ids are replaced with new ones)}], replace?: [object JSON with its id (a container sent without its children keeps them)], order?: [{parent: id|null, children: [id|{new: k}]}] (the parent's children become exactly these, bottom first; listed objects from elsewhere move here; {new: k} places the k-th insert)} applied in that order, as one undo step → {ids: [the new id of each insert]}",
+        "{label?: undo step name (default \"Edit\"), extend?: true adds to the newest undo step instead of recording one (for a caller whose last edit that step is), remove?: [ids], insert?: [{parent: id|null (null: the layer list), index?: position among the parent's children (bottom first; default: on top), node: object JSON as document.node returns it (its ids are replaced with new ones)}], replace?: [object JSON with its id (a container sent without its children keeps them)], order?: [{parent: id|null, children: [id|{new: k}]}] (the parent's children become exactly these, bottom first; listed objects from elsewhere move here; {new: k} places the k-th insert)} applied in that order, as one undo step → {ids: [the new id of each insert]}",
         has_doc,
         patch
     )]
@@ -75,6 +75,7 @@ fn patch(s: &mut Session, p: &Value) -> Result<Value> {
         })
         .collect::<Result<Vec<_>>>()?;
 
+    let extending = p.get("extend").and_then(Value::as_bool).unwrap_or(false) && s.extend_newest_undo_step();
     let ids = s.edit(&label, |doc, _| {
         doc.remove_many(&remove).map_err(|e| bad(CMD, format!("remove: {e}")))?;
         let mut placed = vec![false; inserts.len()];
@@ -108,8 +109,11 @@ fn patch(s: &mut Session, p: &Value) -> Result<Value> {
             return Err(bad(CMD, "an insert placed by {new: k} was listed twice"));
         }
         Ok(fresh)
-    })?;
-    Ok(json!({ "ids": ids }))
+    });
+    if extending {
+        s.end_undo_group(false);
+    }
+    Ok(json!({ "ids": ids? }))
 }
 
 fn list<'a>(p: &'a Value, key: &str) -> Result<&'a [Value]> {

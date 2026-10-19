@@ -1551,6 +1551,7 @@ file-filter	Templates	範本
 	Inspect Object	檢查物件
 	Patch Document	套用文件修補
 	Run Script…	執行指令碼…
+	Stop Running Scripts	停止執行中的指令碼
 	PaperCraft	PaperCraft
 	Install Plug-in	安裝增效模組
 	Install Plug-in…	安裝增效模組…

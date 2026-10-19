@@ -7,6 +7,7 @@
 //! coordinates.
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use serde_json::{Map, Value, json};
 use vectorcraft_color::{BlendMode, Color, Paint};
@@ -97,6 +98,77 @@ impl Columns {
             columns.push(child, selection);
         }
         Some(columns)
+    }
+}
+
+impl Columns {
+    /// The records `project.invalidate()` needs to bring a project that reads `old` (with
+    /// `old_selection`) up to `new`: every changed object's fresh record, flagged when its own
+    /// content changed or, for layers and groups, its child list. Subtrees whose nodes are shared
+    /// between the two documents are skipped, so the cost follows what changed, not the document.
+    pub fn of_changes(old: &Document, old_selection: &Selection, new: &Document, new_selection: &Selection) -> Self {
+        let mut columns = Self::default();
+        // Objects whose selection changed get a fresh record even where their node didn't change.
+        let mut reselected: BTreeSet<NodeId> = old_selection.objects.iter().chain(&new_selection.objects).copied().collect();
+        reselected.retain(|id| old_selection.objects.contains(id) != new_selection.objects.contains(id));
+        let reanchored: BTreeSet<NodeId> = old_selection
+            .anchors
+            .keys()
+            .chain(new_selection.anchors.keys())
+            .filter(|id| old_selection.anchors.get(id) != new_selection.anchors.get(id))
+            .copied()
+            .collect();
+        let mut walk = Walk { columns: &mut columns, selection: new_selection, reselected: &reselected, reanchored: &reanchored };
+        walk.children(&old.layers, &new.layers);
+        columns
+    }
+}
+
+/// [`Columns::of_changes`] in progress.
+struct Walk<'a> {
+    columns: &'a mut Columns,
+    selection: &'a Selection,
+    reselected: &'a BTreeSet<NodeId>,
+    reanchored: &'a BTreeSet<NodeId>,
+}
+
+impl Walk<'_> {
+    fn children(&mut self, old: &[Arc<Node>], new: &[Arc<Node>]) {
+        // Children are usually in the same places: look them up by id only where they aren't.
+        let by_id: std::collections::HashMap<NodeId, &Arc<Node>> = old.iter().map(|n| (n.id, n)).collect();
+        for (i, node) in new.iter().enumerate() {
+            let before = old.get(i).filter(|o| o.id == node.id).or_else(|| by_id.get(&node.id).copied());
+            if let Some(before) = before {
+                self.node(before, node);
+            }
+        }
+    }
+
+    fn node(&mut self, old: &Arc<Node>, new: &Arc<Node>) {
+        let selected = self.reselected.contains(&new.id);
+        let reanchored = self.reanchored.contains(&new.id);
+        if Arc::ptr_eq(old, new) && !selected && !reanchored {
+            return;
+        }
+        let mut changed = 0;
+        match (&old.kind, &new.kind) {
+            (NodeKind::Layer { children: a, .. }, NodeKind::Layer { children: b, .. })
+            | (NodeKind::Group { children: a, .. }, NodeKind::Group { children: b, .. }) => {
+                if !a.iter().map(|c| c.id).eq(b.iter().map(|c| c.id)) {
+                    changed |= flags::CHILDREN_CHANGED;
+                }
+                if item_json(old, self.selection) != item_json(new, self.selection) {
+                    changed |= flags::CONTENT_CHANGED;
+                }
+                self.children(a, b);
+            }
+            _ if !Arc::ptr_eq(old, new) || reanchored => changed |= flags::CONTENT_CHANGED,
+            _ => {}
+        }
+        self.columns.push(new, self.selection);
+        if let Some(last) = self.columns.flags.last_mut() {
+            *last |= changed;
+        }
     }
 }
 

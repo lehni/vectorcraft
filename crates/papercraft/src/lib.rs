@@ -163,6 +163,11 @@ impl<E: Engine> Runtime<E> {
         })
     }
 
+    /// Whether the scripts have something left to run: an interval, which `onFrame` uses too.
+    pub fn is_running(&self) -> bool {
+        !self.host.borrow().intervals.is_empty()
+    }
+
     /// Returns the lines printed with `console.log` since the last call.
     pub fn take_output(&mut self) -> Vec<String> {
         std::mem::take(&mut self.host.borrow_mut().output)

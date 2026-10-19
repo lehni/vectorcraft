@@ -1806,6 +1806,7 @@ font-technology	Variable	バリアブル
 	Inspect Object	オブジェクトを調査
 	Patch Document	ドキュメントパッチを適用
 	Run Script…	スクリプトを実行…
+	Stop Running Scripts	実行中のスクリプトを停止
 	PaperCraft	PaperCraft
 	Install Plug-in	プラグインをインストール
 	Intensity:	強度:

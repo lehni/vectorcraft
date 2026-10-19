@@ -2310,6 +2310,22 @@ impl Session {
         }
     }
 
+    /// Open an undo group that continues the active document's newest undo step: until
+    /// [`Session::end_undo_group`], edits add to it instead of recording a step of their own. For
+    /// a caller that makes many edits over time as one step (a running script) and knows nothing
+    /// else changed the document since its last one. Without an undo step, or while another group
+    /// is open, it does nothing and edits record as usual. Returns whether it opened the group.
+    pub fn extend_newest_undo_step(&mut self) -> bool {
+        let Some(st) = self.active_mut().filter(|st| st.undo_group.is_none()) else {
+            return false;
+        };
+        let Some(newest) = st.history.undo.last() else {
+            return false;
+        };
+        st.undo_group = Some(UndoGroup { first: Some(newest.doc.clone()), journal: vec![], label: Some(newest.label.clone()) });
+        true
+    }
+
     /// Close the open undo groups: their edits stay one undo step or, `cancel`led (Escape), are
     /// undone and dropped from the journal.
     pub fn end_undo_group(&mut self, cancel: bool) {

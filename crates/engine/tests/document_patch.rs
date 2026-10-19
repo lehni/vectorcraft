@@ -115,3 +115,15 @@ fn a_failing_patch_changes_nothing() {
         assert_eq!(document(&mut s), before, "{params}");
     }
 }
+
+#[test]
+fn extend_adds_to_the_newest_undo_step() {
+    let (mut s, _, [a, b, _]) = three_rectangles();
+    let before = document(&mut s);
+    let steps = s.active().unwrap().history.undo.len();
+    s.execute("document.patch", &json!({"label": "Script", "remove": [a]})).unwrap();
+    s.execute("document.patch", &json!({"label": "Script", "remove": [b], "extend": true})).unwrap();
+    assert_eq!(s.active().unwrap().history.undo.len(), steps + 1, "the second patch extends the first one's step");
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(document(&mut s), before, "one undo undoes both");
+}

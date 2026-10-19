@@ -1839,6 +1839,7 @@ font-technology	Variable	가변
 	Inspect Object	개체 검사
 	Patch Document	문서 패치 적용
 	Run Script…	스크립트 실행…
+	Stop Running Scripts	실행 중인 스크립트 중지
 	PaperCraft	PaperCraft
 	Install Plug-in	플러그인 설치
 	Intensity:	강도:

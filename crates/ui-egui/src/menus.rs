@@ -1098,8 +1098,9 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
         "ui.runScript",
         "Run Script…",
         "",
-        "{path?: a .js file} run a PaperScript file on the active document with PaperCraft, as one undo step (its console.log output shows in the status bar and returns as `output`); without a path pick one",
+        "{path?: a .js file} run a PaperScript file on the active document with PaperCraft, as one undo step (the last console.log line shows in the status bar); a script with onFrame or an interval keeps running until ui.stopScripts; without a path pick one → {changed, running}",
     ),
+    ("ui.stopScripts", "Stop Running Scripts", "Cmd+.", "{} stop the PaperCraft scripts that keep running (onFrame, intervals) → {stopped}"),
     (
         "ui.perspectiveGridDialog",
         "Define Perspective Grid…",
@@ -1936,6 +1937,7 @@ pub fn run_ui_command(app: &mut VectorcraftApp, id: &str, p: &Value) -> Option<R
         "plugin.hideRuns" => Ok(crate::plugin_runs::hide_all(app)),
         "ui.checkScript" => crate::dialogs::script_check::command(app, p),
         "ui.runScript" => crate::scripts::run(app, p),
+        "ui.stopScripts" => crate::scripts::stop(app),
         "ui.perspectiveGridDialog" => crate::dialogs::perspective_grid::open(app),
         "ui.perspectivePresetsDialog" => {
             crate::dialogs::perspective_presets::open(app, s("selected").as_deref());
@@ -3217,7 +3219,7 @@ pub fn menu_tree_named(english_names: bool) -> Vec<(&'static str, Vec<Item>)> {
                 c("Tools", "window.toolbar"),
                 sub("Toolbars", vec![c("Advanced", "window.toolbarAdvanced"), c("Double Column", "window.toolbarColumns")]),
                 Sep,
-                sub("PaperCraft", vec![c("Run Script…", "ui.runScript")]),
+                sub("PaperCraft", vec![c("Run Script…", "ui.runScript"), c("Stop Running Scripts", "ui.stopScripts")]),
                 Sep,
                 panel("Actions", "actions"),
                 panel("Align", "align"),

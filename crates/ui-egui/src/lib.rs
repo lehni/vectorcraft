@@ -477,6 +477,8 @@ pub struct VectorcraftApp {
     frame: u64,
     /// The status bar's frame rate ([`frame_rate`]).
     frame_rate: frame_rate::FrameRate,
+    /// When the current frame started, by egui's clock: the time scripts run by.
+    last_time: f64,
     /// Canvas rect of the last frame (screen points), for control-channel coordinate mapping.
     pub canvas_rect: Option<egui::Rect>,
     /// Hover position in document coordinates.
@@ -485,6 +487,8 @@ pub struct VectorcraftApp {
     /// uses the lossless internal clipboard) and what came with a paste (a Paste event's text, a
     /// picture or file the host read: [`Self::paste_from_host`]).
     clipboard_out: Option<String>,
+    /// PaperCraft scripts that keep running ([`scripts`]).
+    scripts: scripts::Scripts,
     clipboard_published: Option<String>,
     pub(crate) clipboard_in: Option<vectorcraft_engine::cmd::clipboard::Flavour>,
     /// The Copy or Cut whose formats go to the system clipboard ([`Self::publish_clipboard`]).
@@ -630,6 +634,7 @@ impl VectorcraftApp {
             last_warp: None,
             run_count: 0,
             clipboard_out: None,
+            scripts: Default::default(),
             clipboard_published: None,
             clipboard_in: None,
             clipboard_publishing: Default::default(),
@@ -645,6 +650,7 @@ impl VectorcraftApp {
             ui_fonts: Default::default(),
             frame: 0,
             frame_rate: Default::default(),
+            last_time: 0.0,
             canvas_rect: None,
             hover_doc: None,
             custom_titlebar: false,
@@ -1346,8 +1352,10 @@ impl VectorcraftApp {
         }
         self.frame += 1;
         let now = ctx.input(|i| i.time);
+        self.last_time = now;
         self.perf.fps = self.frame_rate.frame(now, self.perf.frame_ms / 1000.0);
         self.sync_views();
+        scripts::frame(self, ctx, now);
         // Read the system clipboard only when that alone decides whether Paste is enabled. A
         // background thread reads it where the host installs one (an unresponsive owner must never
         // stall the frame loop); otherwise, or once that thread is gone, it is read here, at most a

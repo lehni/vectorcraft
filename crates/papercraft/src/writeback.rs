@@ -207,8 +207,12 @@ pub fn apply(node: &mut Node, json: &Json, before: &Json) -> Result<(), Error> {
     let props = json.get(1).and_then(Json::as_object).ok_or_else(|| Error::Script("not an item's JSON".into()))?;
     let before_props = before.get(1).cloned().unwrap_or(Json::Null);
     let path = path_data(json, node.path_data())?;
-    if let NodeKind::Path { path: p, .. } = &mut node.kind {
+    // A live shape whose geometry a script changed is a plain path, as after any path edit.
+    if let NodeKind::Path { path: p, live, .. } = &mut node.kind
+        && *p != path
+    {
         *p = path;
+        *live = None;
     }
     let mut appearance = (*node.appearance).clone();
     apply_style(&mut appearance, props, &before_props);
