@@ -7,7 +7,7 @@ use std::sync::Arc;
 use serde_json::Value as Json;
 use vectorcraft_doc::{Document, Node, NodeId, Selection};
 
-use crate::source::{Columns, TYPE_NAMES, item_json};
+use crate::source::{Columns, TYPE_NAMES, flags, item_json};
 use crate::writeback::{self, Change};
 use crate::{Call, Engine, Error, Runtime, Scope, Value, handle, method, object};
 
@@ -114,7 +114,27 @@ impl<E: Engine> Runtime<E> {
     /// Gives the new items of an applied patch the ids `document.patch` returned, so later changes
     /// to them replace them instead of adding them again, and makes the patched document the one
     /// the project reads: what the script changed itself is never reloaded.
-    pub fn apply_ids(&mut self, patch: Patch<E::Handle>, result: &Json, doc: Arc<Document>, selection: Selection) -> Result<(), Error> {
+    ///
+    /// The objects the patch left out (`skipped`: a drag in progress changed them, and wins) load
+    /// again from the document, so the script goes on from what the drag made of them.
+    pub fn apply_ids(
+        &mut self,
+        scope: &Scope<E::Handle>,
+        patch: Patch<E::Handle>,
+        result: &Json,
+        doc: Arc<Document>,
+        selection: Selection,
+    ) -> Result<(), Error> {
+        let mut reload = Columns::default();
+        for id in result["skipped"].as_array().into_iter().flatten().filter_map(Json::as_u64) {
+            if let Some(node) = doc.node(NodeId(id)) {
+                reload.push(node, &selection);
+                let changed = if node.children().is_some() { flags::CHILDREN_CHANGED } else { flags::CONTENT_CHANGED };
+                if let Some(last) = reload.flags.last_mut() {
+                    *last |= changed;
+                }
+            }
+        }
         if let Some(bound) = self.host.borrow_mut().bound.as_mut() {
             *bound = Bound { doc, selection };
         }
@@ -124,6 +144,11 @@ impl<E: Engine> Runtime<E> {
                 if let Some(id) = id.as_f64() {
                     call.set(item, "key", &Value::Number(id))?;
                 }
+            }
+            if !reload.keys.is_empty() {
+                let columns = columns_object(call, &reload)?;
+                let project = object(call, &scope.0, "project")?;
+                method(call, &project, "invalidate", &[Value::Js(columns)])?;
             }
             Ok(())
         })

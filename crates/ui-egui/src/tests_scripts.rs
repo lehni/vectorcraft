@@ -57,19 +57,26 @@ mod tempfile_path {
     }
 }
 
+/// While the user drags, a running script goes on: its changes go beneath the drag
+/// (`document.patch` during an interaction), and the drag wins where both change the same object.
 #[test]
-fn a_running_script_waits_out_an_interaction() {
+fn a_running_script_goes_on_through_an_interaction() {
     let (mut app, id, _path) = running();
     let ctx = egui::Context::default();
     crate::scripts::frame(&mut app, &ctx, 1.0);
     assert_eq!(left(&app, id), 20.0, "a frame moves it");
-    // The user starts dragging: frames wait, and the script keeps running.
+    // The user drags something else: the script keeps moving the rectangle.
     app.session.begin_interaction("Move").unwrap();
     crate::scripts::frame(&mut app, &ctx, 2.0);
     assert!(app.scripts.is_running(), "the script still runs: {}", app.ui.status);
-    app.session.commit_interaction().unwrap();
+    assert_eq!(left(&app, id), 30.0, "and moves it during the drag");
+    // The user drags the rectangle itself: their move wins over the script's.
+    app.session.preview("object.move", &json!({"ids": [id], "dx": 100, "dy": 0})).unwrap();
     crate::scripts::frame(&mut app, &ctx, 3.0);
-    assert_eq!(left(&app, id), 30.0, "and moves it again once the drag is over");
+    assert_eq!(left(&app, id), 130.0, "the drag wins on the object it moves");
+    app.session.commit_interaction().unwrap();
+    crate::scripts::frame(&mut app, &ctx, 4.0);
+    assert_eq!(left(&app, id), 140.0, "and the script goes on from there");
 }
 
 #[test]

@@ -117,7 +117,7 @@ fn frame<E: Engine>(s: &mut Session, runtime: &mut Runtime<E>, scope: &vectorcra
     if let Some(patch) = runtime.take_patch(scope).unwrap() {
         let result = s.execute("document.patch", &patch.params).unwrap();
         let st = s.active().unwrap();
-        runtime.apply_ids(patch, &result, st.doc.clone(), st.selection.clone()).unwrap();
+        runtime.apply_ids(scope, patch, &result, st.doc.clone(), st.selection.clone()).unwrap();
     }
 }
 

@@ -267,11 +267,6 @@ pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
     if !app.scripts.is_running() {
         return;
     }
-    // While the user drags or types, the document is theirs: frames wait until they are done.
-    if app.session.in_interaction() {
-        ctx.request_repaint();
-        return;
-    }
     let mut scripts = std::mem::take(&mut app.scripts.running);
     scripts.retain_mut(|script| if script.runtime.is_running() { tick(app, script, now) || script.tool } else { script.tool });
     // Scripts started by a script's frame join the list.
@@ -424,7 +419,7 @@ fn write_patch(app: &mut VectorcraftApp, script: &mut Running) -> Result<bool, S
     let state = app.session.doc().map_err(|e| e.to_string())?;
     let (doc, selection) = (state.doc.clone(), state.selection.clone());
     script.last = Some(doc.clone());
-    script.runtime.apply_ids(patch, &result, doc, selection).map_err(|e| e.to_string())?;
+    script.runtime.apply_ids(&script.scope, patch, &result, doc, selection).map_err(|e| e.to_string())?;
     Ok(true)
 }
 

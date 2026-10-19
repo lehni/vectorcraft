@@ -127,3 +127,39 @@ fn extend_adds_to_the_newest_undo_step() {
     s.execute("edit.undo", &json!({})).unwrap();
     assert_eq!(document(&mut s), before, "one undo undoes both");
 }
+
+/// A patch during an interaction (a script's animation frame while the user drags) applies
+/// beneath it: the interaction's next preview keeps it, and what the interaction changed wins.
+#[test]
+fn a_patch_during_an_interaction_applies_beneath_it() {
+    let (mut s, layer, [a, b, c]) = three_rectangles();
+    let x0 = |s: &Session, id: u64| s.active().unwrap().doc.node(NodeId(id)).unwrap().geometric_bounds().unwrap().x0;
+    // The user drags a 5 pt to the right.
+    s.begin_interaction("Move").unwrap();
+    s.preview("object.move", &json!({"ids": [a], "dx": 5, "dy": 0})).unwrap();
+    // A script moves a and b 100 pt right, and adds an object on top.
+    let moved = |s: &mut Session, id: u64| {
+        let mut n = node(s, id);
+        for anchor in n["kind"]["path"]["subpaths"][0]["anchors"].as_array_mut().unwrap() {
+            anchor["p"][0] = json!(anchor["p"][0].as_f64().unwrap() + 100.0);
+        }
+        n
+    };
+    let (moved_a, moved_b, copy) = (moved(&mut s, a), moved(&mut s, b), node(&mut s, b));
+    let result = s
+        .execute(
+            "document.patch",
+            &json!({"replace": [moved_a, moved_b], "insert": [{"parent": layer, "node": copy}], "order": [{"parent": layer, "children": [a, b, c, {"new": 0}]}]}),
+        )
+        .unwrap();
+    let new = result["ids"][0].as_u64().unwrap();
+    assert_eq!((x0(&s, a), x0(&s, b)), (15.0, 150.0), "the drag wins on a; the script moves b at once");
+    // The drag goes on: its preview starts again from the snapshot, which has the script's changes.
+    s.preview("object.move", &json!({"ids": [a], "dx": 20, "dy": 0})).unwrap();
+    assert_eq!((x0(&s, a), x0(&s, b)), (30.0, 150.0));
+    assert!(children(&s, layer).contains(&new), "the new object stays too");
+    s.commit_interaction().unwrap();
+    assert_eq!((x0(&s, a), x0(&s, b)), (30.0, 150.0));
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!((x0(&s, a), x0(&s, b)), (10.0, 150.0), "undoing the drag keeps the script's changes");
+}
