@@ -64,6 +64,11 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
             if widgets::icon_button(ui, "folder-open", tl!("Choose Scripts Folder…"), false, 24.0).clicked() {
                 choose_folder(app);
             }
+            if widgets::icon_button(ui, "terminal", tl!("PaperCraft Console"), false, 24.0).clicked()
+                && let Err(e) = app.run("window.panel", json!({ "panel": crate::panels::papercraft_console::ID, "toggle": true }))
+            {
+                app.status(e);
+            }
         });
         widgets::divider(ui);
         ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
