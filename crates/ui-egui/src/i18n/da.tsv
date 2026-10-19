@@ -2902,6 +2902,14 @@ theme	Appearance	Udseende
 	Patch Document	Anvend dokumentpatch
 	Run Script…	Kør script…
 	Stop Running Scripts	Stop kørende scripts
+	Evaluate Script	Evaluer script
+	New Script	Nyt script
+	PaperCraft Console	PaperCraft-konsol
+	Choose Scripts Folder…	Vælg scriptmappe…
+	Choose the folder your scripts are in.	Vælg den mappe, dine scripts ligger i.
+	Clear Console	Ryd konsol
+	Reload	Genindlæs
+	Run Script	Kør script
 	PaperCraft	PaperCraft
 	Begin Undo Group	Start fortrydelsesgruppe
 	End Undo Group	Afslut fortrydelsesgruppe
@@ -3897,6 +3905,9 @@ imageTrace	Outline	Kontur
 @msg	Packaged {n} file(s){note}	Pakkede {n} fil(er){note}
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Forhåndsvisning i browser kræver skrivebordsappen (webversionen downloader filer i stedet)
 @msg	Running scripts needs the desktop app	Kørsel af scripts kræver skrivebordsappen
+@msg	choose a scripts folder first	vælg først en scriptmappe
+@msg	missing code	kode mangler
+@msg	too many untitled scripts	for mange unavngivne scripts
 @msg	Release Guides: no guides	Frigiv hjælpelinjer: ingen hjælpelinjer
 @msg	Release: no layer to put the rectangle in	Frigiv: intet lag at lægge rektanglet i
 @msg	Replace Spine: select a blend and a path	Erstat rygrad: markér en blanding og en kurve

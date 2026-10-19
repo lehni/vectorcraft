@@ -1552,6 +1552,14 @@ file-filter	Templates	範本
 	Patch Document	套用文件修補
 	Run Script…	執行指令碼…
 	Stop Running Scripts	停止執行中的指令碼
+	Evaluate Script	評估指令碼
+	New Script	新增指令碼
+	PaperCraft Console	PaperCraft 主控台
+	Choose Scripts Folder…	選擇指令碼資料夾…
+	Choose the folder your scripts are in.	請選擇存放指令碼的資料夾。
+	Clear Console	清除主控台
+	Reload	重新載入
+	Run Script	執行指令碼
 	PaperCraft	PaperCraft
 	Install Plug-in	安裝增效模組
 	Install Plug-in…	安裝增效模組…
@@ -2103,6 +2111,9 @@ file-filter	Templates	範本
 @msg	Downloaded {_1} file(s)	已下載 {_1} 個檔案
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	「在瀏覽器中預覽」需要桌面應用程式 (網頁版會改為下載檔案)
 @msg	Running scripts needs the desktop app	執行指令碼需要桌面應用程式
+@msg	choose a scripts folder first	請先選擇指令碼資料夾
+@msg	missing code	沒有程式碼
+@msg	too many untitled scripts	未命名的指令碼太多
 @msg	no file system here	此處沒有檔案系統
 @msg	nothing to preview	沒有可預覽的內容
 @msg	Saved {n} files beside {path}	已在 {path} 旁儲存 {n} 個檔案

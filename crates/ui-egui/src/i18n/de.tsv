@@ -1563,6 +1563,14 @@ file-filter	Templates	Vorlagen
 	Patch Document	Dokument-Patch anwenden
 	Run Script…	Skript ausführen…
 	Stop Running Scripts	Laufende Skripte stoppen
+	Evaluate Script	Skript auswerten
+	New Script	Neues Skript
+	PaperCraft Console	PaperCraft-Konsole
+	Choose Scripts Folder…	Skriptordner wählen…
+	Choose the folder your scripts are in.	Wählen Sie den Ordner, in dem Ihre Skripte liegen.
+	Clear Console	Konsole leeren
+	Reload	Neu laden
+	Run Script	Skript ausführen
 	PaperCraft	PaperCraft
 	Install Plug-in	Plug-in installieren
 	Install Plug-in…	Plug-in installieren…
@@ -3784,6 +3792,9 @@ theme	Appearance	Erscheinungsbild
 @msg	Packaged {n} file(s){note}	{n} Datei(en) verpackt{note}
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	„Vorschau im Browser“ erfordert die Desktop-App (im Web werden stattdessen Dateien heruntergeladen)
 @msg	Running scripts needs the desktop app	Skripte ausführen erfordert die Desktop-App
+@msg	choose a scripts folder first	wählen Sie zuerst einen Skriptordner
+@msg	missing code	Code fehlt
+@msg	too many untitled scripts	zu viele unbenannte Skripte
 @msg	Release Guides: no guides	Hilfslinien zurückwandeln: keine Hilfslinien
 @msg	Release: no layer to put the rectangle in	Zurückwandeln: keine Ebene, die das Rechteck aufnehmen könnte
 @msg	Replace Spine: select a blend and a path	Achse ersetzen: Wählen Sie eine Angleichung und einen Pfad aus

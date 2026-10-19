@@ -7,7 +7,7 @@ use std::sync::Arc;
 use serde_json::Value as Json;
 use vectorcraft_doc::{Document, Node, NodeId, Selection};
 
-use crate::source::{Columns, TYPE_NAMES, flags, item_json};
+use crate::source::{Columns, TYPE_NAMES, item_json};
 use crate::writeback::{self, Change};
 use crate::{Call, Engine, Error, Runtime, Scope, Value, handle, method, object};
 
@@ -103,21 +103,10 @@ impl<E: Engine> Runtime<E> {
         if changes.keys.is_empty() {
             return Ok(());
         }
-        // Containers whose child list changed, loaded again right away (see below).
-        let reloaded: Vec<f64> =
-            changes.keys.iter().zip(&changes.flags).filter(|(_, f)| *f & flags::CHILDREN_CHANGED != 0).map(|(k, _)| *k).collect();
         self.engine.with_call(|call| {
             let columns = columns_object(call, &changes)?;
             let project = object(call, &scope.0, "project")?;
             method(call, &project, "invalidate", &[Value::Js(columns)])?;
-            // Until Paper.js keeps the children of a stale child list inserted, a script's change
-            // to one of them before the list reloads would be lost: reload it now
-            // (CHANNEL.md N12).
-            for key in reloaded {
-                if let Value::Js(item) = method(call, &project, "getItemByKey", &[Value::Number(key)])? {
-                    call.get(&item, "children")?;
-                }
-            }
             register(call, &project, &selected)
         })
     }

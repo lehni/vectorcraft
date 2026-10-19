@@ -1851,6 +1851,14 @@ file-filter	Templates	Mẫu
 	Patch Document	Áp dụng bản vá tài liệu
 	Run Script…	Chạy tập lệnh…
 	Stop Running Scripts	Dừng các tập lệnh đang chạy
+	Evaluate Script	Đánh giá tập lệnh
+	New Script	Tập lệnh mới
+	PaperCraft Console	Bảng điều khiển PaperCraft
+	Choose Scripts Folder…	Chọn thư mục tập lệnh…
+	Choose the folder your scripts are in.	Chọn thư mục chứa các tập lệnh của bạn.
+	Clear Console	Xóa bảng điều khiển
+	Reload	Tải lại
+	Run Script	Chạy tập lệnh
 	PaperCraft	PaperCraft
 	Install Plug-in	Cài đặt plug-in
 	Install Plug-in…	Cài đặt plug-in…
@@ -4548,6 +4556,9 @@ theme	Appearance	Giao diện
 @msg	plug-in trapped: {0}	plug-in bị kẹt: {0}
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Xem trước trên trình duyệt cần ứng dụng máy tính (web sẽ tải xuống tệp thay thế)
 @msg	Running scripts needs the desktop app	Chạy tập lệnh cần ứng dụng máy tính
+@msg	choose a scripts folder first	hãy chọn thư mục tập lệnh trước
+@msg	missing code	thiếu mã
+@msg	too many untitled scripts	quá nhiều tập lệnh không tên
 @msg	print settings are not an object	cài đặt in không phải là đối tượng
 @msg	printing isn't available here	in không khả dụng ở đây
 @msg	range `{s}` is empty	phạm vi `{s}` trống

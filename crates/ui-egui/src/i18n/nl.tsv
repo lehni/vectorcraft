@@ -2916,6 +2916,14 @@ theme	Appearance	Vormgeving
 	Patch Document	Documentpatch toepassen
 	Run Script…	Script uitvoeren…
 	Stop Running Scripts	Actieve scripts stoppen
+	Evaluate Script	Script evalueren
+	New Script	Nieuw script
+	PaperCraft Console	PaperCraft-console
+	Choose Scripts Folder…	Scriptmap kiezen…
+	Choose the folder your scripts are in.	Kies de map waarin je scripts staan.
+	Clear Console	Console wissen
+	Reload	Opnieuw laden
+	Run Script	Script uitvoeren
 	PaperCraft	PaperCraft
 	Begin Undo Group	Groep voor ongedaan maken beginnen
 	End Undo Group	Groep voor ongedaan maken beëindigen
@@ -3911,6 +3919,9 @@ imageTrace	Outline	Contour
 @msg	Packaged {n} file(s){note}	{n} bestand(en) verpakt{note}
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Voorvertoning in browser heeft de desktop-app nodig (het web downloadt in plaats daarvan bestanden)
 @msg	Running scripts needs the desktop app	Scripts uitvoeren heeft de desktop-app nodig
+@msg	choose a scripts folder first	kies eerst een scriptmap
+@msg	missing code	code ontbreekt
+@msg	too many untitled scripts	te veel naamloze scripts
 @msg	Release Guides: no guides	Hulplijnen vrijgeven: geen hulplijnen
 @msg	Release: no layer to put the rectangle in	Vrijgeven: geen laag om de rechthoek in te plaatsen
 @msg	Replace Spine: select a blend and a path	Ruggengraat vervangen: selecteer een mengsel en een pad

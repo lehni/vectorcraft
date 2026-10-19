@@ -3079,6 +3079,14 @@ theme	Appearance	Ulkoasu
 	Patch Document	Käytä asiakirjan korjausta
 	Run Script…	Suorita komentosarja…
 	Stop Running Scripts	Pysäytä käynnissä olevat komentosarjat
+	Evaluate Script	Arvioi komentosarja
+	New Script	Uusi komentosarja
+	PaperCraft Console	PaperCraft-konsoli
+	Choose Scripts Folder…	Valitse komentosarjakansio…
+	Choose the folder your scripts are in.	Valitse kansio, jossa komentosarjasi ovat.
+	Clear Console	Tyhjennä konsoli
+	Reload	Lataa uudelleen
+	Run Script	Suorita komentosarja
 	PaperCraft	PaperCraft
 	Begin Undo Group	Aloita kumoamisryhmä
 	End Undo Group	Lopeta kumoamisryhmä
@@ -4082,6 +4090,9 @@ imageTrace	Outline	Ääriviiva
 @msg	Packaged {n} file(s){note}	Paketoitiin {n} tiedosto(a){note}
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Esikatselu selaimessa vaatii työpöytäsovelluksen (verkkoversio lataa tiedostot sen sijaan)
 @msg	Running scripts needs the desktop app	Komentosarjojen suorittaminen vaatii työpöytäsovelluksen
+@msg	choose a scripts folder first	valitse ensin komentosarjakansio
+@msg	missing code	koodi puuttuu
+@msg	too many untitled scripts	liikaa nimettömiä komentosarjoja
 @msg	Release Guides: no guides	Vapauta apuviivat: ei apuviivoja
 @msg	Release: no layer to put the rectangle in	Vapauta: ei tasoa, johon suorakulmion voisi sijoittaa
 @msg	Replace Spine: select a blend and a path	Korvaa selkäranka: valitse sulautus ja polku

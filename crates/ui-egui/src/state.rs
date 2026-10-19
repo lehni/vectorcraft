@@ -192,6 +192,8 @@ pub const ICON_PANELS: &[(&str, &str, &str)] = &[
     (crate::panels::asset_export::ID, "Asset Export", "share-2"),
     (crate::panels::css_properties::ID, "CSS Properties", "globe"),
     (crate::panels::variables::ID, "Variables", "chart-column"),
+    (crate::panels::papercraft::ID, "PaperCraft", "file-code"),
+    (crate::panels::papercraft_console::ID, "PaperCraft Console", "terminal"),
 ];
 
 /// Groups of icon panels separated by dividers in the collapsed column.
@@ -209,6 +211,7 @@ pub const ICON_PANEL_GROUPS: &[&[&str]] = &[
     &["character", "paragraph", "glyphs"],
     &["history", "actions", "info", "navigator"],
     &["variables"],
+    &["papercraft", "papercraftConsole"],
 ];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -429,6 +432,8 @@ pub struct UiState {
     /// with New Set): a recording goes into it and Set Options renames it. Not saved.
     #[serde(skip)]
     pub action_set: Option<usize>,
+    /// The folder the PaperCraft panel lists scripts from.
+    pub papercraft_folder: Option<String>,
     /// Recording in progress: (set index, action name, journal length when recording started).
     #[serde(skip)]
     pub recording: Option<(usize, String, usize)>,
@@ -873,6 +878,7 @@ impl Default for UiState {
             about: false,
             action_sets: crate::panels::actions::default_sets(),
             action_set: None,
+            papercraft_folder: None,
             recording: None,
             shortcut_overrides: Default::default(),
             shortcut_set: default_shortcut_set(),

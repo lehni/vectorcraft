@@ -1102,6 +1102,18 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
     ),
     ("ui.stopScripts", "Stop Running Scripts", "Cmd+.", "{} stop the PaperCraft scripts that keep running (onFrame, intervals) → {stopped}"),
     (
+        "ui.evaluateScript",
+        "Evaluate Script",
+        "",
+        "{code} run PaperScript in the PaperCraft console's own project on the active document, as one undo step; what it prints goes to the console → {changed}",
+    ),
+    (
+        "ui.newScript",
+        "New Script",
+        "",
+        "{folder?: default the PaperCraft scripts folder} make an empty Untitled.js (or Untitled N.js) script there → {path}",
+    ),
+    (
         "ui.perspectiveGridDialog",
         "Define Perspective Grid…",
         "",
@@ -1938,6 +1950,8 @@ pub fn run_ui_command(app: &mut VectorcraftApp, id: &str, p: &Value) -> Option<R
         "ui.checkScript" => crate::dialogs::script_check::command(app, p),
         "ui.runScript" => crate::scripts::run(app, p),
         "ui.stopScripts" => crate::scripts::stop(app),
+        "ui.evaluateScript" => crate::scripts::evaluate(app, p),
+        "ui.newScript" => crate::scripts::new_script(app, p),
         "ui.perspectiveGridDialog" => crate::dialogs::perspective_grid::open(app),
         "ui.perspectivePresetsDialog" => {
             crate::dialogs::perspective_presets::open(app, s("selected").as_deref());
@@ -3219,7 +3233,16 @@ pub fn menu_tree_named(english_names: bool) -> Vec<(&'static str, Vec<Item>)> {
                 c("Tools", "window.toolbar"),
                 sub("Toolbars", vec![c("Advanced", "window.toolbarAdvanced"), c("Double Column", "window.toolbarColumns")]),
                 Sep,
-                sub("PaperCraft", vec![c("Run Script…", "ui.runScript"), c("Stop Running Scripts", "ui.stopScripts")]),
+                sub(
+                    "PaperCraft",
+                    vec![
+                        panel("PaperCraft", crate::panels::papercraft::ID),
+                        panel("PaperCraft Console", crate::panels::papercraft_console::ID),
+                        Sep,
+                        c("Run Script…", "ui.runScript"),
+                        c("Stop Running Scripts", "ui.stopScripts"),
+                    ],
+                ),
                 Sep,
                 panel("Actions", "actions"),
                 panel("Align", "align"),

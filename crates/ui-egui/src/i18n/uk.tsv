@@ -1582,6 +1582,14 @@ file-filter	Templates	Шаблони
 	Patch Document	Застосувати патч документа
 	Run Script…	Запустити скрипт…
 	Stop Running Scripts	Зупинити виконувані скрипти
+	Evaluate Script	Обчислити скрипт
+	New Script	Новий скрипт
+	PaperCraft Console	Консоль PaperCraft
+	Choose Scripts Folder…	Вибрати теку скриптів…
+	Choose the folder your scripts are in.	Виберіть теку, у якій лежать ваші скрипти.
+	Clear Console	Очистити консоль
+	Reload	Перезавантажити
+	Run Script	Запустити скрипт
 	PaperCraft	PaperCraft
 	Install Plug-in	Встановити модуль
 	Install Plug-in…	Встановити модуль…
@@ -3884,6 +3892,9 @@ axis	Both	Обидві
 @msg	Packaged {n} file(s){note}	Упаковано файли: {n}{note}
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Перегляд у браузері вимагає настільної програми (web-версія завантажує файли)
 @msg	Running scripts needs the desktop app	Для запуску скриптів потрібна настільна програма
+@msg	choose a scripts folder first	спочатку виберіть теку скриптів
+@msg	missing code	немає коду
+@msg	too many untitled scripts	забагато скриптів без назви
 @msg	Release Guides: no guides	Звільнення напрямних: немає напрямних
 @msg	Release: no layer to put the rectangle in	Звільнення: немає шару для приміщення прямокутника
 @msg	Replace Spine: select a blend and a path	Заміна осі: виділіть перехід і контур

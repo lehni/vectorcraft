@@ -1530,6 +1530,14 @@ font-technology	Variable	Variabla
 	Patch Document	Tillämpa dokumentpatch
 	Run Script…	Kör skript…
 	Stop Running Scripts	Stoppa skript som körs
+	Evaluate Script	Utvärdera skript
+	New Script	Nytt skript
+	PaperCraft Console	PaperCraft-konsol
+	Choose Scripts Folder…	Välj skriptmapp…
+	Choose the folder your scripts are in.	Välj mappen där dina skript finns.
+	Clear Console	Rensa konsolen
+	Reload	Läs in igen
+	Run Script	Kör skript
 	PaperCraft	PaperCraft
 	Install Plug-in	Installera plugin
 	Install Plug-in…	Installera plugin…
@@ -3780,6 +3788,9 @@ axis	Both	Båda
 @msg	Packaged {n} file(s){note}	Paketerade {n} fil(er){note}
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Förhandsgranska i webbläsare kräver skrivbordsappen (webbversionen hämtar filer i stället)
 @msg	Running scripts needs the desktop app	Att köra skript kräver skrivbordsappen
+@msg	choose a scripts folder first	välj först en skriptmapp
+@msg	missing code	kod saknas
+@msg	too many untitled scripts	för många namnlösa skript
 @msg	Release Guides: no guides	Släpp stödlinjer: inga stödlinjer
 @msg	Release: no layer to put the rectangle in	Släpp: inget lager att placera rektangeln i
 @msg	Replace Spine: select a blend and a path	Ersätt ryggrad: markera en blandning och en bana

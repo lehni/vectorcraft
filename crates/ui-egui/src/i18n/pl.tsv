@@ -3017,6 +3017,14 @@ theme	Appearance	Wygląd
 	Patch Document	Zastosuj poprawkę dokumentu
 	Run Script…	Uruchom skrypt…
 	Stop Running Scripts	Zatrzymaj uruchomione skrypty
+	Evaluate Script	Oblicz skrypt
+	New Script	Nowy skrypt
+	PaperCraft Console	Konsola PaperCraft
+	Choose Scripts Folder…	Wybierz folder skryptów…
+	Choose the folder your scripts are in.	Wybierz folder, w którym są twoje skrypty.
+	Clear Console	Wyczyść konsolę
+	Reload	Wczytaj ponownie
+	Run Script	Uruchom skrypt
 	PaperCraft	PaperCraft
 	Begin Undo Group	Rozpocznij grupę cofania
 	End Undo Group	Zakończ grupę cofania
@@ -3986,6 +3994,9 @@ imageTrace	Outline	Kontur
 @msg	Packaged {n} file(s){note}	Spakowane pliki: {n}{note}
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Podgląd w przeglądarce wymaga aplikacji desktopowej (wersja webowa zamiast tego pobiera pliki)
 @msg	Running scripts needs the desktop app	Uruchamianie skryptów wymaga aplikacji desktopowej
+@msg	choose a scripts folder first	najpierw wybierz folder skryptów
+@msg	missing code	brak kodu
+@msg	too many untitled scripts	zbyt wiele skryptów bez nazwy
 @msg	Release Guides: no guides	Uwolnij linie pomocnicze: brak linii pomocniczych
 @msg	Release: no layer to put the rectangle in	Uwolnij: brak warstwy, na której można umieścić prostokąt
 @msg	Replace Spine: select a blend and a path	Zastąp grzbiet: zaznacz przejście i ścieżkę

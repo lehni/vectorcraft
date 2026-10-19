@@ -1350,6 +1350,14 @@
 	Patch Document	Aplicar patch ao documento
 	Run Script…	Executar script…
 	Stop Running Scripts	Parar scripts em execução
+	Evaluate Script	Avaliar script
+	New Script	Novo script
+	PaperCraft Console	Console do PaperCraft
+	Choose Scripts Folder…	Escolher pasta de scripts…
+	Choose the folder your scripts are in.	Escolha a pasta onde estão seus scripts.
+	Clear Console	Limpar console
+	Reload	Recarregar
+	Run Script	Executar script
 	PaperCraft	PaperCraft
 	Install Plug-in	Instalar Plug-in
 	Install Plug-in…	Instalar Plug-in…
@@ -3443,6 +3451,9 @@ axis	Both	Ambos
 @msg	Packaged {n} file(s){note}	{n} arquivo(s) empacotado(s){note}
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Visualizar no navegador exige o aplicativo para desktop (na web, os arquivos são baixados)
 @msg	Running scripts needs the desktop app	Executar scripts exige o aplicativo para desktop
+@msg	choose a scripts folder first	escolha primeiro uma pasta de scripts
+@msg	missing code	código ausente
+@msg	too many untitled scripts	scripts sem título demais
 @msg	Release Guides: no guides	Liberar guias: não há guias
 @msg	Release: no layer to put the rectangle in	Liberar: não há camada para colocar o retângulo
 @msg	Replace Spine: select a blend and a path	Substituir coluna: selecione uma mesclagem e um traçado

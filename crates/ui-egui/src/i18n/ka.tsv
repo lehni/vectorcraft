@@ -2714,6 +2714,14 @@ theme	Appearance	იერსახე
 	Patch Document	დოკუმენტის პატჩის გამოყენება
 	Run Script…	სკრიპტის გაშვება…
 	Stop Running Scripts	გაშვებული სკრიპტების შეჩერება
+	Evaluate Script	სკრიპტის შეფასება
+	New Script	ახალი სკრიპტი
+	PaperCraft Console	PaperCraft-ის კონსოლი
+	Choose Scripts Folder…	სკრიპტების საქაღალდის არჩევა…
+	Choose the folder your scripts are in.	აირჩიეთ საქაღალდე, სადაც თქვენი სკრიპტებია.
+	Clear Console	კონსოლის გასუფთავება
+	Reload	ხელახლა ჩატვირთვა
+	Run Script	სკრიპტის გაშვება
 	PaperCraft	PaperCraft
 	Begin Undo Group	დაბრუნების ჯგუფის დაწყება
 	End Undo Group	დაბრუნების ჯგუფის დასრულება
@@ -3658,6 +3666,9 @@ font-technology	Variable	ცვლადი
 @msg	Packaged {n} file(s){note}	შეფუთულია ფაილი ({n}){note}
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	ბრაუზერში წინასწარ ნახვას დესკტოპის აპი სჭირდება (ვებში ფაილები ჩამოიტვირთება)
 @msg	Running scripts needs the desktop app	სკრიპტების გაშვებას დესკტოპის აპი სჭირდება
+@msg	choose a scripts folder first	ჯერ აირჩიეთ სკრიპტების საქაღალდე
+@msg	missing code	კოდი აკლია
+@msg	too many untitled scripts	ზედმეტად ბევრი უსათაურო სკრიპტი
 @msg	Release Guides: no guides	დამხმარე ხაზების მოხსნა: დამხმარე ხაზები არ არის
 @msg	Release: no layer to put the rectangle in	მოხსნა: მართკუთხედის ჩასასმელი შრე არ არის
 @msg	Replace Spine: select a blend and a path	ხერხემლის ჩანაცვლება: მონიშნეთ გადასვლა და ტრაექტორია

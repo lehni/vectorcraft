@@ -1490,6 +1490,14 @@ font-technology	Variable	Μεταβλητές
 	Patch Document	Εφαρμογή διόρθωσης εγγράφου
 	Run Script…	Εκτέλεση σεναρίου…
 	Stop Running Scripts	Διακοπή εκτελούμενων σεναρίων
+	Evaluate Script	Αξιολόγηση σεναρίου
+	New Script	Νέο σενάριο
+	PaperCraft Console	Κονσόλα PaperCraft
+	Choose Scripts Folder…	Επιλογή φακέλου σεναρίων…
+	Choose the folder your scripts are in.	Επιλέξτε τον φάκελο όπου βρίσκονται τα σενάριά σας.
+	Clear Console	Εκκαθάριση κονσόλας
+	Reload	Επαναφόρτωση
+	Run Script	Εκτέλεση σεναρίου
 	PaperCraft	PaperCraft
 	Install Plug-in	Εγκατάσταση προσθέτου
 	Install Plug-in…	Εγκατάσταση προσθέτου…
@@ -2126,6 +2134,9 @@ axis	Both	Και τα δύο
 @msg	Packaged {n} file(s){note}	Συσκευάστηκαν {n} αρχεία{note}
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Η προεπισκόπηση σε πρόγραμμα περιήγησης απαιτεί την εφαρμογή υπολογιστή (η έκδοση ιστού πραγματοποιεί λήψη αρχείων)
 @msg	Running scripts needs the desktop app	Η εκτέλεση σεναρίων απαιτεί την εφαρμογή υπολογιστή
+@msg	choose a scripts folder first	επιλέξτε πρώτα φάκελο σεναρίων
+@msg	missing code	λείπει ο κώδικας
+@msg	too many untitled scripts	πάρα πολλά σενάρια χωρίς τίτλο
 @msg	Release Guides: no guides	Αποδέσμευση οδηγών: δεν υπάρχουν οδηγοί
 @msg	Release: no layer to put the rectangle in	Αποδέσμευση: δεν υπάρχει επίπεδο για να τοποθετηθεί το ορθογώνιο
 @msg	Replace Spine: select a blend and a path	Αντικατάσταση κεντρικής καμπύλης: επιλέξτε ανάμειξη και διαδρομή

@@ -1807,6 +1807,14 @@ font-technology	Variable	バリアブル
 	Patch Document	ドキュメントパッチを適用
 	Run Script…	スクリプトを実行…
 	Stop Running Scripts	実行中のスクリプトを停止
+	Evaluate Script	スクリプトを評価
+	New Script	新規スクリプト
+	PaperCraft Console	PaperCraft コンソール
+	Choose Scripts Folder…	スクリプトフォルダーを選択…
+	Choose the folder your scripts are in.	スクリプトのあるフォルダーを選択してください。
+	Clear Console	コンソールをクリア
+	Reload	再読み込み
+	Run Script	スクリプトを実行
 	PaperCraft	PaperCraft
 	Install Plug-in	プラグインをインストール
 	Intensity:	強度:
@@ -4398,6 +4406,9 @@ swatch	Bright Violet	ビビッドバイオレット
 @msg	Downloaded {_1} file(s)	{_1} 個のファイルをダウンロードしました
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	「ブラウザーでプレビュー」にはデスクトップアプリが必要です (Web 版では代わりにファイルをダウンロードします)
 @msg	Running scripts needs the desktop app	スクリプトの実行にはデスクトップアプリが必要です
+@msg	choose a scripts folder first	先にスクリプトフォルダーを選択してください
+@msg	missing code	コードがありません
+@msg	too many untitled scripts	無題のスクリプトが多すぎます
 @msg	no file system here	この環境にはファイルシステムがありません
 @msg	nothing to preview	プレビューするものがありません
 @msg	Saved {n} files beside {path}	{path} と同じ場所にファイルを {n} 個保存しました

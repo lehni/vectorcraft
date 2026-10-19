@@ -1528,6 +1528,14 @@ font-technology	Variable	Променливи
 	Patch Document	Прилагане на корекция към документа
 	Run Script…	Изпълнение на скрипт…
 	Stop Running Scripts	Спиране на работещите скриптове
+	Evaluate Script	Изчисляване на скрипт
+	New Script	Нов скрипт
+	PaperCraft Console	Конзола на PaperCraft
+	Choose Scripts Folder…	Избор на папка със скриптове…
+	Choose the folder your scripts are in.	Изберете папката, в която са скриптовете ви.
+	Clear Console	Изчистване на конзолата
+	Reload	Презареждане
+	Run Script	Изпълнение на скрипт
 	PaperCraft	PaperCraft
 	Install Plug-in	Инсталиране на приставка
 	Install Plug-in…	Инсталиране на приставка…
@@ -3776,6 +3784,9 @@ axis	Both	И двете
 @msg	Packaged {n} file(s){note}	Пакетирани са {n} файла{note}
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Прегледът в браузър изисква настолното приложение (уеб версията изтегля файловете вместо това)
 @msg	Running scripts needs the desktop app	Изпълнението на скриптове изисква настолното приложение
+@msg	choose a scripts folder first	първо изберете папка със скриптове
+@msg	missing code	липсва код
+@msg	too many untitled scripts	твърде много скриптове без име
 @msg	Release Guides: no guides	Освобождаване на водачи: няма водачи
 @msg	Release: no layer to put the rectangle in	Освобождаване: няма слой, в който да се постави правоъгълникът
 @msg	Replace Spine: select a blend and a path	Замяна на оста: изберете плавно преливане и път

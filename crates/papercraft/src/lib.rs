@@ -36,7 +36,7 @@ pub type PlatformEngine = V8;
 pub type PlatformEngine = Boa;
 
 /// Paper.js with the PaperScript compiler and items backed by a host document: the vendored
-/// `paper-sourced.js` build of Paper.js `develop` at 1b261ff2 (MIT; no release has it yet), or the
+/// `paper-sourced.js` build of Paper.js `develop` at 57bd9b51 (MIT; no release has it yet), or the
 /// build `PAPERCRAFT_PAPER_JS` names (see `build.rs`).
 const PAPER_JS: &str = include_str!(env!("PAPERCRAFT_PAPER_JS_PATH"));
 

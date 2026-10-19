@@ -1563,6 +1563,14 @@ font-technology	Variable	Variables
 	Patch Document	Aplicar parche al documento
 	Run Script…	Ejecutar script…
 	Stop Running Scripts	Detener scripts en ejecución
+	Evaluate Script	Evaluar script
+	New Script	Nuevo script
+	PaperCraft Console	Consola de PaperCraft
+	Choose Scripts Folder…	Elegir carpeta de scripts…
+	Choose the folder your scripts are in.	Elija la carpeta donde están sus scripts.
+	Clear Console	Borrar consola
+	Reload	Volver a cargar
+	Run Script	Ejecutar script
 	PaperCraft	PaperCraft
 	Install Plug-in	Instalar plugin
 	Install Plug-in…	Instalar plugin…
@@ -3860,6 +3868,9 @@ axis	Both	Ambos
 @msg	Packaged {n} file(s){note}	Se empaquetaron {n} archivo(s){note}
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Previsualizar en el navegador requiere la aplicación de escritorio (la versión web descarga los archivos)
 @msg	Running scripts needs the desktop app	Ejecutar scripts requiere la aplicación de escritorio
+@msg	choose a scripts folder first	elija primero una carpeta de scripts
+@msg	missing code	falta el código
+@msg	too many untitled scripts	demasiados scripts sin título
 @msg	Release Guides: no guides	Soltar guías: no hay guías
 @msg	Release: no layer to put the rectangle in	Soltar: no hay ninguna capa donde poner el rectángulo
 @msg	Replace Spine: select a blend and a path	Reemplazar eje: selecciona una fusión y un trazado
