@@ -14,14 +14,10 @@ use crate::widgets;
 
 pub const KIND: &str = "scriptDialog";
 
-/// Width of a prompt's labels.
-const LABEL_W: f32 = 110.0;
-/// Width of a prompt's fields.
-const FIELD_W: f32 = 180.0;
-/// Width of the number field beside a slider.
-const NUMBER_W: f32 = 52.0;
-/// Width of a prompt's or palette's rows.
-pub(crate) const WIDTH: f32 = LABEL_W + FIELD_W + 8.0;
+/// The font of the labels and fields.
+const FONT: f32 = 12.5;
+/// The space between the labels and the fields.
+const GAP: f32 = 8.0;
 
 pub(super) const SPEC: DialogSpec = DialogSpec {
     heading: |d| d.fields["question"]["title"].as_str().unwrap_or_default().to_owned(),
@@ -68,11 +64,12 @@ fn body(ui: &mut egui::Ui, d: &mut Dialog) {
         return;
     };
     let mut values = d.fields.get("values").and_then(Value::as_object).cloned().unwrap_or_default();
+    let layout = Layout::new(ui, components);
     for c in components {
         let Some(name) = c["name"].as_str() else {
             continue;
         };
-        if let Some(Edit::Value(value)) = component(ui, c, values.get(name).unwrap_or(&Value::Null)) {
+        if let Some(Edit::Value(value)) = component(ui, &layout, c, values.get(name).unwrap_or(&Value::Null)) {
             values.insert(name.to_owned(), value);
         }
     }
@@ -86,59 +83,123 @@ pub(crate) enum Edit {
     Click,
 }
 
+/// How a prompt's or palette's components lay out, as Scriptographer's: labels with a colon,
+/// right-aligned in a column as wide as the widest one, then fields as wide as their `width`, or
+/// their `length` in H's (16 for text, 8 for numbers).
+pub(crate) struct Layout {
+    /// The width of the label column.
+    label: f32,
+    /// The width of an H.
+    h: f32,
+    /// The widest field.
+    field: f32,
+}
+
+impl Layout {
+    pub(crate) fn new(ui: &egui::Ui, components: &[Value]) -> Self {
+        let measure = |text: &str| ui.painter().layout_no_wrap(text.to_owned(), egui::FontId::proportional(FONT), egui::Color32::WHITE).size().x;
+        let shown = || components.iter().filter(|c| c["visible"].as_bool() != Some(false));
+        let label = shown().filter_map(|c| label(c)).map(|l| measure(&format!("{l}:"))).fold(0.0, f32::max);
+        let mut layout = Self { label, h: measure("H"), field: 0.0 };
+        layout.field = shown().map(|c| layout.field_width(c)).fold(0.0, f32::max);
+        layout
+    }
+
+    /// The width the components take.
+    pub(crate) fn width(&self) -> f32 {
+        if self.label > 0.0 { self.label + GAP + self.field } else { self.field }
+    }
+
+    /// The width of component `c`'s field.
+    fn field_width(&self, c: &Value) -> f32 {
+        if let Some(width) = c["width"].as_f64() {
+            return width as f32;
+        }
+        let length = |default: u64| c["length"].as_u64().unwrap_or(default) as f32 * self.h + 8.0;
+        match kind(c) {
+            "number" => length(8),
+            // The track, and a number field beside it.
+            "slider" | "range" => length(12) + self.number_width(),
+            "string" | "list" => length(16),
+            _ => 0.0,
+        }
+    }
+
+    /// The width of the number field beside a slider.
+    fn number_width(&self) -> f32 {
+        5.0 * self.h + 8.0
+    }
+}
+
+/// Component `c`'s label, when it has one: rulers and texts have none.
+fn label(c: &Value) -> Option<&str> {
+    c["label"].as_str().filter(|l| !l.is_empty() && !matches!(kind(c), "ruler" | "menu-separator" | "text"))
+}
+
+fn kind(c: &Value) -> &str {
+    c["type"].as_str().unwrap_or("string")
+}
+
 /// Component `c` of a prompt or palette showing `value`, with its label: a row, a ruler or a line
 /// of text. Hidden components take no room, disabled ones are greyed.
-pub(crate) fn component(ui: &mut egui::Ui, c: &Value, value: &Value) -> Option<Edit> {
+pub(crate) fn component(ui: &mut egui::Ui, layout: &Layout, c: &Value, value: &Value) -> Option<Edit> {
     let name = c["name"].as_str().unwrap_or_default();
     if c["visible"].as_bool() == Some(false) {
         return None;
     }
-    let label = c["label"].as_str().unwrap_or(name);
     let enabled = c["enabled"].as_bool().unwrap_or(true);
-    ui.add_enabled_ui(enabled, |ui| match c["type"].as_str().unwrap_or("string") {
+    let width = layout.field_width(c);
+    ui.add_enabled_ui(enabled, |ui| match kind(c) {
         "ruler" | "menu-separator" => {
             widgets::divider(ui);
             None
         }
         "text" => {
-            ui.label(value.as_str().map_or_else(|| label.to_owned(), str::to_owned));
+            ui.label(value.as_str().or(c["label"].as_str()).unwrap_or_default());
             None
         }
-        "button" => row(ui, c["label"].as_str().unwrap_or_default(), |ui| ui.button(text(value)).clicked().then_some(Edit::Click)),
-        kind => row(ui, label, |ui| field(ui, name, kind, c, value).map(Edit::Value)),
+        "button" => row(ui, layout, label(c), |ui| ui.button(text(value)).clicked().then_some(Edit::Click)),
+        kind => row(ui, layout, label(c), |ui| field(ui, layout, width, name, kind, c, value).map(Edit::Value)),
     })
     .inner
 }
 
-/// A row: the component's label (the script's, as it is), then its field.
-fn row(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui) -> Option<Edit>) -> Option<Edit> {
+/// A row: the component's label (the script's, as it is, with a colon), right-aligned in the label
+/// column, then its field.
+fn row(ui: &mut egui::Ui, layout: &Layout, label: Option<&str>, add: impl FnOnce(&mut egui::Ui) -> Option<Edit>) -> Option<Edit> {
     let dim = crate::theme::Tokens::get(ui.ctx()).text_dim;
     ui.horizontal(|ui| {
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(LABEL_W, 24.0), egui::Sense::hover());
-        ui.painter().with_clip_rect(rect).text(rect.left_center(), egui::Align2::LEFT_CENTER, label, egui::FontId::proportional(12.5), dim);
+        if layout.label > 0.0 {
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(layout.label, 24.0), egui::Sense::hover());
+            if let Some(label) = label {
+                ui.painter().text(rect.right_center(), egui::Align2::RIGHT_CENTER, format!("{label}:"), egui::FontId::proportional(FONT), dim);
+            }
+            ui.add_space(GAP - ui.spacing().item_spacing.x);
+        }
         add(ui)
     })
     .inner
 }
 
 /// The field of a component of type `kind` showing `value`. Returns the new value when it changed.
-fn field(ui: &mut egui::Ui, name: &str, kind: &str, c: &Value, value: &Value) -> Option<Value> {
+fn field(ui: &mut egui::Ui, layout: &Layout, width: f32, name: &str, kind: &str, c: &Value, value: &Value) -> Option<Value> {
     let id = ("script-dialog", name);
     let (min, max) = (c["min"].as_f64().or(c["range"][0].as_f64()), c["max"].as_f64().or(c["range"][1].as_f64()));
     match kind {
         "number" => {
             let decimals = c["fractionDigits"].as_u64().unwrap_or(3) as usize;
             let range = min.unwrap_or(f64::MIN)..=max.unwrap_or(f64::MAX);
-            widgets::range_field(ui, id, value.as_f64().unwrap_or(0.0), range, "", decimals, FIELD_W).map(|v| json!(v))
+            widgets::range_field(ui, id, value.as_f64().unwrap_or(0.0), range, "", decimals, width).map(|v| json!(v))
         }
         "slider" | "range" => {
             // The track and a number field of fixed width beside it, together the field's width.
             let mut v = value.as_f64().unwrap_or(0.0);
             let (lo, hi) = (min.unwrap_or(0.0), max.unwrap_or(1.0).max(min.unwrap_or(0.0)));
             let decimals = c["fractionDigits"].as_u64().unwrap_or(2) as usize;
-            ui.spacing_mut().slider_width = FIELD_W - NUMBER_W - ui.spacing().item_spacing.x;
+            let number = layout.number_width();
+            ui.spacing_mut().slider_width = width - number - ui.spacing().item_spacing.x;
             let slid = widgets::slider(ui, egui::Slider::new(&mut v, lo..=hi).show_value(false)).changed();
-            let typed = widgets::range_field(ui, (id, "number"), v, lo..=hi, "", decimals, NUMBER_W);
+            let typed = widgets::range_field(ui, (id, "number"), v, lo..=hi, "", decimals, number);
             typed.or(slid.then_some(v)).map(|v| json!(v))
         }
         "boolean" | "checkbox" => {
@@ -149,7 +210,7 @@ fn field(ui: &mut egui::Ui, name: &str, kind: &str, c: &Value, value: &Value) ->
             let options: Vec<Value> = c["options"].as_array().cloned().unwrap_or_default();
             let names: Vec<String> = options.iter().map(text).collect();
             let shown: Vec<&str> = names.iter().map(String::as_str).collect();
-            widgets::dropdown_names(ui, id, &text(value), &shown, FIELD_W).and_then(|i| options.get(i).cloned())
+            widgets::dropdown_names(ui, id, &text(value), &shown, width).and_then(|i| options.get(i).cloned())
         }
         "color" => {
             let hex = value.as_str().unwrap_or("#000000");
@@ -158,7 +219,7 @@ fn field(ui: &mut egui::Ui, name: &str, kind: &str, c: &Value, value: &Value) ->
         }
         "string" => {
             let rows = if c["multiline"].as_bool() == Some(true) { c["rows"].as_u64().unwrap_or(4) as usize } else { 1 };
-            widgets::text_field(ui, id, Some(&text(value)), FIELD_W, rows).map(|s| json!(s))
+            widgets::text_field(ui, id, Some(&text(value)), width, rows).map(|s| json!(s))
         }
         // Fonts and menu entries: not yet.
         _ => None,

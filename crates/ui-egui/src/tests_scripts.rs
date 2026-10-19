@@ -338,7 +338,7 @@ fn a_palette_runs_its_buttons_and_shows_the_values() {
     palettes_frame(&mut app, &ctx, vec![]);
     let texts = palettes_frame(&mut app, &ctx, vec![]);
     let at = crate::tests_removeanchors::at(&texts, "Move");
-    for s in ["Circles", "Size", "10"] {
+    for s in ["Circles", "Size:", "10"] {
         assert!(texts.iter().any(|(t, _)| t == s), "{s} in {texts:?}");
     }
     let press = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
@@ -605,4 +605,35 @@ fn scripts_and_folders_show_in_their_folder() {
         app.run("ui.revealScript", json!({ "path": path })).unwrap();
     }
     assert_eq!(*shown.borrow(), ["/scripts/Tools", "/scripts/Tools/Clouds.js"]);
+}
+
+/// A palette closed with its × opens again when its script runs again, and a new palette asks for
+/// the frame it shows in (an area shows from its second one).
+#[test]
+fn a_closed_palette_opens_again() {
+    let (mut app, _) = app();
+    let path = tempfile_path::Path::new("new Palette('Clouds', { size: { value: 1 } })\nfunction onMouseDown() {}");
+    let ctx = egui::Context::default();
+    crate::theme::install_fonts(&ctx);
+    let shown = |app: &mut VectorcraftApp| {
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 800.0));
+        let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| crate::scripts::palettes(app, ui.ctx()));
+        out.textures_delta.clear();
+        out.viewport_output.values().any(|v| v.repaint_delay.is_zero())
+    };
+    app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
+    assert!(shown(&mut app), "the next frame is asked for");
+    let texts = palettes_frame(&mut app, &ctx, vec![]);
+    let title = crate::tests_removeanchors::at(&texts, "Clouds");
+    let layer = ctx.layer_id_at(title).unwrap();
+    let area = ctx.memory(|m| m.area_rect(layer.id)).unwrap();
+    let close = egui::pos2(area.right() - 13.0, title.y);
+    let press = |pressed| egui::Event::PointerButton { pos: close, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+    palettes_frame(&mut app, &ctx, vec![egui::Event::PointerMoved(close), press(true)]);
+    palettes_frame(&mut app, &ctx, vec![press(false)]);
+    crate::scripts::frame(&mut app, &ctx, 0.5);
+    assert!(!palettes_frame(&mut app, &ctx, vec![]).iter().any(|(t, _)| t == "Clouds"), "closed");
+    app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
+    assert!(shown(&mut app), "the next frame is asked for again");
+    assert!(palettes_frame(&mut app, &ctx, vec![]).iter().any(|(t, _)| t == "Clouds"), "open again");
 }

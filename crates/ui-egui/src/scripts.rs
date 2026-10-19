@@ -645,7 +645,7 @@ fn show_palettes(script: &mut Running, palettes: Vec<Value>) {
 /// and to the script as work. The × closes a palette. A palette opens where the user last put the
 /// script's palette of that title.
 pub(crate) fn palettes(app: &mut VectorcraftApp, ctx: &egui::Context) {
-    use crate::dialogs::script::{Edit, component};
+    use crate::dialogs::script::{Edit, Layout, component};
     let t = crate::theme::Tokens::get(ctx);
     let screen = ctx.content_rect();
     let start = screen.center() - egui::vec2(120.0, 120.0);
@@ -656,6 +656,10 @@ pub(crate) fn palettes(app: &mut VectorcraftApp, ctx: &egui::Context) {
         for view in &mut script.palettes {
             let key = format!("{file}\u{1f}{}", view.title);
             let placed = app.ui.papercraft_palettes.get(&key).map(|p| egui::pos2(p[0], p[1]));
+            // A new area shows from its second frame, once it knows its size.
+            if view.pos.is_none() {
+                ctx.request_repaint();
+            }
             let pos = *view.pos.get_or_insert_with(|| placed.unwrap_or(start + egui::vec2(shown, shown)));
             shown += 24.0;
             let area = egui::Id::new(("papercraft-palette", script.id, view.id));
@@ -663,8 +667,11 @@ pub(crate) fn palettes(app: &mut VectorcraftApp, ctx: &egui::Context) {
             let pos = crate::floating::clamp([pos.x, pos.y], size, screen);
             egui::Area::new(area).order(egui::Order::Middle).fixed_pos(pos).show(ctx, |ui| {
                 let frame = egui::Frame::popup(ui.style()).fill(t.panel).corner_radius(4).inner_margin(egui::Margin::ZERO);
+                let layout = Layout::new(ui, &view.components);
                 frame.show(ui, |ui| {
-                    ui.set_width(crate::dialogs::script::WIDTH + 16.0);
+                    // As wide as the components, and the title.
+                    let title = ui.painter().layout_no_wrap(view.title.clone(), crate::theme::semibold(12.0), t.text).size().x + 48.0;
+                    ui.set_width((layout.width() + 16.0).max(title));
                     // Title bar: its title, the grip that moves it and the × that closes it.
                     let (bar, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), crate::floating::STRIP), egui::Sense::hover());
                     ui.painter().rect_filled(bar, egui::CornerRadius { nw: 4, ne: 4, sw: 0, se: 0 }, t.tab_strip);
@@ -698,7 +705,7 @@ pub(crate) fn palettes(app: &mut VectorcraftApp, ctx: &egui::Context) {
                             let Some(name) = c["name"].as_str() else {
                                 continue;
                             };
-                            match component(ui, c, view.values.get(name).unwrap_or(&Value::Null)) {
+                            match component(ui, &layout, c, view.values.get(name).unwrap_or(&Value::Null)) {
                                 Some(Edit::Value(value)) => {
                                     view.values.insert(name.to_owned(), value.clone());
                                     events.push((script.id, view.id, PaletteEvent::Change(name.to_owned(), value)));
