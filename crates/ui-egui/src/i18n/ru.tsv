@@ -1594,6 +1594,7 @@ file-filter	Templates	Шаблоны
 	Clear Console	Очистить консоль
 	Reload	Перезагрузить
 	Run Script	Запустить скрипт
+	Run a tool script to assign it to this tool button	Запустите скрипт инструмента, чтобы назначить его этой кнопке
 	PaperCraft	PaperCraft
 	Install Plug-in	Установить модуль
 	Install Plug-in…	Установить модуль…

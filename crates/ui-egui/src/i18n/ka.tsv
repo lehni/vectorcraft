@@ -2722,6 +2722,7 @@ theme	Appearance	იერსახე
 	Clear Console	კონსოლის გასუფთავება
 	Reload	ხელახლა ჩატვირთვა
 	Run Script	სკრიპტის გაშვება
+	Run a tool script to assign it to this tool button	გაუშვით ხელსაწყოს სკრიპტი, რომ ეს ღილაკი მას მიენიჭოს
 	PaperCraft	PaperCraft
 	Begin Undo Group	დაბრუნების ჯგუფის დაწყება
 	End Undo Group	დაბრუნების ჯგუფის დასრულება

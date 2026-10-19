@@ -1538,6 +1538,7 @@ font-technology	Variable	Variabla
 	Clear Console	Rensa konsolen
 	Reload	Läs in igen
 	Run Script	Kör skript
+	Run a tool script to assign it to this tool button	Kör ett verktygsskript för att tilldela det till den här verktygsknappen
 	PaperCraft	PaperCraft
 	Install Plug-in	Installera plugin
 	Install Plug-in…	Installera plugin…

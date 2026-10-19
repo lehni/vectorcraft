@@ -1522,6 +1522,7 @@ file-filter	Templates	模板
 	Clear Console	清除控制台
 	Reload	重新加载
 	Run Script	运行脚本
+	Run a tool script to assign it to this tool button	运行工具脚本即可将其指定给此工具按钮
 	PaperCraft	PaperCraft
 	Install Plug-in	安装插件
 	Install Plug-in…	安装增效工具…

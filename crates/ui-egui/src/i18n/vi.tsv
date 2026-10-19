@@ -1859,6 +1859,7 @@ file-filter	Templates	Mẫu
 	Clear Console	Xóa bảng điều khiển
 	Reload	Tải lại
 	Run Script	Chạy tập lệnh
+	Run a tool script to assign it to this tool button	Chạy một tập lệnh công cụ để gán nó cho nút công cụ này
 	PaperCraft	PaperCraft
 	Install Plug-in	Cài đặt plug-in
 	Install Plug-in…	Cài đặt plug-in…

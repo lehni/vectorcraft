@@ -2910,6 +2910,7 @@ theme	Appearance	Udseende
 	Clear Console	Ryd konsol
 	Reload	Genindlæs
 	Run Script	Kør script
+	Run a tool script to assign it to this tool button	Kør et værktøjsscript for at knytte det til denne værktøjsknap
 	PaperCraft	PaperCraft
 	Begin Undo Group	Start fortrydelsesgruppe
 	End Undo Group	Afslut fortrydelsesgruppe

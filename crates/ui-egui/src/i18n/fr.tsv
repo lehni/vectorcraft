@@ -1570,6 +1570,7 @@ font-technology	Variable	Variables
 	Clear Console	Effacer la console
 	Reload	Recharger
 	Run Script	Exécuter le script
+	Run a tool script to assign it to this tool button	Exécutez un script d’outil pour l’attribuer à ce bouton d’outil
 	PaperCraft	PaperCraft
 	Install Plug-in	Installer un module externe
 	Install Plug-in…	Installer un module externe…

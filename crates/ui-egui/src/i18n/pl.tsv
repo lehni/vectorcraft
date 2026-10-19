@@ -3025,6 +3025,7 @@ theme	Appearance	Wygląd
 	Clear Console	Wyczyść konsolę
 	Reload	Wczytaj ponownie
 	Run Script	Uruchom skrypt
+	Run a tool script to assign it to this tool button	Uruchom skrypt narzędzia, aby przypisać go do tego przycisku
 	PaperCraft	PaperCraft
 	Begin Undo Group	Rozpocznij grupę cofania
 	End Undo Group	Zakończ grupę cofania

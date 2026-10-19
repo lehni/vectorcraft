@@ -1982,6 +1982,7 @@ file-filter	Templates	Sablonok
 	Clear Console	Konzol törlése
 	Reload	Újratöltés
 	Run Script	Szkript futtatása
+	Run a tool script to assign it to this tool button	Futtasson egy eszközszkriptet, hogy ehhez az eszközgombhoz rendelje
 	PaperCraft	PaperCraft
 	Install Plug-in	Bővítmény telepítése
 	Install Plug-in…	Bővítmény telepítése…

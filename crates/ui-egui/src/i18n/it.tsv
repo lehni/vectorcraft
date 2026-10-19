@@ -1596,6 +1596,7 @@ file-filter	Templates	Modelli
 	Clear Console	Pulisci console
 	Reload	Ricarica
 	Run Script	Esegui script
+	Run a tool script to assign it to this tool button	Esegui uno script di strumento per assegnarlo a questo pulsante
 	PaperCraft	PaperCraft
 	Install Plug-in	Installa plug-in
 	Install Plug-in…	Installa plug-in…

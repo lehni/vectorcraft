@@ -3087,6 +3087,7 @@ theme	Appearance	Ulkoasu
 	Clear Console	Tyhjennä konsoli
 	Reload	Lataa uudelleen
 	Run Script	Suorita komentosarja
+	Run a tool script to assign it to this tool button	Suorita työkalukomentosarja liittääksesi sen tähän työkalupainikkeeseen
 	PaperCraft	PaperCraft
 	Begin Undo Group	Aloita kumoamisryhmä
 	End Undo Group	Lopeta kumoamisryhmä

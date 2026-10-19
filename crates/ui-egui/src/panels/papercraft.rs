@@ -35,7 +35,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     let mut open: BTreeSet<PathBuf> = pstate(ui.ctx(), OPEN);
     let mut run = None;
     let running = app.scripts.running_paths();
-    let active = app.scripts.active_tool().map(PathBuf::from);
+    let active = app.scripts.tool().map(PathBuf::from);
     // Laid out from the bottom: the bar stays at the bottom, the tree takes the height above it.
     ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
         ui.horizontal(|ui| {
@@ -127,7 +127,7 @@ struct Row {
     open: bool,
     /// A script that runs, or a tool script that is loaded.
     running: bool,
-    /// The tool script that is the active tool.
+    /// The tool script the PaperCraft Tool button stands for.
     active: bool,
 }
 
@@ -154,13 +154,18 @@ fn row(ui: &mut Ui, depth: usize, entry: &Entry, Row { selected, open, running, 
         }
         EntryKind::Script { tool } => {
             if *tool {
-                "pencil"
+                "dc-papercraft-tool"
             } else {
                 "file-code"
             }
         }
     };
-    icons::paint(ui, icon, icon_rect(x + 16.0), if active { t.accent } else { t.icon });
+    // The tool script the PaperCraft Tool stands for has the coloured pencil, as in Scriptographer.
+    if active {
+        icons::paint(ui, "dc-papercraft-tool-active", icon_rect(x + 16.0), egui::Color32::WHITE);
+    } else {
+        icons::paint(ui, icon, icon_rect(x + 16.0), t.icon);
+    }
     let color = if running { t.accent } else { t.text_strong };
     ui.painter().text(egui::pos2(x + 36.0, rect.center().y), Align2::LEFT_CENTER, &entry.name, FontId::proportional(12.5), color);
     if action.is_none() {

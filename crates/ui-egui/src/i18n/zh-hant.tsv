@@ -1560,6 +1560,7 @@ file-filter	Templates	範本
 	Clear Console	清除主控台
 	Reload	重新載入
 	Run Script	執行指令碼
+	Run a tool script to assign it to this tool button	執行工具指令碼即可指定給此工具按鈕
 	PaperCraft	PaperCraft
 	Install Plug-in	安裝增效模組
 	Install Plug-in…	安裝增效模組…

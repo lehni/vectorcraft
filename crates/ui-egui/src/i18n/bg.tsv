@@ -1536,6 +1536,7 @@ font-technology	Variable	Променливи
 	Clear Console	Изчистване на конзолата
 	Reload	Презареждане
 	Run Script	Изпълнение на скрипт
+	Run a tool script to assign it to this tool button	Изпълнете скрипт за инструмент, за да го зададете на този бутон
 	PaperCraft	PaperCraft
 	Install Plug-in	Инсталиране на приставка
 	Install Plug-in…	Инсталиране на приставка…

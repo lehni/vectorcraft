@@ -1815,6 +1815,7 @@ font-technology	Variable	バリアブル
 	Clear Console	コンソールをクリア
 	Reload	再読み込み
 	Run Script	スクリプトを実行
+	Run a tool script to assign it to this tool button	ツールスクリプトを実行すると、このツールボタンに割り当てられます
 	PaperCraft	PaperCraft
 	Install Plug-in	プラグインをインストール
 	Intensity:	強度:

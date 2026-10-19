@@ -1848,6 +1848,7 @@ font-technology	Variable	가변
 	Clear Console	콘솔 지우기
 	Reload	다시 불러오기
 	Run Script	스크립트 실행
+	Run a tool script to assign it to this tool button	도구 스크립트를 실행하면 이 도구 버튼에 지정됩니다
 	PaperCraft	PaperCraft
 	Install Plug-in	플러그인 설치
 	Intensity:	강도:

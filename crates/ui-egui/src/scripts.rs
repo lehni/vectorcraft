@@ -40,8 +40,11 @@ pub struct Scripts {
     log: Vec<LogLine>,
     /// The scripts folder as last listed, with the folder it lists.
     tree: Option<(PathBuf, Vec<Entry>)>,
-    /// The tool script the canvas sends pointer events to, while it is the active tool.
+    /// The tool script the PaperCraft Tool button stands for: the last one run, while it is loaded.
     tool: Option<PathBuf>,
+    /// Whether the PaperCraft Tool is the active tool: the canvas then sends its pointer events to
+    /// the tool script.
+    tool_active: bool,
 }
 
 /// A line of script output.
@@ -86,15 +89,25 @@ impl Scripts {
         self.running.iter().any(|s| s.runtime.is_running()) || self.console.as_ref().is_some_and(|c| c.runtime.is_running())
     }
 
-    /// The active tool script, while one is the active tool.
-    pub fn active_tool(&self) -> Option<&Path> {
+    /// The tool script the PaperCraft Tool button stands for.
+    pub fn tool(&self) -> Option<&Path> {
         self.tool.as_deref()
     }
 
-    /// Makes the app's own tools active again: the canvas no longer sends pointer events to a
-    /// tool script. The script stays loaded.
+    /// The tool script, while the PaperCraft Tool is the active tool.
+    pub fn active_tool(&self) -> Option<&Path> {
+        self.tool.as_deref().filter(|_| self.tool_active)
+    }
+
+    /// Makes the PaperCraft Tool the active tool, when a tool script is assigned to it.
+    pub fn select_tool(&mut self) {
+        self.tool_active = self.tool.is_some();
+    }
+
+    /// Makes the app's own tools active again: the canvas no longer sends pointer events to the
+    /// tool script, which stays assigned to the PaperCraft Tool.
     pub fn deselect_tool(&mut self) {
-        self.tool = None;
+        self.tool_active = false;
     }
 
     /// The files of the running scripts.
@@ -192,7 +205,9 @@ pub(crate) fn run(app: &mut VectorcraftApp, p: &Value) -> Result<Value, String> 
         app.scripts.running.push(script);
     }
     if tool {
+        // As Scriptographer's tool button: the tool script runs, and its tool is the active tool.
         app.scripts.tool = Some(path);
+        app.scripts.tool_active = true;
     }
     let changed = result?;
     Ok(json!({ "changed": changed, "running": running, "tool": tool }))
@@ -217,6 +232,7 @@ pub(crate) fn stop(app: &mut VectorcraftApp) -> Result<Value, String> {
     app.scripts.running.clear();
     app.scripts.console = None;
     app.scripts.tool = None;
+    app.scripts.tool_active = false;
     Ok(json!({ "stopped": stopped }))
 }
 
@@ -277,11 +293,12 @@ pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
 pub(crate) fn pointer(app: &mut VectorcraftApp, ev: &vectorcraft_tools::PointerEvent) -> bool {
     use vectorcraft_papercraft::{Modifiers, MouseEvent};
     use vectorcraft_tools::PointerKind;
-    let Some(path) = app.scripts.tool.clone() else {
+    let Some(path) = app.scripts.active_tool().map(PathBuf::from) else {
         return false;
     };
     let Some(index) = app.scripts.running.iter().position(|s| s.path.as_deref() == Some(&path)) else {
         app.scripts.tool = None;
+        app.scripts.tool_active = false;
         return false;
     };
     let event = match ev.kind {
@@ -309,9 +326,40 @@ pub(crate) fn pointer(app: &mut VectorcraftApp, ev: &vectorcraft_tools::PointerE
         Err(e) => {
             report(app, &script, &e);
             app.scripts.tool = None;
+            app.scripts.tool_active = false;
         }
     }
     true
+}
+
+/// The PaperCraft Tool's button in the toolbox, under the app's tools, as Scriptographer's tool
+/// button: dimmed until a tool script is run, then named after it and selected while it is the
+/// active tool. Clicking it makes the tool script the active tool again.
+pub(crate) fn tool_button(app: &mut VectorcraftApp, ui: &mut egui::Ui, center_x: f32) {
+    let t = crate::theme::Tokens::get(ui.ctx());
+    let assigned = app.scripts.tool.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned());
+    let active = app.scripts.active_tool().is_some();
+    ui.horizontal(|ui| {
+        ui.add_space((center_x - 18.0 - ui.cursor().min.x).max(0.0));
+        let (rect, resp) = ui.allocate_exact_size(egui::vec2(36.0, 30.0), egui::Sense::click());
+        let well = egui::Rect::from_center_size(rect.center(), egui::vec2(30.0, 27.5));
+        if active {
+            ui.painter().rect_filled(well, egui::CornerRadius::same(6), t.tool_active);
+        } else if resp.hovered() && assigned.is_some() {
+            ui.painter().rect_filled(well, egui::CornerRadius::same(6), t.hover);
+        }
+        // Scriptographer's tool button: an outline pencil until a tool script is assigned to it,
+        // then a coloured one (painted untinted).
+        let icon = egui::Rect::from_center_size(rect.center(), egui::vec2(18.0, 18.0));
+        match &assigned {
+            Some(_) => crate::icons::paint(ui, "dc-papercraft-tool-active", icon, egui::Color32::WHITE),
+            None => crate::icons::paint(ui, "dc-papercraft-tool", icon, t.text_disabled),
+        }
+        let tip = assigned.clone().unwrap_or_else(|| tl!("Run a tool script to assign it to this tool button").to_owned());
+        if resp.on_hover_text(tip).clicked() && assigned.is_some() {
+            app.scripts.select_tool();
+        }
+    });
 }
 
 /// One frame of a running script. Returns whether it keeps running.

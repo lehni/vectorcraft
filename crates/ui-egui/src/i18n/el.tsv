@@ -1498,6 +1498,7 @@ font-technology	Variable	Μεταβλητές
 	Clear Console	Εκκαθάριση κονσόλας
 	Reload	Επαναφόρτωση
 	Run Script	Εκτέλεση σεναρίου
+	Run a tool script to assign it to this tool button	Εκτελέστε ένα σενάριο εργαλείου για να το αντιστοιχίσετε σε αυτό το κουμπί
 	PaperCraft	PaperCraft
 	Install Plug-in	Εγκατάσταση προσθέτου
 	Install Plug-in…	Εγκατάσταση προσθέτου…

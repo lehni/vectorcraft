@@ -93,4 +93,8 @@ fn a_tool_script_draws_with_the_mouse_one_undo_step_per_drag() {
     // Choosing one of the app's tools gives the canvas back to it.
     app.select_tool("selection");
     assert!(!pointer(&mut app, Down, 0.0));
+    assert!(app.scripts.tool().is_some(), "the tool script stays assigned to the PaperCraft Tool");
+    // The PaperCraft Tool's button makes it the active tool again.
+    app.scripts.select_tool();
+    assert!(pointer(&mut app, Down, 0.0));
 }
