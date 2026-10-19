@@ -4918,6 +4918,7 @@ imageTrace	Outline	Körvonal
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Az Előnézet böngészőben az asztali alkalmazásban érhető el (a webes változat helyette letölti a fájlokat)
 @msg	Running scripts needs the desktop app	A szkriptek futtatása az asztali alkalmazásban érhető el
 @msg	choose a scripts folder first	először válasszon szkriptmappát
+@msg	the script's document is closed	a szkript dokumentuma be van zárva
 @msg	{_1} already exists	{_1} már létezik
 @msg	{name}: not a file name	{name}: nem fájlnév
 @msg	missing code	hiányzik a kód

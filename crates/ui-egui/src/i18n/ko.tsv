@@ -4349,6 +4349,7 @@ theme	Appearance	외관
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	브라우저에서 미리 보기는 데스크톱 앱이 필요합니다(웹에서는 파일을 다운로드합니다)
 @msg	Running scripts needs the desktop app	스크립트를 실행하려면 데스크톱 앱이 필요합니다
 @msg	choose a scripts folder first	먼저 스크립트 폴더를 선택하세요
+@msg	the script's document is closed	스크립트의 문서가 닫혔습니다
 @msg	{_1} already exists	{_1}이(가) 이미 있습니다
 @msg	{name}: not a file name	{name}: 파일 이름이 아닙니다
 @msg	missing code	코드가 없습니다

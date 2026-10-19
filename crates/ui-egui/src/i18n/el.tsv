@@ -2145,6 +2145,7 @@ axis	Both	Και τα δύο
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Η προεπισκόπηση σε πρόγραμμα περιήγησης απαιτεί την εφαρμογή υπολογιστή (η έκδοση ιστού πραγματοποιεί λήψη αρχείων)
 @msg	Running scripts needs the desktop app	Η εκτέλεση σεναρίων απαιτεί την εφαρμογή υπολογιστή
 @msg	choose a scripts folder first	επιλέξτε πρώτα φάκελο σεναρίων
+@msg	the script's document is closed	το έγγραφο του σεναρίου είναι κλειστό
 @msg	{_1} already exists	Το {_1} υπάρχει ήδη
 @msg	{name}: not a file name	{name}: δεν είναι όνομα αρχείου
 @msg	missing code	λείπει ο κώδικας

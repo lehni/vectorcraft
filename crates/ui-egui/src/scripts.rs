@@ -165,6 +165,7 @@ enum Kind {
     Key,
     Palette,
     Activate,
+    Handler,
 }
 
 impl Scripts {
@@ -376,6 +377,7 @@ pub(crate) fn evaluate(app: &mut VectorcraftApp, p: &Value) -> Result<Value, Str
 
 /// `ui.stopScripts`: stop every running script, and the console's `onFrame` and intervals.
 pub(crate) fn stop(app: &mut VectorcraftApp) -> Result<Value, String> {
+    notify(app, "onStop");
     let stopped = app.scripts.running.len();
     app.scripts.running.clear();
     app.scripts.console = None;
@@ -385,6 +387,28 @@ pub(crate) fn stop(app: &mut VectorcraftApp) -> Result<Value, String> {
         app.ui.dialog = None;
     }
     Ok(json!({ "stopped": stopped }))
+}
+
+/// Calls the scripts' `handler` ([`vectorcraft_papercraft::HANDLERS`]), where they define it.
+pub(crate) fn notify(app: &mut VectorcraftApp, handler: &'static str) {
+    let mut scripts = std::mem::take(&mut app.scripts.running);
+    scripts.extend(app.scripts.console.take());
+    // A script whose document closed goes in the next frame, unheard.
+    for script in &mut scripts {
+        if !is_open(app, script.doc) {
+            continue;
+        }
+        script.queued.push_back(Work::Handler(handler));
+        if let Err(e) = pump(app, script, None, FRAME_WAIT) {
+            report(app, &script.name, &e);
+        }
+    }
+    // The console is the one without a file.
+    if let Some(i) = scripts.iter().position(|s| s.path.is_none()) {
+        app.scripts.console = Some(scripts.remove(i));
+    }
+    scripts.append(&mut app.scripts.running);
+    app.scripts.running = scripts;
 }
 
 /// A script's thread, on the active document, to run `source` (queued, as the first work).
@@ -428,10 +452,13 @@ fn execute(app: &mut VectorcraftApp, script: &mut Running, wait: Duration) -> Re
 /// run, and what they changed goes back to the document.
 pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
     let focused = ctx.input(|i| i.focused);
-    if focused && !app.scripts.focused {
-        app.scripts.tree = None;
+    if focused != app.scripts.focused {
+        app.scripts.focused = focused;
+        if focused {
+            app.scripts.tree = None;
+        }
+        notify(app, if focused { "onAppActivate" } else { "onAppDeactivate" });
     }
-    app.scripts.focused = focused;
     // The folders' `__init__` scripts run once a document is open, and again when the folders
     // change, as in Scriptographer.
     if app.session.active().is_some() && app.scripts.initialized.as_ref() != Some(&app.ui.papercraft_folders) {
@@ -441,6 +468,7 @@ pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
             // A failing script says so in the log.
             let _ = run(app, &json!({ "path": path.to_string_lossy() }));
         }
+        notify(app, "onStartup");
     }
     if app.scripts.running.is_empty() && app.scripts.console.is_none() {
         return;
@@ -533,7 +561,7 @@ fn pump(app: &mut VectorcraftApp, script: &mut Running, mut frame: Option<f64>, 
 
 /// Sends `work` to the script with the active document.
 fn send(app: &mut VectorcraftApp, script: &mut Running, work: Work) -> Result<(), String> {
-    let state = app.session.doc().map_err(|e| e.to_string())?;
+    let state = app.session.documents().iter().find(|d| d.uid == script.doc).ok_or("the script's document is closed")?;
     let (doc, selection) = (state.doc.clone(), state.selection.clone());
     script.busy = Some(match work {
         Work::Execute(_) => Kind::Execute,
@@ -541,6 +569,7 @@ fn send(app: &mut VectorcraftApp, script: &mut Running, work: Work) -> Result<()
         Work::Key(..) => Kind::Key,
         Work::Palette(..) => Kind::Palette,
         Work::Activate(_) => Kind::Activate,
+        Work::Handler(_) => Kind::Handler,
         Work::Mouse(event, ..) => {
             if event == MouseEvent::Down {
                 // A drag starts its own undo step.

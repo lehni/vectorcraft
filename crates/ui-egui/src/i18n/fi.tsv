@@ -4101,6 +4101,7 @@ imageTrace	Outline	Ääriviiva
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Esikatselu selaimessa vaatii työpöytäsovelluksen (verkkoversio lataa tiedostot sen sijaan)
 @msg	Running scripts needs the desktop app	Komentosarjojen suorittaminen vaatii työpöytäsovelluksen
 @msg	choose a scripts folder first	valitse ensin komentosarjakansio
+@msg	the script's document is closed	komentosarjan asiakirja on suljettu
 @msg	{_1} already exists	{_1} on jo olemassa
 @msg	{name}: not a file name	{name}: ei ole tiedostonimi
 @msg	missing code	koodi puuttuu

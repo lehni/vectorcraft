@@ -565,3 +565,28 @@ fn a_tool_script_hears_when_its_tool_is_picked() {
     crate::scripts::frame(&mut app, &ctx, 0.3);
     assert_eq!(log(&app), ["activate", "deactivate", "activate"]);
 }
+
+/// A script's app handlers run when the app comes to the front or goes behind another, and when
+/// the user stops the running scripts.
+#[test]
+fn app_handlers_run_on_app_events() {
+    let (mut app, _) = app();
+    let path = tempfile_path::Path::new(
+        "script.keepAlive = true\n\
+         function onAppActivate() { console.log('front') }\n\
+         function onAppDeactivate() { console.log('behind') }\n\
+         function onStop() { console.log('stop') }\n\
+         function onFrame() {}",
+    );
+    app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
+    let ctx = egui::Context::default();
+    let frame = |app: &mut VectorcraftApp, focused| {
+        let mut out = ctx.run_ui(egui::RawInput { focused, ..Default::default() }, |ui| crate::scripts::frame(app, ui.ctx(), 0.0));
+        out.textures_delta.clear();
+    };
+    frame(&mut app, true);
+    frame(&mut app, false);
+    app.run("ui.stopScripts", json!({})).unwrap();
+    let log: Vec<&str> = app.scripts.log().iter().map(|l| l.text.as_str()).collect();
+    assert_eq!(log, ["front", "behind", "stop"]);
+}

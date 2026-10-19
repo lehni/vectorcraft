@@ -3803,6 +3803,7 @@ theme	Appearance	Erscheinungsbild
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	„Vorschau im Browser“ erfordert die Desktop-App (im Web werden stattdessen Dateien heruntergeladen)
 @msg	Running scripts needs the desktop app	Skripte ausführen erfordert die Desktop-App
 @msg	choose a scripts folder first	wählen Sie zuerst einen Skriptordner
+@msg	the script's document is closed	das Dokument des Skripts ist geschlossen
 @msg	{_1} already exists	{_1} existiert bereits
 @msg	{name}: not a file name	{name}: kein Dateiname
 @msg	missing code	Code fehlt

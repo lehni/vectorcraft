@@ -4142,6 +4142,7 @@ imageTrace	Outline	轮廓
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	“在浏览器中预览”需要桌面应用 (网页版会改为下载文件)
 @msg	Running scripts needs the desktop app	运行脚本需要桌面应用
 @msg	choose a scripts folder first	请先选择脚本文件夹
+@msg	the script's document is closed	脚本的文档已关闭
 @msg	{_1} already exists	{_1} 已存在
 @msg	{name}: not a file name	{name}：不是文件名
 @msg	missing code	缺少代码

@@ -3462,6 +3462,7 @@ axis	Both	Ambos
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Visualizar no navegador exige o aplicativo para desktop (na web, os arquivos são baixados)
 @msg	Running scripts needs the desktop app	Executar scripts exige o aplicativo para desktop
 @msg	choose a scripts folder first	escolha primeiro uma pasta de scripts
+@msg	the script's document is closed	o documento do script está fechado
 @msg	{_1} already exists	{_1} já existe
 @msg	{name}: not a file name	{name}: não é um nome de arquivo
 @msg	missing code	código ausente

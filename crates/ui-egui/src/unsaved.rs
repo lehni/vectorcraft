@@ -41,6 +41,7 @@ pub fn close_all(app: &mut VectorcraftApp, then: &str) -> Result<Value, String> 
         return ask(app, i, then);
     }
     if then == "quit" {
+        crate::scripts::notify(app, "onShutdown");
         // Nothing unsaved is left: no recovery copies either.
         vectorcraft_engine::cmd::recovery::forget_all(&mut app.session);
         // The host closes the window.

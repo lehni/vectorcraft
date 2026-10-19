@@ -3916,6 +3916,7 @@ imageTrace	Outline	Kontur
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Forhåndsvisning i browser kræver skrivebordsappen (webversionen downloader filer i stedet)
 @msg	Running scripts needs the desktop app	Kørsel af scripts kræver skrivebordsappen
 @msg	choose a scripts folder first	vælg først en scriptmappe
+@msg	the script's document is closed	scriptets dokument er lukket
 @msg	{_1} already exists	{_1} findes allerede
 @msg	{name}: not a file name	{name}: er ikke et filnavn
 @msg	missing code	kode mangler

@@ -3677,6 +3677,7 @@ font-technology	Variable	ცვლადი
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	ბრაუზერში წინასწარ ნახვას დესკტოპის აპი სჭირდება (ვებში ფაილები ჩამოიტვირთება)
 @msg	Running scripts needs the desktop app	სკრიპტების გაშვებას დესკტოპის აპი სჭირდება
 @msg	choose a scripts folder first	ჯერ აირჩიეთ სკრიპტების საქაღალდე
+@msg	the script's document is closed	სკრიპტის დოკუმენტი დახურულია
 @msg	{_1} already exists	{_1} უკვე არსებობს
 @msg	{name}: not a file name	{name}: ფაილის სახელი არ არის
 @msg	missing code	კოდი აკლია

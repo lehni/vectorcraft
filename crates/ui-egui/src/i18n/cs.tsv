@@ -4183,6 +4183,7 @@ imageTrace	Outline	Obrys
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Náhled v prohlížeči vyžaduje desktopovou aplikaci (webová verze místo toho stahuje soubory)
 @msg	Running scripts needs the desktop app	Spouštění skriptů vyžaduje desktopovou aplikaci
 @msg	choose a scripts folder first	nejprve vyberte složku skriptů
+@msg	the script's document is closed	dokument skriptu je zavřený
 @msg	{_1} already exists	{_1} už existuje
 @msg	{name}: not a file name	{name}: není název souboru
 @msg	missing code	chybí kód

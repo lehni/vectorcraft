@@ -4567,6 +4567,7 @@ theme	Appearance	Giao diện
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Xem trước trên trình duyệt cần ứng dụng máy tính (web sẽ tải xuống tệp thay thế)
 @msg	Running scripts needs the desktop app	Chạy tập lệnh cần ứng dụng máy tính
 @msg	choose a scripts folder first	hãy chọn thư mục tập lệnh trước
+@msg	the script's document is closed	tài liệu của tập lệnh đã đóng
 @msg	{_1} already exists	{_1} đã tồn tại
 @msg	{name}: not a file name	{name}: không phải tên tệp
 @msg	missing code	thiếu mã

@@ -44,6 +44,8 @@ pub enum Work {
     Palette(u64, PaletteEvent),
     /// The user picked the script's tool (`true`), or another one.
     Activate(bool),
+    /// Calls the script's handler of that name, one of [`crate::HANDLERS`], when it has one.
+    Handler(&'static str),
 }
 
 /// What a worker tells the app.
@@ -126,6 +128,7 @@ impl<E: Engine> Script<E> {
             Work::Key(down, key, character, modifiers) => self.runtime.key_event(&self.scope, down, &key, character.as_deref(), modifiers),
             Work::Palette(id, event) => self.runtime.palette_event(id, event),
             Work::Activate(active) => self.runtime.activate_tool(&self.scope, active),
+            Work::Handler(name) => self.runtime.call_handler(name).map(|_| ()),
         };
         let mut replies = Vec::new();
         let changes = self.changes(before).map(|changes| replies.extend(changes));

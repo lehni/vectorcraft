@@ -34,6 +34,11 @@ pub use engines::browser::Browser;
 pub use engines::v8::V8;
 pub use palette::PaletteEvent;
 
+/// The handlers a script defines for the app to call, as Scriptographer had them: when the app
+/// starts (after the `__init__` scripts ran) and quits, when the user stops the running scripts,
+/// and when the app comes to the front or goes behind another.
+pub const HANDLERS: [&str; 5] = ["onStartup", "onShutdown", "onStop", "onAppActivate", "onAppDeactivate"];
+
 /// The engine scripts run in on this platform: the browser's on the web, V8 on desktop, Boa where
 /// V8 is left out.
 #[cfg(target_arch = "wasm32")]
@@ -44,7 +49,7 @@ pub type PlatformEngine = V8;
 pub type PlatformEngine = Boa;
 
 /// Paper.js with the PaperScript compiler and items backed by a host document: the vendored
-/// `paper-sourced.js` build of Paper.js `develop` at 429dbb64 (MIT; no release has it yet), or the
+/// `paper-sourced.js` build of Paper.js `develop` at fd69d7ea (MIT; no release has it yet), or the
 /// build `PAPERCRAFT_PAPER_JS` names (see `build.rs`).
 const PAPER_JS: &str = include_str!(env!("PAPERCRAFT_PAPER_JS_PATH"));
 
@@ -76,6 +81,8 @@ pub struct Host<H> {
     next_palette_id: u64,
     /// `script.preferences` as last taken, as JSON.
     preferences: String,
+    /// The [`HANDLERS`] the scripts defined, by name.
+    handlers: Vec<(&'static str, H)>,
 }
 
 struct Interval<H> {
@@ -99,6 +106,7 @@ impl<H> Default for Host<H> {
             palettes: Vec::new(),
             next_palette_id: 0,
             preferences: String::new(),
+            handlers: Vec::new(),
         }
     }
 }
@@ -140,14 +148,39 @@ impl<E: Engine> Runtime<E> {
         })
     }
 
-    /// Compiles and runs `source` as PaperScript in `scope`.
+    /// Compiles and runs `source` as PaperScript in `scope`. The [`HANDLERS`] it defines are kept
+    /// for [`Runtime::call_handler`].
     pub fn execute(&mut self, scope: &Scope<E::Handle>, source: &str) -> Result<(), Error> {
-        let paper = &self.paper;
+        let (paper, host) = (&self.paper, &self.host);
         self.engine.with_call(|call| {
             let paperscript = object(call, paper, "PaperScript")?;
-            method(call, &paperscript, "execute", &[Value::String(source.to_owned()), Value::Js(scope.0.clone())])?;
+            let names: Vec<Value<E::Handle>> = HANDLERS.iter().map(|h| Value::String((*h).into())).collect();
+            let options = call.new_object()?;
+            let names = call.new_array(&names)?;
+            call.set(&options, "handlers", &Value::Js(names))?;
+            let exports = method(call, &paperscript, "execute", &[Value::String(source.to_owned()), Value::Js(scope.0.clone()), Value::Js(options)])?;
+            if let Value::Js(exports) = exports {
+                for name in HANDLERS {
+                    if let Value::Js(handler) = call.get(&exports, name)? {
+                        let mut host = host.borrow_mut();
+                        host.handlers.retain(|(n, _)| n != &name);
+                        host.handlers.push((name, handler));
+                    }
+                }
+            }
             Ok(())
         })
+    }
+
+    /// Calls the script's handler `name` (one of [`HANDLERS`]), when it defines one. Returns
+    /// whether it did.
+    pub fn call_handler(&mut self, name: &str) -> Result<bool, Error> {
+        let handler = self.host.borrow().handlers.iter().find(|(n, _)| *n == name).map(|(_, h)| h.clone());
+        let Some(handler) = handler else {
+            return Ok(false);
+        };
+        self.engine.with_call(|call| call.call(&handler, &Value::Undefined, &[]))?;
+        Ok(true)
     }
 
     /// Adds the items in `json`, Paper.js JSON, to the scope's project (`project.importJSON()`).

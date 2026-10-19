@@ -3799,6 +3799,7 @@ axis	Both	Båda
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Förhandsgranska i webbläsare kräver skrivbordsappen (webbversionen hämtar filer i stället)
 @msg	Running scripts needs the desktop app	Att köra skript kräver skrivbordsappen
 @msg	choose a scripts folder first	välj först en skriptmapp
+@msg	the script's document is closed	skriptets dokument är stängt
 @msg	{_1} already exists	{_1} finns redan
 @msg	{name}: not a file name	{name}: inte ett filnamn
 @msg	missing code	kod saknas

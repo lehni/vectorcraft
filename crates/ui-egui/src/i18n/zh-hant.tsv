@@ -2122,6 +2122,7 @@ file-filter	Templates	範本
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	「在瀏覽器中預覽」需要桌面應用程式 (網頁版會改為下載檔案)
 @msg	Running scripts needs the desktop app	執行指令碼需要桌面應用程式
 @msg	choose a scripts folder first	請先選擇指令碼資料夾
+@msg	the script's document is closed	指令碼的文件已關閉
 @msg	{_1} already exists	{_1} 已存在
 @msg	{name}: not a file name	{name}：不是檔案名稱
 @msg	missing code	沒有程式碼

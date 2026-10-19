@@ -3903,6 +3903,7 @@ axis	Both	Обидві
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Перегляд у браузері вимагає настільної програми (web-версія завантажує файли)
 @msg	Running scripts needs the desktop app	Для запуску скриптів потрібна настільна програма
 @msg	choose a scripts folder first	спочатку виберіть теку скриптів
+@msg	the script's document is closed	документ скрипта закрито
 @msg	{_1} already exists	{_1} уже існує
 @msg	{name}: not a file name	{name}: це не назва файлу
 @msg	missing code	немає коду

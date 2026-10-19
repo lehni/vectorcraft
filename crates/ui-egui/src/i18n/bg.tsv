@@ -3795,6 +3795,7 @@ axis	Both	И двете
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Прегледът в браузър изисква настолното приложение (уеб версията изтегля файловете вместо това)
 @msg	Running scripts needs the desktop app	Изпълнението на скриптове изисква настолното приложение
 @msg	choose a scripts folder first	първо изберете папка със скриптове
+@msg	the script's document is closed	документът на скрипта е затворен
 @msg	{_1} already exists	{_1} вече съществува
 @msg	{name}: not a file name	{name}: не е име на файл
 @msg	missing code	липсва код

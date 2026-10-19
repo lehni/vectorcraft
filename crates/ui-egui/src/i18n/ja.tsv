@@ -4417,6 +4417,7 @@ swatch	Bright Violet	ビビッドバイオレット
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	「ブラウザーでプレビュー」にはデスクトップアプリが必要です (Web 版では代わりにファイルをダウンロードします)
 @msg	Running scripts needs the desktop app	スクリプトの実行にはデスクトップアプリが必要です
 @msg	choose a scripts folder first	先にスクリプトフォルダーを選択してください
+@msg	the script's document is closed	スクリプトのドキュメントは閉じられています
 @msg	{_1} already exists	{_1} はすでに存在します
 @msg	{name}: not a file name	{name}: ファイル名ではありません
 @msg	missing code	コードがありません

@@ -3930,6 +3930,7 @@ imageTrace	Outline	Contour
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Voorvertoning in browser heeft de desktop-app nodig (het web downloadt in plaats daarvan bestanden)
 @msg	Running scripts needs the desktop app	Scripts uitvoeren heeft de desktop-app nodig
 @msg	choose a scripts folder first	kies eerst een scriptmap
+@msg	the script's document is closed	het document van het script is gesloten
 @msg	{_1} already exists	{_1} bestaat al
 @msg	{name}: not a file name	{name}: geen bestandsnaam
 @msg	missing code	code ontbreekt
