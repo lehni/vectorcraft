@@ -39,28 +39,25 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     let running = app.scripts.running_paths();
     // The tree takes the panel's height, the bar below it stays at the bottom.
     let height = (ui.available_height() - FOOTER).max(ROW * 3.0);
-    egui::ScrollArea::vertical().id_salt("papercraft-tree").max_height(height).min_scrolled_height(height).auto_shrink([false, false]).show(
-        ui,
-        |ui| {
-            let entries = app.scripts.tree(&folder, false);
-            let mut rows = Vec::new();
-            flatten(entries, 0, &open, &mut rows);
-            for (depth, entry) in rows {
-                let state = (selected.as_deref() == Some(&entry.path), open.contains(&entry.path), running.contains(&entry.path));
-                let action = row(ui, depth, entry, state);
-                match action {
-                    Some(Action::Select) => selected = Some(entry.path.clone()),
-                    Some(Action::Toggle) => {
-                        if !open.remove(&entry.path) {
-                            open.insert(entry.path.clone());
-                        }
+    egui::ScrollArea::vertical().id_salt("papercraft-tree").max_height(height).auto_shrink([false, false]).show(ui, |ui| {
+        let entries = app.scripts.tree(&folder, false);
+        let mut rows = Vec::new();
+        flatten(entries, 0, &open, &mut rows);
+        for (depth, entry) in rows {
+            let state = (selected.as_deref() == Some(&entry.path), open.contains(&entry.path), running.contains(&entry.path));
+            let action = row(ui, depth, entry, state);
+            match action {
+                Some(Action::Select) => selected = Some(entry.path.clone()),
+                Some(Action::Toggle) => {
+                    if !open.remove(&entry.path) {
+                        open.insert(entry.path.clone());
                     }
-                    Some(Action::Run) => run = Some(entry.path.clone()),
-                    None => {}
                 }
+                Some(Action::Run) => run = Some(entry.path.clone()),
+                None => {}
             }
-        },
-    );
+        }
+    });
     widgets::divider(ui);
     ui.horizontal(|ui| {
         if widgets::icon_button(ui, "play", tl!("Run Script"), false, 24.0).clicked()
