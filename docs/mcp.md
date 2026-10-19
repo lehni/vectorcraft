@@ -212,6 +212,13 @@ that shows fewer children than it has reports their total as `childCount`, so tr
 nothing truncated the reply is the plain summary. Both must be non-negative integers and need `summary: true`
 (the full object JSON is never truncated); anything else is an error.
 
+The write that pairs with it is `document.patch`: many node-level changes in that same JSON, as one undo step,
+for callers that keep their own copy of the art and write back what changed (scripts do). `remove` takes ids,
+`insert` new objects (`{parent, index?, node}`; their ids are replaced with new ones, returned as `ids`),
+`replace` objects by their id (a container sent without its children keeps them), and `order` sets a parent's
+children exactly, moving listed objects from elsewhere and placing the k-th insert with `{new: k}`. They apply in
+that order, and a patch that fails anywhere changes nothing.
+
 In the summary an object reports its paint as `fill`, `stroke` (labels) and `strokeWidth`. So does a compound path,
 whose paint is its own: its member paths report `compoundMember: true` instead of a paint they don't have. Every
 node (layers and groups too) reports `opacity` when it is below 1 and `blend` when it isn't Normal, as the label

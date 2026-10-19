@@ -1527,6 +1527,7 @@ font-technology	Variable	Variabla
 	Insert Whitespace Character	Infoga blanksteg
 	Inspect Document	Inspektera dokumentet
 	Inspect Object	Inspektera objekt
+	Patch Document	Tillämpa dokumentpatch
 	Install Plug-in	Installera plugin
 	Install Plug-in…	Installera plugin…
 	Open this setting's help page	Öppna hjälpsidan för den här inställningen

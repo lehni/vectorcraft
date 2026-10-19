@@ -1837,6 +1837,7 @@ font-technology	Variable	가변
 	Insert Character	문자 삽입
 	Inspect Document	문서 검사
 	Inspect Object	개체 검사
+	Patch Document	문서 패치 적용
 	Install Plug-in	플러그인 설치
 	Intensity:	강도:
 	Intent:	의도:

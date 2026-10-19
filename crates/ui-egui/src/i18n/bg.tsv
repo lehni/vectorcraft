@@ -1525,6 +1525,7 @@ font-technology	Variable	Променливи
 	Insert Whitespace Character	Вмъкване на интервален знак
 	Inspect Document	Инспектиране на документа
 	Inspect Object	Инспектиране на обекта
+	Patch Document	Прилагане на корекция към документа
 	Install Plug-in	Инсталиране на приставка
 	Install Plug-in…	Инсталиране на приставка…
 	Open this setting's help page	Отваряне на страницата с помощ за тази настройка

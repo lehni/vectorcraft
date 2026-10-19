@@ -1585,6 +1585,7 @@ file-filter	Templates	Modelli
 	Insert Whitespace Character	Inserisci carattere spazio
 	Inspect Document	Ispeziona documento
 	Inspect Object	Ispeziona oggetto
+	Patch Document	Applica patch al documento
 	Install Plug-in	Installa plug-in
 	Install Plug-in…	Installa plug-in…
 	Open this setting's help page	Apri la pagina della guida di questa impostazione

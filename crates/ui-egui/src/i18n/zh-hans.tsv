@@ -1511,6 +1511,7 @@ file-filter	Templates	模板
 	Insert Whitespace Character	插入空白字符
 	Inspect Document	检查文档
 	Inspect Object	检查对象
+	Patch Document	应用文档补丁
 	Install Plug-in	安装插件
 	Install Plug-in…	安装增效工具…
 	Open this setting's help page	打开此设置的帮助页面

@@ -1804,6 +1804,7 @@ font-technology	Variable	バリアブル
 	Insert Character	文字を挿入
 	Inspect Document	ドキュメントを調査
 	Inspect Object	オブジェクトを調査
+	Patch Document	ドキュメントパッチを適用
 	Install Plug-in	プラグインをインストール
 	Intensity:	強度:
 	Intent:	インテント:

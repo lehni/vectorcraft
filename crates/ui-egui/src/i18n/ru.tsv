@@ -1583,6 +1583,7 @@ file-filter	Templates	Шаблоны
 	Insert Whitespace Character	Вставить символ пробела
 	Inspect Document	Проверить документ
 	Inspect Object	Проверить объект
+	Patch Document	Применить патч документа
 	Install Plug-in	Установить модуль
 	Install Plug-in…	Установить модуль…
 	Open this setting's help page	Открыть страницу справки по этому параметру

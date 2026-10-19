@@ -1560,6 +1560,7 @@ file-filter	Templates	Vorlagen
 	Insert Whitespace Character	Leerraumzeichen einfügen
 	Inspect Document	Dokument untersuchen
 	Inspect Object	Objekt untersuchen
+	Patch Document	Dokument-Patch anwenden
 	Install Plug-in	Plug-in installieren
 	Install Plug-in…	Plug-in installieren…
 	Open this setting's help page	Hilfeseite zu dieser Einstellung öffnen

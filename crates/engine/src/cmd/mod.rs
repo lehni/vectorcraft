@@ -55,6 +55,7 @@ pub mod package;
 mod paint;
 mod panelcmds;
 pub mod params;
+mod patch;
 mod path;
 pub(crate) mod pathops;
 mod patterncmds;
@@ -208,6 +209,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
     SPECS.get_or_init(|| {
         let mut v = Vec::new();
         v.extend(edit::specs());
+        v.extend(patch::specs());
         v.extend(clipboard::specs());
         v.extend(recolor::specs());
         v.extend(fileio::specs());

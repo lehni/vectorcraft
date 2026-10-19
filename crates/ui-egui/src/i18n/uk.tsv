@@ -1579,6 +1579,7 @@ file-filter	Templates	Шаблони
 	Insert Whitespace Character	Вставити символ пропуску
 	Inspect Document	Перевірити документ
 	Inspect Object	Перевірити об’єкт
+	Patch Document	Застосувати патч документа
 	Install Plug-in	Встановити модуль
 	Install Plug-in…	Встановити модуль…
 	Open this setting's help page	Відкрити сторінку довідки для цього параметра
