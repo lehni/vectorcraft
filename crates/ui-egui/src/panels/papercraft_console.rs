@@ -26,13 +26,20 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     }
     set_pstate(ui.ctx(), INPUT, input);
     widgets::divider(ui);
-    egui::ScrollArea::vertical().id_salt("papercraft-console-log").max_height(260.0).stick_to_bottom(true).show(ui, |ui| {
-        ui.set_min_width(ui.available_width());
-        for line in app.scripts.log() {
-            let color = if line.error { t.error } else { t.text };
-            ui.label(RichText::new(&line.text).monospace().color(color));
-        }
-    });
+    let height = (ui.available_height() - super::papercraft::FOOTER).max(60.0);
+    egui::ScrollArea::vertical()
+        .id_salt("papercraft-console-log")
+        .max_height(height)
+        .min_scrolled_height(height)
+        .auto_shrink([false, false])
+        .stick_to_bottom(true)
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            for line in app.scripts.log() {
+                let color = if line.error { t.error } else { t.text };
+                ui.label(RichText::new(&line.text).monospace().color(color));
+            }
+        });
     widgets::divider(ui);
     ui.horizontal(|ui| {
         if widgets::icon_button(ui, "trash-2", tl!("Clear Console"), false, 24.0).clicked() {
