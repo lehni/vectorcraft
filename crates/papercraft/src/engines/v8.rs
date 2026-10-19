@@ -76,12 +76,6 @@ impl Engine for V8 {
         Ok(handle(scope, global.into()))
     }
 
-    fn new_object(&mut self) -> Result<Handle, Error> {
-        enter!(self, scope);
-        let object = v8::Object::new(scope);
-        Ok(handle(scope, object.into()))
-    }
-
     fn function(&mut self, name: &str, function: HostFunction<Handle>) -> Result<Handle, Error> {
         self.host_function(name, function, false)
     }
@@ -90,39 +84,9 @@ impl Engine for V8 {
         self.host_function(name, function, true)
     }
 
-    fn get(&mut self, object: &Handle, key: &str) -> Result<Value<Handle>, Error> {
+    fn with_call<R>(&mut self, f: impl FnOnce(&mut dyn Call<Handle>) -> Result<R, Error>) -> Result<R, Error> {
         enter!(self, scope);
-        let object = v8::Local::new(scope, object).to_object(scope).ok_or_else(|| exception(scope))?;
-        let key = string(scope, key)?;
-        let value = object.get(scope, key.into()).ok_or_else(|| exception(scope))?;
-        Ok(from_v8(scope, value))
-    }
-
-    fn set(&mut self, object: &Handle, key: &str, value: &Value<Handle>) -> Result<(), Error> {
-        enter!(self, scope);
-        let object = v8::Local::new(scope, object).to_object(scope).ok_or_else(|| exception(scope))?;
-        let key = string(scope, key)?;
-        let value = to_v8(scope, value)?;
-        object.set(scope, key.into(), value).ok_or_else(|| exception(scope))?;
-        Ok(())
-    }
-
-    fn call(&mut self, function: &Handle, this: &Value<Handle>, args: &[Value<Handle>]) -> Result<Value<Handle>, Error> {
-        enter!(self, scope);
-        let function = v8::Local::<v8::Function>::try_from(v8::Local::new(scope, function)).map_err(|_| Error::Script("not a function".into()))?;
-        let this = to_v8(scope, this)?;
-        let args = args.iter().map(|arg| to_v8(scope, arg)).collect::<Result<Vec<_>, _>>()?;
-        let result = function.call(scope, this, &args).ok_or_else(|| exception(scope))?;
-        Ok(from_v8(scope, result))
-    }
-
-    fn construct(&mut self, constructor: &Handle, args: &[Value<Handle>]) -> Result<Value<Handle>, Error> {
-        enter!(self, scope);
-        let constructor =
-            v8::Local::<v8::Function>::try_from(v8::Local::new(scope, constructor)).map_err(|_| Error::Script("not a constructor".into()))?;
-        let args = args.iter().map(|arg| to_v8(scope, arg)).collect::<Result<Vec<_>, _>>()?;
-        let object = constructor.new_instance(scope, &args).ok_or_else(|| exception(scope))?;
-        Ok(Value::Js(handle(scope, object.into())))
+        f(&mut V8Call { scope })
     }
 }
 
@@ -141,7 +105,7 @@ impl V8 {
     }
 }
 
-/// A host function called from a script.
+/// The engine's values, inside a host function or through [`Engine::with_call`].
 struct V8Call<'a, 's, 'i> {
     scope: &'a mut v8::PinScope<'s, 'i>,
 }
@@ -168,19 +132,63 @@ impl Call<Handle> for V8Call<'_, '_, '_> {
         Ok(handle(self.scope, array.into()))
     }
 
+    fn new_float64_array(&mut self, elements: &[f64]) -> Result<Handle, Error> {
+        let bytes = elements.iter().flat_map(|e| e.to_ne_bytes()).collect();
+        let buffer = buffer(self.scope, bytes);
+        let array = v8::Float64Array::new(self.scope, buffer, 0, elements.len()).ok_or_else(|| thrown("Float64Array"))?;
+        Ok(handle(self.scope, array.into()))
+    }
+
+    fn new_uint8_array(&mut self, elements: &[u8]) -> Result<Handle, Error> {
+        let buffer = buffer(self.scope, elements.to_vec());
+        let array = v8::Uint8Array::new(self.scope, buffer, 0, elements.len()).ok_or_else(|| thrown("Uint8Array"))?;
+        Ok(handle(self.scope, array.into()))
+    }
+
+    fn new_uint16_array(&mut self, elements: &[u16]) -> Result<Handle, Error> {
+        let bytes = elements.iter().flat_map(|e| e.to_ne_bytes()).collect();
+        let buffer = buffer(self.scope, bytes);
+        let array = v8::Uint16Array::new(self.scope, buffer, 0, elements.len()).ok_or_else(|| thrown("Uint16Array"))?;
+        Ok(handle(self.scope, array.into()))
+    }
+
     fn get(&mut self, object: &Handle, key: &str) -> Result<Value<Handle>, Error> {
-        let object = v8::Local::new(self.scope, object).to_object(self.scope).ok_or_else(|| thrown(key))?;
-        let key = string(self.scope, key)?;
-        let value = object.get(self.scope, key.into()).ok_or_else(|| thrown("get"))?;
-        Ok(from_v8(self.scope, value))
+        let scope = pin!(v8::TryCatch::new(self.scope));
+        let scope = &mut scope.init();
+        let object = v8::Local::new(scope, object).to_object(scope).ok_or_else(|| exception(scope))?;
+        let key = string(scope, key)?;
+        let value = object.get(scope, key.into()).ok_or_else(|| exception(scope))?;
+        Ok(from_v8(scope, value))
     }
 
     fn set(&mut self, object: &Handle, key: &str, value: &Value<Handle>) -> Result<(), Error> {
-        let object = v8::Local::new(self.scope, object).to_object(self.scope).ok_or_else(|| thrown(key))?;
-        let key = string(self.scope, key)?;
-        let value = to_v8(self.scope, value)?;
-        object.set(self.scope, key.into(), value).ok_or_else(|| thrown("set"))?;
+        let scope = pin!(v8::TryCatch::new(self.scope));
+        let scope = &mut scope.init();
+        let object = v8::Local::new(scope, object).to_object(scope).ok_or_else(|| exception(scope))?;
+        let key = string(scope, key)?;
+        let value = to_v8(scope, value)?;
+        object.set(scope, key.into(), value).ok_or_else(|| exception(scope))?;
         Ok(())
+    }
+
+    fn call(&mut self, function: &Handle, this: &Value<Handle>, args: &[Value<Handle>]) -> Result<Value<Handle>, Error> {
+        let scope = pin!(v8::TryCatch::new(self.scope));
+        let scope = &mut scope.init();
+        let function = v8::Local::<v8::Function>::try_from(v8::Local::new(scope, function)).map_err(|_| Error::Script("not a function".into()))?;
+        let this = to_v8(scope, this)?;
+        let args = args.iter().map(|arg| to_v8(scope, arg)).collect::<Result<Vec<_>, _>>()?;
+        let result = function.call(scope, this, &args).ok_or_else(|| exception(scope))?;
+        Ok(from_v8(scope, result))
+    }
+
+    fn construct(&mut self, constructor: &Handle, args: &[Value<Handle>]) -> Result<Value<Handle>, Error> {
+        let scope = pin!(v8::TryCatch::new(self.scope));
+        let scope = &mut scope.init();
+        let constructor =
+            v8::Local::<v8::Function>::try_from(v8::Local::new(scope, constructor)).map_err(|_| Error::Script("not a constructor".into()))?;
+        let args = args.iter().map(|arg| to_v8(scope, arg)).collect::<Result<Vec<_>, _>>()?;
+        let object = constructor.new_instance(scope, &args).ok_or_else(|| exception(scope))?;
+        Ok(Value::Js(handle(scope, object.into())))
     }
 }
 
@@ -220,10 +228,15 @@ fn handle(scope: &v8::PinScope<'_, '_>, value: v8::Local<v8::Value>) -> Handle {
     v8::Global::new(scope, value)
 }
 
-/// An error for a host function whose call into V8 threw: the exception stays pending, and the
-/// host function's error replaces it.
+/// An error for a V8 call that failed without an exception to report.
 fn thrown(what: &str) -> Error {
-    Error::Script(format!("`{what}` threw"))
+    Error::Script(format!("V8 couldn't create a {what}"))
+}
+
+/// An `ArrayBuffer` that takes over `bytes`.
+fn buffer<'s>(scope: &v8::PinScope<'s, '_>, bytes: Vec<u8>) -> v8::Local<'s, v8::ArrayBuffer> {
+    let store = v8::ArrayBuffer::new_backing_store_from_vec(bytes).make_shared();
+    v8::ArrayBuffer::with_backing_store(scope, &store)
 }
 
 fn missing(what: &str) -> Error {

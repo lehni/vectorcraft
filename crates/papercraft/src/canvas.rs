@@ -29,7 +29,7 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle, host: &Rc<R
     }
     host.borrow_mut().canvas_methods = handles;
     let constructor = engine.constructor("OffscreenCanvas", offscreen_canvas)?;
-    engine.set(global, "OffscreenCanvas", &Value::Js(constructor))
+    engine.with_call(|call| call.set(global, "OffscreenCanvas", &Value::Js(constructor)))
 }
 
 /// `new OffscreenCanvas(width, height)`.

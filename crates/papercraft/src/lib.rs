@@ -75,52 +75,51 @@ impl<E: Engine> Runtime<E> {
         install_globals(&mut engine, &host)?;
         engine.eval(PAPER_JS)?;
         let global = engine.global()?;
-        let paper = handle(engine.get(&global, "paper")?, "paper")?;
+        let paper = engine.with_call(|call| object(call, &global, "paper"))?;
         Ok(Self { engine, host, paper })
     }
 
     /// Creates a scope whose view has the given size.
     pub fn create_scope(&mut self, width: f64, height: f64) -> Result<Scope<E::Handle>, Error> {
-        let engine = &mut self.engine;
-        let constructor = handle(engine.get(&self.paper, "PaperScope")?, "PaperScope")?;
-        let scope = handle(engine.construct(&constructor, &[])?, "PaperScope")?;
-        let size = handle(engine.get(&self.paper, "Size")?, "Size")?;
-        let size = engine.construct(&size, &[Value::Number(width), Value::Number(height)])?;
-        let setup = handle(engine.get(&scope, "setup")?, "setup")?;
-        engine.call(&setup, &Value::Js(scope.clone()), &[size])?;
-        Ok(Scope(scope))
+        let paper = &self.paper;
+        self.engine.with_call(|call| {
+            let constructor = object(call, paper, "PaperScope")?;
+            let scope = handle(call.construct(&constructor, &[])?, "PaperScope")?;
+            let size = object(call, paper, "Size")?;
+            let size = call.construct(&size, &[Value::Number(width), Value::Number(height)])?;
+            method(call, &scope, "setup", &[size])?;
+            Ok(Scope(scope))
+        })
     }
 
     /// Compiles and runs `source` as PaperScript in `scope`.
     pub fn execute(&mut self, scope: &Scope<E::Handle>, source: &str) -> Result<(), Error> {
-        // `PaperScope#execute()` would also update the browser's keyboard focus, which workers
-        // don't have.
-        let engine = &mut self.engine;
-        let paperscript = handle(engine.get(&self.paper, "PaperScript")?, "PaperScript")?;
-        let execute = handle(engine.get(&paperscript, "execute")?, "execute")?;
-        let args = [Value::String(source.to_owned()), Value::Js(scope.0.clone())];
-        engine.call(&execute, &Value::Js(paperscript), &args)?;
-        Ok(())
+        let paper = &self.paper;
+        self.engine.with_call(|call| {
+            let paperscript = object(call, paper, "PaperScript")?;
+            method(call, &paperscript, "execute", &[Value::String(source.to_owned()), Value::Js(scope.0.clone())])?;
+            Ok(())
+        })
     }
 
     /// Adds the items in `json`, Paper.js JSON, to the scope's project (`project.importJSON()`).
     pub fn import_json(&mut self, scope: &Scope<E::Handle>, json: &str) -> Result<(), Error> {
-        let engine = &mut self.engine;
-        let project = handle(engine.get(&scope.0, "project")?, "project")?;
-        let import = handle(engine.get(&project, "importJSON")?, "importJSON")?;
-        engine.call(&import, &Value::Js(project), &[Value::String(json.to_owned())])?;
-        Ok(())
+        self.engine.with_call(|call| {
+            let project = object(call, &scope.0, "project")?;
+            method(call, &project, "importJSON", &[Value::String(json.to_owned())])?;
+            Ok(())
+        })
     }
 
     /// The scope's project as Paper.js JSON (`project.exportJSON()`).
     pub fn export_json(&mut self, scope: &Scope<E::Handle>) -> Result<String, Error> {
-        let engine = &mut self.engine;
-        let project = handle(engine.get(&scope.0, "project")?, "project")?;
-        let export = handle(engine.get(&project, "exportJSON")?, "exportJSON")?;
-        match engine.call(&export, &Value::Js(project), &[])? {
-            Value::String(json) => Ok(json),
-            _ => Err(Error::Script("`exportJSON()` didn't return a string".into())),
-        }
+        self.engine.with_call(|call| {
+            let project = object(call, &scope.0, "project")?;
+            match method(call, &project, "exportJSON", &[])? {
+                Value::String(json) => Ok(json),
+                _ => Err(Error::Script("`exportJSON()` didn't return a string".into())),
+            }
+        })
     }
 
     /// Runs the `setInterval` callbacks that are due at `now`, in milliseconds since the runtime
@@ -140,10 +139,12 @@ impl<E: Engine> Runtime<E> {
             }
         }
         // Callbacks may set or clear intervals, so they run after the borrow ends.
-        for callback in due {
-            self.engine.call(&callback, &Value::Undefined, &[])?;
-        }
-        Ok(())
+        self.engine.with_call(|call| {
+            for callback in due {
+                call.call(&callback, &Value::Undefined, &[])?;
+            }
+            Ok(())
+        })
     }
 
     /// Returns the lines printed with `console.log` since the last call.
@@ -160,25 +161,38 @@ fn handle<H>(value: Value<H>, name: &str) -> Result<H, Error> {
     }
 }
 
+/// The object `owner[key]`.
+fn object<H>(call: &mut dyn Call<H>, owner: &H, key: &str) -> Result<H, Error> {
+    handle(call.get(owner, key)?, key)
+}
+
+/// Calls the method `owner[key]` with `args`.
+fn method<H: Clone>(call: &mut dyn Call<H>, owner: &H, key: &str, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let function = object(call, owner, key)?;
+    call.call(&function, &Value::Js(owner.clone()), args)
+}
+
 /// The globals Paper.js expects in a web worker: `self` (the global object), `navigator`,
 /// `console`, `setInterval` / `clearInterval` for its frame loop, and `OffscreenCanvas` for CSS
 /// colours.
 fn install_globals<E: Engine>(engine: &mut E, host: &Rc<RefCell<Host<E::Handle>>>) -> Result<(), Error> {
     let global = engine.global()?;
-    engine.set(&global, "self", &Value::Js(global.clone()))?;
-    // Paper.js reads the platform from the user agent, for its key modifiers.
-    let navigator = engine.new_object()?;
-    let user_agent = format!("VectorCraft ({})", std::env::consts::OS);
-    engine.set(&navigator, "userAgent", &Value::String(user_agent))?;
-    engine.set(&global, "navigator", &Value::Js(navigator))?;
-    let console = engine.new_object()?;
     let log = engine.function("log", console_log)?;
-    engine.set(&console, "log", &Value::Js(log))?;
-    engine.set(&global, "console", &Value::Js(console))?;
     let set_interval = engine.function("setInterval", set_interval)?;
-    engine.set(&global, "setInterval", &Value::Js(set_interval))?;
     let clear_interval = engine.function("clearInterval", clear_interval)?;
-    engine.set(&global, "clearInterval", &Value::Js(clear_interval))?;
+    engine.with_call(|call| {
+        call.set(&global, "self", &Value::Js(global.clone()))?;
+        // Paper.js reads the platform from the user agent, for its key modifiers.
+        let navigator = call.new_object()?;
+        let user_agent = format!("VectorCraft ({})", std::env::consts::OS);
+        call.set(&navigator, "userAgent", &Value::String(user_agent))?;
+        call.set(&global, "navigator", &Value::Js(navigator))?;
+        let console = call.new_object()?;
+        call.set(&console, "log", &Value::Js(log))?;
+        call.set(&global, "console", &Value::Js(console))?;
+        call.set(&global, "setInterval", &Value::Js(set_interval))?;
+        call.set(&global, "clearInterval", &Value::Js(clear_interval))
+    })?;
     canvas::install(engine, &global, host)
 }
 

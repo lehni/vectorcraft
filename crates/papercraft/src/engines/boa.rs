@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use boa_engine::object::FunctionObjectBuilder;
-use boa_engine::object::builtins::JsArray;
+use boa_engine::object::builtins::{JsArray, JsFloat64Array, JsUint8Array, JsUint16Array};
 use boa_engine::{Context, JsError, JsNativeError, JsObject, JsResult, JsString, JsValue, NativeFunction, Source};
 
 use crate::{Call, Engine, Error, Host, HostFunction, Value};
@@ -33,10 +33,6 @@ impl Engine for Boa {
         Ok(self.context.global_object().into())
     }
 
-    fn new_object(&mut self) -> Result<JsValue, Error> {
-        BoaCall { context: &mut self.context }.new_object()
-    }
-
     fn function(&mut self, name: &str, function: HostFunction<JsValue>) -> Result<JsValue, Error> {
         Ok(self.host_function(name, function, false))
     }
@@ -46,25 +42,8 @@ impl Engine for Boa {
         Ok(self.host_function(name, function, true))
     }
 
-    fn get(&mut self, object: &JsValue, key: &str) -> Result<Value<JsValue>, Error> {
-        get(&mut self.context, object, key)
-    }
-
-    fn set(&mut self, object: &JsValue, key: &str, value: &Value<JsValue>) -> Result<(), Error> {
-        set(&mut self.context, object, key, value)
-    }
-
-    fn call(&mut self, function: &JsValue, this: &Value<JsValue>, args: &[Value<JsValue>]) -> Result<Value<JsValue>, Error> {
-        let function = function.as_callable().ok_or_else(|| Error::Script("not a function".into()))?;
-        let args: Vec<_> = args.iter().map(to_js).collect();
-        Ok(from_js(function.call(&to_js(this), &args, &mut self.context).map_err(script_error)?))
-    }
-
-    fn construct(&mut self, constructor: &JsValue, args: &[Value<JsValue>]) -> Result<Value<JsValue>, Error> {
-        let constructor = constructor.as_constructor().ok_or_else(|| Error::Script("not a constructor".into()))?;
-        let args: Vec<_> = args.iter().map(to_js).collect();
-        let object = constructor.construct(&args, None, &mut self.context).map_err(script_error)?;
-        Ok(Value::Js(object.into()))
+    fn with_call<R>(&mut self, f: impl FnOnce(&mut dyn Call<JsValue>) -> Result<R, Error>) -> Result<R, Error> {
+        f(&mut BoaCall { context: &mut self.context })
     }
 }
 
@@ -76,7 +55,7 @@ impl Boa {
     }
 }
 
-/// A host function called from a script.
+/// The engine's values, inside a host function or through [`Engine::with_call`].
 struct BoaCall<'a> {
     context: &'a mut Context,
 }
@@ -99,24 +78,41 @@ impl Call<JsValue> for BoaCall<'_> {
         Ok(JsArray::from_iter(elements.iter().map(to_js), self.context).into())
     }
 
+    fn new_float64_array(&mut self, elements: &[f64]) -> Result<JsValue, Error> {
+        Ok(JsFloat64Array::from_iter(elements.iter().copied(), self.context).map_err(script_error)?.into())
+    }
+
+    fn new_uint8_array(&mut self, elements: &[u8]) -> Result<JsValue, Error> {
+        Ok(JsUint8Array::from_iter(elements.iter().copied(), self.context).map_err(script_error)?.into())
+    }
+
+    fn new_uint16_array(&mut self, elements: &[u16]) -> Result<JsValue, Error> {
+        Ok(JsUint16Array::from_iter(elements.iter().copied(), self.context).map_err(script_error)?.into())
+    }
+
     fn get(&mut self, object: &JsValue, key: &str) -> Result<Value<JsValue>, Error> {
-        get(self.context, object, key)
+        let object = object.to_object(self.context).map_err(script_error)?;
+        Ok(from_js(object.get(JsString::from(key), self.context).map_err(script_error)?))
     }
 
     fn set(&mut self, object: &JsValue, key: &str, value: &Value<JsValue>) -> Result<(), Error> {
-        set(self.context, object, key, value)
+        let object = object.to_object(self.context).map_err(script_error)?;
+        object.set(JsString::from(key), to_js(value), true, self.context).map_err(script_error)?;
+        Ok(())
     }
-}
 
-fn get(context: &mut Context, object: &JsValue, key: &str) -> Result<Value<JsValue>, Error> {
-    let object = object.to_object(context).map_err(script_error)?;
-    Ok(from_js(object.get(JsString::from(key), context).map_err(script_error)?))
-}
+    fn call(&mut self, function: &JsValue, this: &Value<JsValue>, args: &[Value<JsValue>]) -> Result<Value<JsValue>, Error> {
+        let function = function.as_callable().ok_or_else(|| Error::Script("not a function".into()))?;
+        let args: Vec<_> = args.iter().map(to_js).collect();
+        Ok(from_js(function.call(&to_js(this), &args, self.context).map_err(script_error)?))
+    }
 
-fn set(context: &mut Context, object: &JsValue, key: &str, value: &Value<JsValue>) -> Result<(), Error> {
-    let object = object.to_object(context).map_err(script_error)?;
-    object.set(JsString::from(key), to_js(value), true, context).map_err(script_error)?;
-    Ok(())
+    fn construct(&mut self, constructor: &JsValue, args: &[Value<JsValue>]) -> Result<Value<JsValue>, Error> {
+        let constructor = constructor.as_constructor().ok_or_else(|| Error::Script("not a constructor".into()))?;
+        let args: Vec<_> = args.iter().map(to_js).collect();
+        let object = constructor.construct(&args, None, self.context).map_err(script_error)?;
+        Ok(Value::Js(object.into()))
+    }
 }
 
 fn call_host(function: HostFunction<JsValue>, this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {

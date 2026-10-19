@@ -47,10 +47,6 @@ impl Engine for Browser {
         Ok(self.global.clone().into())
     }
 
-    fn new_object(&mut self) -> Result<JsValue, Error> {
-        self.host_call().new_object()
-    }
-
     fn function(&mut self, _name: &str, function: HostFunction<JsValue>) -> Result<JsValue, Error> {
         let host = self.host.clone();
         let apply =
@@ -72,34 +68,12 @@ impl Engine for Browser {
         proxy(&Object::new().constructor().into(), "construct", &construct)
     }
 
-    fn get(&mut self, object: &JsValue, key: &str) -> Result<Value<JsValue>, Error> {
-        self.host_call().get(object, key)
-    }
-
-    fn set(&mut self, object: &JsValue, key: &str, value: &Value<JsValue>) -> Result<(), Error> {
-        self.host_call().set(object, key, value)
-    }
-
-    fn call(&mut self, function: &JsValue, this: &Value<JsValue>, args: &[Value<JsValue>]) -> Result<Value<JsValue>, Error> {
-        let function: &Function = function.dyn_ref().ok_or_else(|| Error::Script("not a function".into()))?;
-        let args: Array = args.iter().map(to_js).collect();
-        Ok(from_js(Reflect::apply(function, &to_js(this), &args).map_err(js_error)?))
-    }
-
-    fn construct(&mut self, constructor: &JsValue, args: &[Value<JsValue>]) -> Result<Value<JsValue>, Error> {
-        let constructor: &Function = constructor.dyn_ref().ok_or_else(|| Error::Script("not a constructor".into()))?;
-        let args: Array = args.iter().map(to_js).collect();
-        Ok(from_js(Reflect::construct(constructor, &args).map_err(js_error)?))
+    fn with_call<R>(&mut self, f: impl FnOnce(&mut dyn Call<JsValue>) -> Result<R, Error>) -> Result<R, Error> {
+        f(&mut BrowserCall { host: self.host.clone() })
     }
 }
 
-impl Browser {
-    fn host_call(&self) -> BrowserCall {
-        BrowserCall { host: self.host.clone() }
-    }
-}
-
-/// A host function called from a script.
+/// The engine's values, inside a host function or through [`Engine::with_call`].
 struct BrowserCall {
     host: BrowserHost,
 }
@@ -128,6 +102,18 @@ impl Call<JsValue> for BrowserCall {
         Ok(elements.iter().map(to_js).collect::<Array>().into())
     }
 
+    fn new_float64_array(&mut self, elements: &[f64]) -> Result<JsValue, Error> {
+        Ok(js_sys::Float64Array::from(elements).into())
+    }
+
+    fn new_uint8_array(&mut self, elements: &[u8]) -> Result<JsValue, Error> {
+        Ok(js_sys::Uint8Array::from(elements).into())
+    }
+
+    fn new_uint16_array(&mut self, elements: &[u16]) -> Result<JsValue, Error> {
+        Ok(js_sys::Uint16Array::from(elements).into())
+    }
+
     fn get(&mut self, object: &JsValue, key: &str) -> Result<Value<JsValue>, Error> {
         Ok(from_js(Reflect::get(object, &key.into()).map_err(js_error)?))
     }
@@ -136,6 +122,18 @@ impl Call<JsValue> for BrowserCall {
         // As an assignment outside strict mode: read-only properties stay as they are.
         Reflect::set(object, &key.into(), &to_js(value)).map_err(js_error)?;
         Ok(())
+    }
+
+    fn call(&mut self, function: &JsValue, this: &Value<JsValue>, args: &[Value<JsValue>]) -> Result<Value<JsValue>, Error> {
+        let function: &Function = function.dyn_ref().ok_or_else(|| Error::Script("not a function".into()))?;
+        let args: Array = args.iter().map(to_js).collect();
+        Ok(from_js(Reflect::apply(function, &to_js(this), &args).map_err(js_error)?))
+    }
+
+    fn construct(&mut self, constructor: &JsValue, args: &[Value<JsValue>]) -> Result<Value<JsValue>, Error> {
+        let constructor: &Function = constructor.dyn_ref().ok_or_else(|| Error::Script("not a constructor".into()))?;
+        let args: Array = args.iter().map(to_js).collect();
+        Ok(from_js(Reflect::construct(constructor, &args).map_err(js_error)?))
     }
 }
 

@@ -23,7 +23,9 @@ pub enum Value<H> {
 /// script as `Error`s.
 pub type HostFunction<H> = fn(&mut dyn Call<H>, &Value<H>, &[Value<H>]) -> Result<Value<H>, Error>;
 
-/// What a [`HostFunction`] can do while a script calls it.
+/// What Rust can do with the engine's values: inside a [`HostFunction`] while a script calls it,
+/// and outside scripts through [`Engine::with_call`]. Exceptions a script throws come back as
+/// errors.
 pub trait Call<H> {
     /// The state shared by the host functions of this runtime.
     fn host(&self) -> Result<Rc<RefCell<Host<H>>>, Error>;
@@ -35,11 +37,23 @@ pub trait Call<H> {
 
     fn new_array(&mut self, elements: &[Value<H>]) -> Result<H, Error>;
 
+    fn new_float64_array(&mut self, elements: &[f64]) -> Result<H, Error>;
+
+    fn new_uint8_array(&mut self, elements: &[u8]) -> Result<H, Error>;
+
+    fn new_uint16_array(&mut self, elements: &[u16]) -> Result<H, Error>;
+
     /// `object[key]`.
     fn get(&mut self, object: &H, key: &str) -> Result<Value<H>, Error>;
 
     /// `object[key] = value`.
     fn set(&mut self, object: &H, key: &str, value: &Value<H>) -> Result<(), Error>;
+
+    /// `function.apply(this, args)`.
+    fn call(&mut self, function: &H, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error>;
+
+    /// `new constructor(...args)`.
+    fn construct(&mut self, constructor: &H, args: &[Value<H>]) -> Result<Value<H>, Error>;
 }
 
 /// A JavaScript engine with one realm (global object) for scripts.
@@ -55,8 +69,6 @@ pub trait Engine: Sized {
 
     fn global(&mut self) -> Result<Self::Handle, Error>;
 
-    fn new_object(&mut self) -> Result<Self::Handle, Error>;
-
     /// A function that calls `function`, named `name` in scripts.
     fn function(&mut self, name: &str, function: HostFunction<Self::Handle>) -> Result<Self::Handle, Error>;
 
@@ -64,15 +76,6 @@ pub trait Engine: Sized {
     /// returns. Scripts can't call it without `new`.
     fn constructor(&mut self, name: &str, function: HostFunction<Self::Handle>) -> Result<Self::Handle, Error>;
 
-    /// `object[key]`.
-    fn get(&mut self, object: &Self::Handle, key: &str) -> Result<Value<Self::Handle>, Error>;
-
-    /// `object[key] = value`.
-    fn set(&mut self, object: &Self::Handle, key: &str, value: &Value<Self::Handle>) -> Result<(), Error>;
-
-    /// `function.apply(this, args)`.
-    fn call(&mut self, function: &Self::Handle, this: &Value<Self::Handle>, args: &[Value<Self::Handle>]) -> Result<Value<Self::Handle>, Error>;
-
-    /// `new constructor(...args)`.
-    fn construct(&mut self, constructor: &Self::Handle, args: &[Value<Self::Handle>]) -> Result<Value<Self::Handle>, Error>;
+    /// Runs `f` with the engine's values, as a [`HostFunction`] has them.
+    fn with_call<R>(&mut self, f: impl FnOnce(&mut dyn Call<Self::Handle>) -> Result<R, Error>) -> Result<R, Error>;
 }
