@@ -531,7 +531,13 @@ pub(crate) fn panel_body(app: &mut VectorcraftApp, ui: &mut Ui, id: &str, width:
                 ui.set_max_height(tall);
                 panels::libraries(app, ui);
             }
-            None => panels::show_icon_panel(app, ui, id),
+            None => {
+                // Panels whose list fills their height get one, as Layers does.
+                if panels::FILLS_HEIGHT.contains(&id) {
+                    ui.set_max_height(tall);
+                }
+                panels::show_icon_panel(app, ui, id)
+            }
         }
     });
 }

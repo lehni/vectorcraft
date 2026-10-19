@@ -25,22 +25,23 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
         field.request_focus();
     }
     set_pstate(ui.ctx(), INPUT, input);
-    widgets::divider(ui);
-    let height = (ui.available_height() - super::papercraft::FOOTER).max(60.0);
-    egui::ScrollArea::vertical().id_salt("papercraft-console-log").max_height(height).auto_shrink([false, false]).stick_to_bottom(true).show(
-        ui,
-        |ui| {
-            ui.set_min_width(ui.available_width());
-            for line in app.scripts.log() {
-                let color = if line.error { t.error } else { t.text };
-                ui.label(RichText::new(&line.text).monospace().color(color));
+    // Laid out from the bottom: the bar stays at the bottom, the log takes the height above it.
+    ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+        ui.horizontal(|ui| {
+            if widgets::icon_button(ui, "trash-2", tl!("Clear Console"), false, 24.0).clicked() {
+                app.scripts.clear_log();
             }
-        },
-    );
-    widgets::divider(ui);
-    ui.horizontal(|ui| {
-        if widgets::icon_button(ui, "trash-2", tl!("Clear Console"), false, 24.0).clicked() {
-            app.scripts.clear_log();
-        }
+        });
+        widgets::divider(ui);
+        ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+            widgets::divider(ui);
+            egui::ScrollArea::vertical().id_salt("papercraft-console-log").auto_shrink([false, false]).stick_to_bottom(true).show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                for line in app.scripts.log() {
+                    let color = if line.error { t.error } else { t.text };
+                    ui.label(RichText::new(&line.text).monospace().color(color));
+                }
+            });
+        });
     });
 }

@@ -139,6 +139,10 @@ pub(crate) fn selection_len(app: &VectorcraftApp) -> usize {
     app.session.active().map(|d| d.selection.len()).unwrap_or(0)
 }
 
+/// Icon panels whose list takes the height they are given, their bottom bar at the bottom: the
+/// popped-out or floating panel gives them one ([`crate::dock::panel_body`]).
+pub const FILLS_HEIGHT: &[&str] = &[papercraft::ID, papercraft_console::ID];
+
 pub fn show_icon_panel(app: &mut VectorcraftApp, ui: &mut Ui, id: &str) {
     match id {
         "swatches" => swatches::show(app, ui),

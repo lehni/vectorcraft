@@ -96,6 +96,23 @@ fn css_colors_resolve_without_a_canvas<E: Engine>() {
     assert_eq!(runtime.take_output(), ["#6495ed", "#ff8800", "#0080ff", "#00ff00", "#000000"]);
 }
 
+fn runtimes_live_side_by_side<E: Engine>() {
+    // As the app runs them: a second script starts while the first keeps running, and the first
+    // stops first.
+    let mut first = Runtime::<E>::new().unwrap();
+    let first_scope = first.create_scope(100.0, 100.0).unwrap();
+    let mut second = Runtime::<E>::new().unwrap();
+    let second_scope = second.create_scope(100.0, 100.0).unwrap();
+    first.execute(&first_scope, "console.log('first')").unwrap();
+    second.execute(&second_scope, "console.log('second')").unwrap();
+    first.execute(&first_scope, "console.log('first again')").unwrap();
+    assert_eq!(first.take_output(), ["first", "first again"]);
+    assert_eq!(second.take_output(), ["second"]);
+    drop(first);
+    second.execute(&second_scope, "console.log('second again')").unwrap();
+    assert_eq!(second.take_output(), ["second again"]);
+}
+
 macro_rules! engine_tests {
     ($module:ident, $engine:ty) => {
         mod $module {
@@ -122,6 +139,11 @@ macro_rules! engine_tests {
             #[test]
             fn intervals_run_when_due() {
                 super::intervals_run_when_due::<$engine>();
+            }
+
+            #[test]
+            fn runtimes_live_side_by_side() {
+                super::runtimes_live_side_by_side::<$engine>();
             }
 
             #[test]

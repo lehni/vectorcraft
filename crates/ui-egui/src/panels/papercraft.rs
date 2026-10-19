@@ -20,8 +20,6 @@ const SELECTED: &str = "papercraft-selected";
 const OPEN: &str = "papercraft-open";
 const ROW: f32 = 22.0;
 const INDENT: f32 = 14.0;
-/// The height of the bottom bar with its divider.
-pub(super) const FOOTER: f32 = 34.0;
 
 pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     let Some(folder) = app.ui.papercraft_folder.clone().map(PathBuf::from) else {
@@ -37,54 +35,57 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     let mut open: BTreeSet<PathBuf> = pstate(ui.ctx(), OPEN);
     let mut run = None;
     let running = app.scripts.running_paths();
-    // The tree takes the panel's height, the bar below it stays at the bottom.
-    let height = (ui.available_height() - FOOTER).max(ROW * 3.0);
-    egui::ScrollArea::vertical().id_salt("papercraft-tree").max_height(height).auto_shrink([false, false]).show(ui, |ui| {
-        let entries = app.scripts.tree(&folder, false);
-        let mut rows = Vec::new();
-        flatten(entries, 0, &open, &mut rows);
-        for (depth, entry) in rows {
-            let state = (selected.as_deref() == Some(&entry.path), open.contains(&entry.path), running.contains(&entry.path));
-            let action = row(ui, depth, entry, state);
-            match action {
-                Some(Action::Select) => selected = Some(entry.path.clone()),
-                Some(Action::Toggle) => {
-                    if !open.remove(&entry.path) {
-                        open.insert(entry.path.clone());
+    // Laid out from the bottom: the bar stays at the bottom, the tree takes the height above it.
+    ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+        ui.horizontal(|ui| {
+            if widgets::icon_button(ui, "play", tl!("Run Script"), false, 24.0).clicked()
+                && let Some(path) = selected.clone().filter(|p| p.is_file())
+            {
+                run = Some(path);
+            }
+            if widgets::icon_button(ui, "square", tl!("Stop Running Scripts"), false, 24.0).clicked()
+                && let Err(e) = app.run("ui.stopScripts", json!({}))
+            {
+                app.status(e);
+            }
+            if widgets::icon_button(ui, "file-plus", tl!("New Script"), false, 24.0).clicked() {
+                let into =
+                    selected.as_ref().map(|p| if p.is_dir() { p.clone() } else { p.parent().map(PathBuf::from).unwrap_or_else(|| folder.clone()) });
+                let params = into.map_or(json!({}), |f| json!({ "folder": f.to_string_lossy() }));
+                match app.run("ui.newScript", params) {
+                    Ok(r) => selected = r["path"].as_str().map(PathBuf::from),
+                    Err(e) => app.status(e),
+                }
+            }
+            if widgets::icon_button(ui, "rotate-cw", tl!("Reload"), false, 24.0).clicked() {
+                app.scripts.tree(&folder, true);
+            }
+            if widgets::icon_button(ui, "folder-open", tl!("Choose Scripts Folder…"), false, 24.0).clicked() {
+                choose_folder(app);
+            }
+        });
+        widgets::divider(ui);
+        ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+            egui::ScrollArea::vertical().id_salt("papercraft-tree").auto_shrink([false, false]).show(ui, |ui| {
+                let entries = app.scripts.tree(&folder, false);
+                let mut rows = Vec::new();
+                flatten(entries, 0, &open, &mut rows);
+                for (depth, entry) in rows {
+                    let state = (selected.as_deref() == Some(&entry.path), open.contains(&entry.path), running.contains(&entry.path));
+                    let action = row(ui, depth, entry, state);
+                    match action {
+                        Some(Action::Select) => selected = Some(entry.path.clone()),
+                        Some(Action::Toggle) => {
+                            if !open.remove(&entry.path) {
+                                open.insert(entry.path.clone());
+                            }
+                        }
+                        Some(Action::Run) => run = Some(entry.path.clone()),
+                        None => {}
                     }
                 }
-                Some(Action::Run) => run = Some(entry.path.clone()),
-                None => {}
-            }
-        }
-    });
-    widgets::divider(ui);
-    ui.horizontal(|ui| {
-        if widgets::icon_button(ui, "play", tl!("Run Script"), false, 24.0).clicked()
-            && let Some(path) = selected.clone().filter(|p| p.is_file())
-        {
-            run = Some(path);
-        }
-        if widgets::icon_button(ui, "square", tl!("Stop Running Scripts"), false, 24.0).clicked()
-            && let Err(e) = app.run("ui.stopScripts", json!({}))
-        {
-            app.status(e);
-        }
-        if widgets::icon_button(ui, "file-plus", tl!("New Script"), false, 24.0).clicked() {
-            let into =
-                selected.as_ref().map(|p| if p.is_dir() { p.clone() } else { p.parent().map(PathBuf::from).unwrap_or_else(|| folder.clone()) });
-            let params = into.map_or(json!({}), |f| json!({ "folder": f.to_string_lossy() }));
-            match app.run("ui.newScript", params) {
-                Ok(r) => selected = r["path"].as_str().map(PathBuf::from),
-                Err(e) => app.status(e),
-            }
-        }
-        if widgets::icon_button(ui, "rotate-cw", tl!("Reload"), false, 24.0).clicked() {
-            app.scripts.tree(&folder, true);
-        }
-        if widgets::icon_button(ui, "folder-open", tl!("Choose Scripts Folder…"), false, 24.0).clicked() {
-            choose_folder(app);
-        }
+            });
+        });
     });
     set_pstate(ui.ctx(), SELECTED, selected);
     set_pstate(ui.ctx(), OPEN, open);

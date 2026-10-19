@@ -1,7 +1,10 @@
 //! V8, the engine of Chrome and Node.js, through Deno's `v8` crate.
 //!
-//! An isolate belongs to the thread that created it, and isolates on one thread must be dropped in
-//! the reverse order of their creation: V8 asserts both.
+//! Each runtime is a V8 context in its thread's one isolate. V8 enters an isolate when it makes
+//! one, and the isolates of a thread must be dropped in the reverse order of their creation, which
+//! runtimes that start and stop in any order (running scripts) can't keep: so they share one,
+//! made on first use and kept for the thread's lifetime. A context keeps its runtime's host state
+//! in a slot.
 
 use std::cell::RefCell;
 use std::pin::pin;
@@ -13,8 +16,17 @@ use crate::{Call, Engine, Error, Host, HostFunction, Value};
 type Handle = v8::Global<v8::Value>;
 type V8Host = Rc<RefCell<Host<Handle>>>;
 
-/// The host functions of an isolate; each function's data is its index here.
-struct HostFunctions(Vec<HostFunctionEntry>);
+thread_local! {
+    /// The thread's isolate, shared by its runtimes.
+    static ISOLATE: RefCell<Option<v8::OwnedIsolate>> = const { RefCell::new(None) };
+}
+
+/// What a context keeps for its runtime: the host state, and the host functions, each function's
+/// data its index here.
+struct ContextData {
+    host: V8Host,
+    functions: RefCell<Vec<HostFunctionEntry>>,
+}
 
 #[derive(Clone, Copy)]
 struct HostFunctionEntry {
@@ -24,17 +36,29 @@ struct HostFunctionEntry {
 }
 
 pub struct V8 {
-    // Dropped before the isolate that owns it.
     context: v8::Global<v8::Context>,
-    isolate: v8::OwnedIsolate,
 }
 
-/// Opens a handle scope, enters the engine's context and catches exceptions in `$scope`.
+/// Runs `f` with the thread's isolate, made on first use.
+fn with_isolate<R>(f: impl FnOnce(&mut v8::OwnedIsolate) -> Result<R, Error>) -> Result<R, Error> {
+    static INITIALIZE: Once = Once::new();
+    INITIALIZE.call_once(|| {
+        v8::V8::initialize_platform(v8::new_default_platform(0, false).make_shared());
+        v8::V8::initialize();
+    });
+    ISOLATE.with(|cell| {
+        // A runtime's call into V8 never makes another one, so the isolate is never in use here.
+        let mut cell = cell.try_borrow_mut().map_err(|_| Error::Script("the V8 isolate is in use".into()))?;
+        f(cell.get_or_insert_with(|| v8::Isolate::new(v8::CreateParams::default())))
+    })
+}
+
+/// Opens a handle scope in `$isolate`, enters `$context` and catches exceptions in `$scope`.
 macro_rules! enter {
-    ($engine:expr, $scope:ident) => {
-        let scope = pin!(v8::HandleScope::new(&mut $engine.isolate));
+    ($isolate:expr, $context:expr, $scope:ident) => {
+        let scope = pin!(v8::HandleScope::new($isolate));
         let scope = &mut scope.init();
-        let context = v8::Local::new(scope, &$engine.context);
+        let context = v8::Local::new(scope, $context);
         let scope = &mut v8::ContextScope::new(scope, context);
         let $scope = pin!(v8::TryCatch::new(scope));
         let $scope = &mut $scope.init();
@@ -45,35 +69,31 @@ impl Engine for V8 {
     type Handle = Handle;
 
     fn new(host: V8Host) -> Result<Self, Error> {
-        static INITIALIZE: Once = Once::new();
-        INITIALIZE.call_once(|| {
-            v8::V8::initialize_platform(v8::new_default_platform(0, false).make_shared());
-            v8::V8::initialize();
-        });
-        let mut isolate = v8::Isolate::new(v8::CreateParams::default());
-        isolate.set_slot(host);
-        isolate.set_slot(HostFunctions(Vec::new()));
-        let context = {
-            let scope = pin!(v8::HandleScope::new(&mut isolate));
+        with_isolate(|isolate| {
+            let scope = pin!(v8::HandleScope::new(isolate));
             let scope = &mut scope.init();
             let context = v8::Context::new(scope, Default::default());
-            v8::Global::new(scope, context)
-        };
-        Ok(Self { context, isolate })
+            context.set_slot(Rc::new(ContextData { host, functions: RefCell::new(Vec::new()) }));
+            Ok(Self { context: v8::Global::new(scope, context) })
+        })
     }
 
     fn eval(&mut self, source: &str) -> Result<Value<Handle>, Error> {
-        enter!(self, scope);
-        let source = string(scope, source)?;
-        let result = v8::Script::compile(scope, source, None).and_then(|script| script.run(scope));
-        let result = result.ok_or_else(|| exception(scope))?;
-        Ok(from_v8(scope, result))
+        with_isolate(|isolate| {
+            enter!(isolate, &self.context, scope);
+            let source = string(scope, source)?;
+            let result = v8::Script::compile(scope, source, None).and_then(|script| script.run(scope));
+            let result = result.ok_or_else(|| exception(scope))?;
+            Ok(from_v8(scope, result))
+        })
     }
 
     fn global(&mut self) -> Result<Handle, Error> {
-        enter!(self, scope);
-        let global = scope.get_current_context().global(scope);
-        Ok(handle(scope, global.into()))
+        with_isolate(|isolate| {
+            enter!(isolate, &self.context, scope);
+            let global = scope.get_current_context().global(scope);
+            Ok(handle(scope, global.into()))
+        })
     }
 
     fn function(&mut self, name: &str, function: HostFunction<Handle>) -> Result<Handle, Error> {
@@ -85,24 +105,36 @@ impl Engine for V8 {
     }
 
     fn with_call<R>(&mut self, f: impl FnOnce(&mut dyn Call<Handle>) -> Result<R, Error>) -> Result<R, Error> {
-        enter!(self, scope);
-        f(&mut V8Call { scope })
+        with_isolate(|isolate| {
+            enter!(isolate, &self.context, scope);
+            f(&mut V8Call { scope })
+        })
     }
 }
 
 impl V8 {
     fn host_function(&mut self, name: &str, function: HostFunction<Handle>, constructor: bool) -> Result<Handle, Error> {
-        let functions = self.isolate.get_slot_mut::<HostFunctions>().ok_or_else(|| missing("host functions"))?;
-        let index = i32::try_from(functions.0.len()).map_err(|_| Error::Script("too many host functions".into()))?;
-        functions.0.push(HostFunctionEntry { function, constructor });
-        enter!(self, scope);
-        let data = v8::Integer::new(scope, index);
-        let behavior = if constructor { v8::ConstructorBehavior::Allow } else { v8::ConstructorBehavior::Throw };
-        let function =
-            v8::Function::builder(call_host).data(data.into()).constructor_behavior(behavior).build(scope).ok_or_else(|| exception(scope))?;
-        function.set_name(string(scope, name)?);
-        Ok(handle(scope, function.into()))
+        with_isolate(|isolate| {
+            enter!(isolate, &self.context, scope);
+            let data = context_data(scope)?;
+            let index = {
+                let mut functions = data.functions.borrow_mut();
+                functions.push(HostFunctionEntry { function, constructor });
+                i32::try_from(functions.len() - 1).map_err(|_| Error::Script("too many host functions".into()))?
+            };
+            let data = v8::Integer::new(scope, index);
+            let behavior = if constructor { v8::ConstructorBehavior::Allow } else { v8::ConstructorBehavior::Throw };
+            let function =
+                v8::Function::builder(call_host).data(data.into()).constructor_behavior(behavior).build(scope).ok_or_else(|| exception(scope))?;
+            function.set_name(string(scope, name)?);
+            Ok(handle(scope, function.into()))
+        })
     }
+}
+
+/// The runtime state of the context `scope` is in.
+fn context_data(scope: &v8::PinScope<'_, '_>) -> Result<Rc<ContextData>, Error> {
+    scope.get_current_context().get_slot::<ContextData>().ok_or_else(|| missing("runtime"))
 }
 
 /// The engine's values, inside a host function or through [`Engine::with_call`].
@@ -112,7 +144,7 @@ struct V8Call<'a, 's, 'i> {
 
 impl Call<Handle> for V8Call<'_, '_, '_> {
     fn host(&self) -> Result<V8Host, Error> {
-        self.scope.get_slot::<V8Host>().cloned().ok_or_else(|| missing("host"))
+        Ok(context_data(self.scope)?.host.clone())
     }
 
     fn to_string(&mut self, value: &Value<Handle>) -> Result<String, Error> {
@@ -197,7 +229,7 @@ fn call_host<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionCallbackArg
         .data()
         .int32_value(scope)
         .and_then(|index| usize::try_from(index).ok())
-        .and_then(|index| scope.get_slot::<HostFunctions>()?.0.get(index).copied());
+        .and_then(|index| context_data(scope).ok()?.functions.borrow().get(index).copied());
     let value = function.ok_or_else(|| missing("such host function")).and_then(|HostFunctionEntry { function, constructor }| {
         let this = if constructor { Value::Undefined } else { from_v8(scope, args.this().into()) };
         let values: Vec<_> = (0..args.length()).map(|i| from_v8(scope, args.get(i))).collect();
@@ -240,7 +272,7 @@ fn buffer<'s>(scope: &v8::PinScope<'s, '_>, bytes: Vec<u8>) -> v8::Local<'s, v8:
 }
 
 fn missing(what: &str) -> Error {
-    Error::Script(format!("the V8 isolate has no {what}"))
+    Error::Script(format!("the V8 context has no {what}"))
 }
 
 fn string<'s>(scope: &v8::PinScope<'s, '_>, string: &str) -> Result<v8::Local<'s, v8::String>, Error> {
