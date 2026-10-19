@@ -1532,6 +1532,12 @@ font-technology	Variable	Променливи
 	New Script	Нов скрипт
 	PaperCraft Console	Конзола на PaperCraft
 	PaperCraft Tool	Инструмент на PaperCraft
+	About PaperCraft	За PaperCraft
+	About PaperCraft…	За PaperCraft…
+	Paper.js Reference…	Справочник на Paper.js…
+	Scripting with Paper.js {version}	Скриптове с Paper.js {version}
+	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js от Юрг Лени и Джонатан Пъки
+	After Scriptographer by Jürg Lehni	По Scriptographer от Юрг Лени
 	Choose Scripts Folder…	Избор на папка със скриптове…
 	Choose the folder your scripts are in.	Изберете папката, в която са скриптовете ви.
 	Clear Console	Изчистване на конзолата

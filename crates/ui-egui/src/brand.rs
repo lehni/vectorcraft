@@ -7,9 +7,9 @@ use egui::{Color32, Context, Id, Rect, TextureHandle, TextureOptions, Ui, pos2};
 /// 128 px: sharp at 44 pt on a 2× display, and the mipmaps keep 22 pt clean.
 const ICON_PNG: &[u8] = include_bytes!("../../../assets/app-icon/hicolor/128x128/apps/ai.storyteller.vectorcraft.png");
 
-/// The icon's pixels (one transparent pixel if it couldn't be decoded, which a test rules out).
-fn decode() -> egui::ColorImage {
-    match image::load_from_memory_with_format(ICON_PNG, image::ImageFormat::Png) {
+/// The pixels of `png` (one transparent pixel if it couldn't be decoded, which tests rule out).
+fn decode(png: &[u8]) -> egui::ColorImage {
+    match image::load_from_memory_with_format(png, image::ImageFormat::Png) {
         Ok(img) => {
             let img = img.to_rgba8();
             egui::ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], img.as_raw())
@@ -20,12 +20,18 @@ fn decode() -> egui::ColorImage {
 
 /// The icon texture, uploaded on first use and kept in the context.
 fn texture(ctx: &Context) -> TextureHandle {
-    let id = Id::new("vectorcraft-brand-mark");
+    png_texture(ctx, "vectorcraft-brand-mark", ICON_PNG)
+}
+
+/// A logo's texture from its `png`, uploaded on first use under `name` and kept in the context,
+/// mipmapped so it stays crisp at every size.
+pub(crate) fn png_texture(ctx: &Context, name: &'static str, png: &[u8]) -> TextureHandle {
+    let id = Id::new(name);
     if let Some(tex) = ctx.data(|d| d.get_temp::<TextureHandle>(id)) {
         return tex;
     }
     let options = TextureOptions { mipmap_mode: Some(egui::TextureFilter::Linear), ..TextureOptions::LINEAR };
-    let tex = ctx.load_texture("vectorcraft-brand-mark", decode(), options);
+    let tex = ctx.load_texture(name, decode(png), options);
     ctx.data_mut(|d| d.insert_temp(id, tex.clone()));
     tex
 }
@@ -49,7 +55,7 @@ mod tests {
 
     #[test]
     fn the_icon_decodes_to_a_rounded_128_px_tile() {
-        let img = decode();
+        let img = decode(ICON_PNG);
         assert_eq!(img.size, [128, 128]);
         // Rounded corners: the corner pixel is transparent, the centre opaque.
         assert_eq!(img.pixels[0].a(), 0);

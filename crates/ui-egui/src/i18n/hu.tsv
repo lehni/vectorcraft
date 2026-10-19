@@ -1978,6 +1978,12 @@ file-filter	Templates	Sablonok
 	New Script	Új szkript
 	PaperCraft Console	PaperCraft-konzol
 	PaperCraft Tool	PaperCraft eszköz
+	About PaperCraft	A PaperCraft névjegye
+	About PaperCraft…	A PaperCraft névjegye…
+	Paper.js Reference…	Paper.js-referencia…
+	Scripting with Paper.js {version}	Szkriptek a Paper.js {version} segítségével
+	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js: Jürg Lehni és Jonathan Puckey
+	After Scriptographer by Jürg Lehni	Jürg Lehni Scriptographere nyomán
 	Choose Scripts Folder…	Szkriptmappa kiválasztása…
 	Choose the folder your scripts are in.	Válassza ki a szkriptjeit tartalmazó mappát.
 	Clear Console	Konzol törlése

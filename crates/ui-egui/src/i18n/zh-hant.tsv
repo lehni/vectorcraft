@@ -1556,6 +1556,12 @@ file-filter	Templates	範本
 	New Script	新增指令碼
 	PaperCraft Console	PaperCraft 主控台
 	PaperCraft Tool	PaperCraft 工具
+	About PaperCraft	關於 PaperCraft
+	About PaperCraft…	關於 PaperCraft…
+	Paper.js Reference…	Paper.js 參考…
+	Scripting with Paper.js {version}	使用 Paper.js {version} 撰寫指令碼
+	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js 作者：Jürg Lehni 與 Jonathan Puckey
+	After Scriptographer by Jürg Lehni	源自 Jürg Lehni 的 Scriptographer
 	Choose Scripts Folder…	選擇指令碼資料夾…
 	Choose the folder your scripts are in.	請選擇存放指令碼的資料夾。
 	Clear Console	清除主控台

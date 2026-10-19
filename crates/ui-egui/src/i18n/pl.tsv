@@ -3021,6 +3021,12 @@ theme	Appearance	Wygląd
 	New Script	Nowy skrypt
 	PaperCraft Console	Konsola PaperCraft
 	PaperCraft Tool	Narzędzie PaperCraft
+	About PaperCraft	O PaperCraft
+	About PaperCraft…	O PaperCraft…
+	Paper.js Reference…	Dokumentacja Paper.js…
+	Scripting with Paper.js {version}	Skrypty z Paper.js {version}
+	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js: Jürg Lehni i Jonathan Puckey
+	After Scriptographer by Jürg Lehni	Na wzór Scriptographera Jürga Lehniego
 	Choose Scripts Folder…	Wybierz folder skryptów…
 	Choose the folder your scripts are in.	Wybierz folder, w którym są twoje skrypty.
 	Clear Console	Wyczyść konsolę

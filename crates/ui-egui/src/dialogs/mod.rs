@@ -63,6 +63,7 @@ mod new_document;
 pub mod new_swatch;
 pub mod office_export;
 pub mod package;
+pub(crate) mod papercraft_about;
 pub(crate) mod path_ops;
 pub mod pdf_presets;
 pub mod perspective_grid;
@@ -269,6 +270,7 @@ registry! {
     Confirm: [confirm::KIND] => confirm::SPEC,
     Message: [confirm::MESSAGE] => confirm::MESSAGE_SPEC,
     ScriptDialog: [script::KIND] => script::SPEC,
+    PapercraftAbout: [papercraft_about::KIND] => papercraft_about::SPEC,
     ScriptFolders: [script_folders::KIND] => script_folders::SPEC,
     NewScriptFolder: [script_folders::NEW_FOLDER] => script_folders::NEW_FOLDER_SPEC,
     Replace: [confirm::REPLACE] => confirm::REPLACE_SPEC,

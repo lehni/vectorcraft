@@ -979,6 +979,13 @@ pub(crate) fn edit_script(app: &mut VectorcraftApp, p: &Value) -> Result<Value, 
     Ok(Value::Null)
 }
 
+/// `ui.revealScript {path}`: shows a script or folder in the system's file manager.
+pub(crate) fn reveal(app: &mut VectorcraftApp, p: &Value) -> Result<Value, String> {
+    let path = p.get("path").and_then(Value::as_str).ok_or("missing path")?;
+    crate::io::reveal_path(app, path)?;
+    Ok(Value::Null)
+}
+
 /// `ui.newScriptFolder {folder?, name?}`: a new folder in `folder` (else the first shown scripts
 /// folder) named `name`; without one, a dialog asks for it, suggesting the first free Untitled N,
 /// as in Scriptographer. Returns its path, or `pending`.

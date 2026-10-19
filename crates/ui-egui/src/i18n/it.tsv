@@ -1592,6 +1592,12 @@ file-filter	Templates	Modelli
 	New Script	Nuovo script
 	PaperCraft Console	Console PaperCraft
 	PaperCraft Tool	Strumento PaperCraft
+	About PaperCraft	Informazioni su PaperCraft
+	About PaperCraft…	Informazioni su PaperCraft…
+	Paper.js Reference…	Riferimento di Paper.js…
+	Scripting with Paper.js {version}	Script con Paper.js {version}
+	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js di Jürg Lehni e Jonathan Puckey
+	After Scriptographer by Jürg Lehni	Da Scriptographer di Jürg Lehni
 	Choose Scripts Folder…	Scegli cartella degli script…
 	Choose the folder your scripts are in.	Scegli la cartella in cui si trovano i tuoi script.
 	Clear Console	Pulisci console

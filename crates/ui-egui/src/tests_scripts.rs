@@ -590,3 +590,19 @@ fn app_handlers_run_on_app_events() {
     let log: Vec<&str> = app.scripts.log().iter().map(|l| l.text.as_str()).collect();
     assert_eq!(log, ["front", "behind", "stop"]);
 }
+
+/// Show in Folder shows a script or a folder in the system's file manager.
+#[test]
+fn scripts_and_folders_show_in_their_folder() {
+    let (mut app, _) = app();
+    let shown = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let seen = shown.clone();
+    app.services.reveal = Some(Box::new(move |path: &str| {
+        seen.borrow_mut().push(path.to_owned());
+        Ok(())
+    }));
+    for path in ["/scripts/Tools", "/scripts/Tools/Clouds.js"] {
+        app.run("ui.revealScript", json!({ "path": path })).unwrap();
+    }
+    assert_eq!(*shown.borrow(), ["/scripts/Tools", "/scripts/Tools/Clouds.js"]);
+}

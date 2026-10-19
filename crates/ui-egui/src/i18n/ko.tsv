@@ -1844,6 +1844,12 @@ font-technology	Variable	가변
 	New Script	새 스크립트
 	PaperCraft Console	PaperCraft 콘솔
 	PaperCraft Tool	PaperCraft 도구
+	About PaperCraft	PaperCraft 정보
+	About PaperCraft…	PaperCraft 정보…
+	Paper.js Reference…	Paper.js 참조…
+	Scripting with Paper.js {version}	Paper.js {version}로 스크립트 작성
+	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js: Jürg Lehni, Jonathan Puckey
+	After Scriptographer by Jürg Lehni	Jürg Lehni의 Scriptographer를 바탕으로
 	Choose Scripts Folder…	스크립트 폴더 선택…
 	Choose the folder your scripts are in.	스크립트가 있는 폴더를 선택하세요.
 	Clear Console	콘솔 지우기

@@ -3143,6 +3143,12 @@ theme	Appearance	Motiv
 	New Script	Nový skript
 	PaperCraft Console	Konzole PaperCraft
 	PaperCraft Tool	Nástroj PaperCraft
+	About PaperCraft	O aplikaci PaperCraft
+	About PaperCraft…	O aplikaci PaperCraft…
+	Paper.js Reference…	Reference Paper.js…
+	Scripting with Paper.js {version}	Skriptování s Paper.js {version}
+	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js od Jürga Lehniho a Jonathana Puckeyho
+	After Scriptographer by Jürg Lehni	Podle Scriptographeru od Jürga Lehniho
 	Choose Scripts Folder…	Vybrat složku skriptů…
 	Choose the folder your scripts are in.	Vyberte složku, ve které jsou vaše skripty.
 	Clear Console	Vymazat konzoli

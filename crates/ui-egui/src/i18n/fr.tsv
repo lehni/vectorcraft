@@ -1566,6 +1566,12 @@ font-technology	Variable	Variables
 	New Script	Nouveau script
 	PaperCraft Console	Console PaperCraft
 	PaperCraft Tool	Outil PaperCraft
+	About PaperCraft	À propos de PaperCraft
+	About PaperCraft…	À propos de PaperCraft…
+	Paper.js Reference…	Référence Paper.js…
+	Scripting with Paper.js {version}	Scripts avec Paper.js {version}
+	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js par Jürg Lehni et Jonathan Puckey
+	After Scriptographer by Jürg Lehni	D’après Scriptographer de Jürg Lehni
 	Choose Scripts Folder…	Choisir le dossier des scripts…
 	Choose the folder your scripts are in.	Choisissez le dossier où se trouvent vos scripts.
 	Clear Console	Effacer la console

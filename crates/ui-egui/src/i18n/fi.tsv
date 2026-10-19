@@ -3083,6 +3083,12 @@ theme	Appearance	Ulkoasu
 	New Script	Uusi komentosarja
 	PaperCraft Console	PaperCraft-konsoli
 	PaperCraft Tool	PaperCraft-työkalu
+	About PaperCraft	Tietoja PaperCraftista
+	About PaperCraft…	Tietoja PaperCraftista…
+	Paper.js Reference…	Paper.js-viiteopas…
+	Scripting with Paper.js {version}	Komentosarjat Paper.js:llä {version}
+	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js: Jürg Lehni ja Jonathan Puckey
+	After Scriptographer by Jürg Lehni	Jürg Lehnin Scriptographerin pohjalta
 	Choose Scripts Folder…	Valitse komentosarjakansio…
 	Choose the folder your scripts are in.	Valitse kansio, jossa komentosarjasi ovat.
 	Clear Console	Tyhjennä konsoli

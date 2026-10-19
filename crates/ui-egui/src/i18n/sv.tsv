@@ -1534,6 +1534,12 @@ font-technology	Variable	Variabla
 	New Script	Nytt skript
 	PaperCraft Console	PaperCraft-konsol
 	PaperCraft Tool	PaperCraft-verktyg
+	About PaperCraft	Om PaperCraft
+	About PaperCraft…	Om PaperCraft…
+	Paper.js Reference…	Paper.js-referens…
+	Scripting with Paper.js {version}	Skript med Paper.js {version}
+	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js av Jürg Lehni och Jonathan Puckey
+	After Scriptographer by Jürg Lehni	Efter Scriptographer av Jürg Lehni
 	Choose Scripts Folder…	Välj skriptmapp…
 	Choose the folder your scripts are in.	Välj mappen där dina skript finns.
 	Clear Console	Rensa konsolen

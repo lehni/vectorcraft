@@ -28,7 +28,8 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     // Laid out from the bottom: the bar stays at the bottom, the log takes the height above it.
     ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
         ui.horizontal(|ui| {
-            if widgets::icon_button(ui, "trash-2", tl!("Clear Console"), false, 24.0).clicked() {
+            // Scriptographer's console cleared with its refresh arrows.
+            if widgets::icon_button(ui, "refresh-cw", tl!("Clear Console"), false, 24.0).clicked() {
                 app.scripts.clear_log();
             }
         });

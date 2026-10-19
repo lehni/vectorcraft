@@ -2718,6 +2718,12 @@ theme	Appearance	იერსახე
 	New Script	ახალი სკრიპტი
 	PaperCraft Console	PaperCraft-ის კონსოლი
 	PaperCraft Tool	PaperCraft-ის ხელსაწყო
+	About PaperCraft	PaperCraft-ის შესახებ
+	About PaperCraft…	PaperCraft-ის შესახებ…
+	Paper.js Reference…	Paper.js-ის ცნობარი…
+	Scripting with Paper.js {version}	სკრიპტები Paper.js {version}-ით
+	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js — იურგ ლენი და ჯონათან პაკი
+	After Scriptographer by Jürg Lehni	იურგ ლენის Scriptographer-ის მიხედვით
 	Choose Scripts Folder…	სკრიპტების საქაღალდის არჩევა…
 	Choose the folder your scripts are in.	აირჩიეთ საქაღალდე, სადაც თქვენი სკრიპტებია.
 	Clear Console	კონსოლის გასუფთავება

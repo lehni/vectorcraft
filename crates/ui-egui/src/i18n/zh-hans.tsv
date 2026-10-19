@@ -1518,6 +1518,12 @@ file-filter	Templates	模板
 	New Script	新建脚本
 	PaperCraft Console	PaperCraft 控制台
 	PaperCraft Tool	PaperCraft 工具
+	About PaperCraft	关于 PaperCraft
+	About PaperCraft…	关于 PaperCraft…
+	Paper.js Reference…	Paper.js 参考…
+	Scripting with Paper.js {version}	使用 Paper.js {version} 编写脚本
+	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js 作者：Jürg Lehni 与 Jonathan Puckey
+	After Scriptographer by Jürg Lehni	源自 Jürg Lehni 的 Scriptographer
 	Choose Scripts Folder…	选择脚本文件夹…
 	Choose the folder your scripts are in.	请选择存放脚本的文件夹。
 	Clear Console	清除控制台

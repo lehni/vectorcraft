@@ -3,9 +3,10 @@
 //! Tool scripts (they define mouse or key handlers) have a pencil, the one the PaperCraft Tool
 //! stands for a coloured one, running scripts their name in the accent colour. Double-click opens a
 //! script in its editor. The bottom bar has Scriptographer's buttons in its groups: execute the
-//! selected script and stop the running ones, edit, create a script or a folder, and on the right,
-//! show or hide the console. The panel menu lists the folder again or chooses another one; the app
-//! lists it again by itself when it comes to the front.
+//! selected script and stop the running ones, edit or show it in its folder, create a script or a
+//! folder, and on the right,
+//! show or hide the console. The panel menu manages the folders, and opens the Paper.js reference
+//! and About PaperCraft; the app lists the folders again by itself when it comes to the front.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -24,6 +25,9 @@ const SELECTED: &str = "papercraft-selected";
 const OPEN: &str = "papercraft-open";
 const ROW: f32 = 22.0;
 const INDENT: f32 = 14.0;
+/// Whether the panel menu has Reload: hidden for now, as the folders are listed again by themselves
+/// when the app comes to the front.
+const SHOW_RELOAD: bool = false;
 /// The space between the bottom bar's groups of buttons.
 const GAP: f32 = 8.0;
 
@@ -63,6 +67,12 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
                 && let Some(path) = &script
             {
                 command(app, "ui.editScript", json!({ "path": path.to_string_lossy() }));
+            }
+            let shown = app.services.reveal.is_some() && selected.is_some();
+            if widgets::icon_button_enabled(ui, "folder-open", tl!("Show in Folder"), false, shown, 24.0).clicked()
+                && let Some(path) = &selected
+            {
+                command(app, "ui.revealScript", json!({ "path": path.to_string_lossy() }));
             }
             ui.add_space(GAP);
             if widgets::icon_button(ui, "file-plus", tl!("Create a New Script…"), false, 24.0).clicked() {
@@ -123,11 +133,17 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
 
 /// The panel's (≡) menu: list the folders again, or manage them.
 pub fn menu(app: &mut VectorcraftApp, ui: &mut Ui) {
-    if widgets::menu_item(ui, "Reload", !app.ui.papercraft_folders.is_empty(), false) {
+    if SHOW_RELOAD && widgets::menu_item(ui, "Reload", !app.ui.papercraft_folders.is_empty(), false) {
         app.scripts.forget_tree();
     }
     if widgets::menu_item(ui, "Manage Script Folders…", true, false) {
         command(app, "ui.scriptFolders", json!({}));
+    }
+    if widgets::menu_item(ui, "Paper.js Reference…", true, false) {
+        command(app, "ui.paperReference", json!({}));
+    }
+    if widgets::menu_item(ui, "About PaperCraft…", true, false) {
+        command(app, "ui.papercraftAbout", json!({}));
     }
 }
 

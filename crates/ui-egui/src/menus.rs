@@ -1131,6 +1131,14 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
         "",
         "{} make the PaperCraft Tool the active tool, when a tool script is assigned to it (its onActivate runs) → {active}",
     ),
+    ("ui.revealScript", "Show in Folder", "", "{path} show a PaperCraft script or folder in the system file manager (desktop)"),
+    ("ui.paperReference", "Paper.js Reference…", "", "{} open the Paper.js reference (paperjs.org) in the browser"),
+    (
+        "ui.papercraftAbout",
+        "About PaperCraft…",
+        "",
+        "{} open About PaperCraft (dialog `papercraftAbout`): the Paper.js logo and version, credits and links",
+    ),
     (
         "ui.scriptFolders",
         "Manage Script Folders…",
@@ -1981,6 +1989,12 @@ pub fn run_ui_command(app: &mut VectorcraftApp, id: &str, p: &Value) -> Option<R
         "ui.scriptTool" => {
             app.scripts.select_tool();
             Ok(json!({ "active": app.scripts.active_tool().is_some() }))
+        }
+        "ui.papercraftAbout" => crate::dialogs::papercraft_about::open(app),
+        "ui.revealScript" => crate::scripts::reveal(app, p),
+        "ui.paperReference" => {
+            app.open_url("https://paperjs.org/reference/global/");
+            Ok(Value::Null)
         }
         "ui.scriptFolders" => {
             crate::dialogs::script_folders::open(app);

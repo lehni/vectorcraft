@@ -2906,6 +2906,12 @@ theme	Appearance	Udseende
 	New Script	Nyt script
 	PaperCraft Console	PaperCraft-konsol
 	PaperCraft Tool	PaperCraft-værktøj
+	About PaperCraft	Om PaperCraft
+	About PaperCraft…	Om PaperCraft…
+	Paper.js Reference…	Paper.js-reference…
+	Scripting with Paper.js {version}	Scripting med Paper.js {version}
+	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js af Jürg Lehni og Jonathan Puckey
+	After Scriptographer by Jürg Lehni	Efter Scriptographer af Jürg Lehni
 	Choose Scripts Folder…	Vælg scriptmappe…
 	Choose the folder your scripts are in.	Vælg den mappe, dine scripts ligger i.
 	Clear Console	Ryd konsol
