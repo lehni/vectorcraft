@@ -31,7 +31,7 @@ WebAssembly plug-ins run in the wasmi interpreter (MIT OR Apache-2.0); its wasmp
 under the Apache License 2.0 with the LLVM exception.
 
 Scripts (crates/papercraft) use Paper.js (crates/papercraft/vendor/paper-sourced.js, its
-paper-sourced.js build of develop at fd69d7ea; Jürg Lehni & Jonathan Puckey, MIT, see
+paper-sourced.js build of 0.14.0; Jürg Lehni & Jonathan Puckey, MIT, see
 crates/papercraft/vendor/LICENSE-paper.txt), which bundles Straps.js (MIT) and Acorn (MIT). Desktop
 builds run them in V8 (BSD-3-Clause, Google; linked through the v8 crate, MIT, the Deno authors);
 other builds in the browser's engine or in Boa (Unlicense OR MIT).

@@ -49,9 +49,14 @@ pub type PlatformEngine = V8;
 pub type PlatformEngine = Boa;
 
 /// Paper.js with the PaperScript compiler and items backed by a host document: the vendored
-/// `paper-sourced.js` build of Paper.js `develop` at fd69d7ea (MIT; no release has it yet), or the
-/// build `PAPERCRAFT_PAPER_JS` names (see `build.rs`).
+/// `paper-sourced.js` build of Paper.js 0.14.0 (MIT; `dist/paper-sourced.js` of the npm package),
+/// or the build `PAPERCRAFT_PAPER_JS` names (see `build.rs`).
 const PAPER_JS: &str = include_str!(env!("PAPERCRAFT_PAPER_JS_PATH"));
+
+/// The version of the Paper.js build scripts run with, as its header names it (`0.13.0-develop`).
+pub fn paper_version() -> &'static str {
+    PAPER_JS.split_once("Paper.js v").and_then(|(_, rest)| rest.split_whitespace().next()).unwrap_or("")
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
