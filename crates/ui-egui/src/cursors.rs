@@ -121,16 +121,43 @@ fn pen(p: &mut Ink, o: Pos2, badge: &str) {
     }
 }
 
-/// The PaperCraft Tool's pencil, as Scriptographer's tool cursor had it: hollow, pointing down-left,
-/// the lead tip the hotspot.
+/// The PaperCraft Tool's pencil: Scriptographer's tool cursor, pixel for pixel (`#` black, `.`
+/// white), its hotspot the lead tip's pixel at the left of the second row from the bottom.
+const SCRIPT_PENCIL: [&str; 16] = [
+    "            ### ",
+    "           #...#",
+    "          ##...#",
+    "         ##.#..#",
+    "        #.##.## ",
+    "       #...###  ",
+    "      #.....#   ",
+    "     #.....#    ",
+    "    #.....#     ",
+    "   #.....#      ",
+    "  #.....#       ",
+    " #.....#        ",
+    "#.#...#         ",
+    "#..#.#          ",
+    "##..#           ",
+    "####            ",
+];
+
+/// [`SCRIPT_PENCIL`] with its hotspot at `o`, one point a pixel. One mesh of crisp squares: shapes
+/// would be feathered, and seams would show between the pixels.
 fn script_pencil(p: &mut Ink, o: Pos2) {
-    let (along, across) = (vec2(1.0, -1.0) / 2f32.sqrt(), vec2(1.0, 1.0) / 2f32.sqrt());
-    let at = |t: f32, w: f32| o + along * t + across * w;
-    poly(p, vec![o, at(4.5, 2.4), at(15.0, 2.4), at(15.0, -2.4), at(4.5, -2.4)], HALO, INK);
-    // The lead, and where the wood ends and the eraser begins.
-    p.add(Shape::convex_polygon(vec![o, at(2.0, 1.1), at(2.0, -1.1)], INK, Stroke::NONE));
-    p.line_segment([at(4.5, 2.4), at(4.5, -2.4)], Stroke::new(1.0, INK));
-    p.line_segment([at(12.5, 2.4), at(12.5, -2.4)], Stroke::new(1.0, INK));
+    let mut mesh = Mesh::default();
+    for (y, row) in SCRIPT_PENCIL.iter().enumerate() {
+        for (x, c) in row.chars().enumerate() {
+            let color = match c {
+                '#' => INK,
+                '.' => HALO,
+                _ => continue,
+            };
+            let min = o + vec2(x as f32, y as f32 - 14.0);
+            mesh.add_colored_rect(egui::Rect::from_min_size(min, vec2(1.0, 1.0)), color);
+        }
+    }
+    p.add(Shape::mesh(mesh));
 }
 
 /// The Anchor Point tool's caret (as its toolbar icon): a small hollow square on the anchor at

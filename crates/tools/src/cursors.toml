@@ -645,7 +645,7 @@ id = "Script"
 group = "Drawing and editing tools"
 shown_when = ["The PaperCraft Tool, while a tool script is assigned to it and it is the active tool: the script gets the mouse, and draws."]
 hotspot = "The lead tip."
-look = "A hollow pencil pointing down-left, the PaperCraft Tool's own: it must match the pencil on its toolbox button."
+look = "A small hollow pencil pointing down-left, drawn pixel for pixel: the PaperCraft Tool's own cursor, kept as it was."
 
 [[cursor]]
 id = "Measure"
