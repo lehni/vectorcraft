@@ -306,3 +306,46 @@ fn a_cancelled_prompt_and_one_that_waits_its_turn() {
     assert!(!app.scripts.is_running());
     assert!(app.scripts.log().iter().all(|l| !l.error));
 }
+
+/// A frame of the scripts' palettes: the texts they show, where.
+fn palettes_frame(app: &mut VectorcraftApp, ctx: &egui::Context, events: Vec<egui::Event>) -> Vec<(String, egui::Rect)> {
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 800.0));
+    let mut out =
+        ctx.run_ui(egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ui| crate::scripts::palettes(app, ui.ctx()));
+    out.textures_delta.clear();
+    crate::tests_removeanchors::shapes_text(&out.shapes.iter().map(|c| c.shape.clone()).collect::<Vec<_>>())
+}
+
+/// A palette stays open while the script runs: its button runs the script's handler, and what the
+/// handler sets in `values` shows in the palette.
+#[test]
+fn a_palette_runs_its_buttons_and_shows_the_values() {
+    let (mut app, id) = app();
+    let path = tempfile_path::Path::new(
+        "var values = { size: 10 }\n\
+         new Palette('Circles', {\n\
+             size: { type: 'number', label: 'Size' },\n\
+             move: { type: 'button', value: 'Move', onClick: function() { project.activeLayer.firstChild.position.x += values.size; values.size = 25 } }\n\
+         }, values)",
+    );
+    app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
+    let ctx = egui::Context::default();
+    crate::theme::install_fonts(&ctx);
+    crate::scripts::frame(&mut app, &ctx, 0.5);
+    assert!(!app.scripts.is_running(), "no timers");
+    assert!(app.scripts.running_paths().contains(&path.0), "but it stays, with its palette");
+    // An area shows from its second frame, once it knows its size.
+    palettes_frame(&mut app, &ctx, vec![]);
+    let texts = palettes_frame(&mut app, &ctx, vec![]);
+    let at = crate::tests_removeanchors::at(&texts, "Move");
+    for s in ["Circles", "Size", "10"] {
+        assert!(texts.iter().any(|(t, _)| t == s), "{s} in {texts:?}");
+    }
+    let press = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+    palettes_frame(&mut app, &ctx, vec![egui::Event::PointerMoved(at), press(true)]);
+    palettes_frame(&mut app, &ctx, vec![press(false)]);
+    crate::scripts::frame(&mut app, &ctx, 1.0);
+    assert_eq!(left(&app, id), 20.0, "the button moved it by the size");
+    let texts = palettes_frame(&mut app, &ctx, vec![]);
+    assert!(texts.iter().any(|(t, _)| t == "25"), "the new size shows: {texts:?}");
+}

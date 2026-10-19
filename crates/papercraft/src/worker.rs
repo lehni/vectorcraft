@@ -14,7 +14,7 @@ use std::time::Duration;
 use serde_json::Value as Json;
 use vectorcraft_doc::{Document, NodeId, Selection};
 
-use crate::{Engine, Error, Modifiers, MouseEvent, Patch, PlatformEngine, Runtime, Scope};
+use crate::{Engine, Error, Modifiers, MouseEvent, PaletteEvent, Patch, PlatformEngine, Runtime, Scope};
 
 /// What the app asks a worker to do.
 pub enum Request {
@@ -39,6 +39,8 @@ pub enum Work {
     /// A key going down (`true`) or up for the script's tool: its name as Paper.js has it, and the
     /// character it types.
     Key(bool, String, Option<String>, Modifiers),
+    /// What the user did in one of the script's palettes.
+    Palette(u64, PaletteEvent),
 }
 
 /// What a worker tells the app.
@@ -50,8 +52,9 @@ pub enum Reply {
     /// [`Request::Applied`]), and the objects selected in its project before and after.
     Changes { patch: Option<Json>, base: Arc<Document>, before: BTreeSet<NodeId>, selected: BTreeSet<NodeId> },
     /// The work is done: what the script printed, its error if it threw, whether it has timers
-    /// left, whether it made a tool, and whether that tool handles keys.
-    Done { output: Vec<String>, error: Option<String>, running: bool, tool: bool, keys: bool },
+    /// left, whether it made a tool, whether that tool handles keys, the palettes that are new or
+    /// changed (as [`crate::Runtime::take_palettes`] has them) and whether it has palettes open.
+    Done { output: Vec<String>, error: Option<String>, running: bool, tool: bool, keys: bool, palettes: Vec<Json>, open: bool },
 }
 
 /// One script's runtime, and the patch waiting for its ids.
@@ -97,6 +100,7 @@ impl<E: Engine> Script<E> {
             Work::Frame(now) => self.runtime.run_timers(now),
             Work::Mouse(event, point, modifiers) => self.runtime.mouse_event(&self.scope, event, point, modifiers),
             Work::Key(down, key, character, modifiers) => self.runtime.key_event(&self.scope, down, &key, character.as_deref(), modifiers),
+            Work::Palette(id, event) => self.runtime.palette_event(id, event),
         };
         let mut replies = Vec::new();
         let changes = self.changes(before).map(|changes| replies.extend(changes));
@@ -120,7 +124,12 @@ impl<E: Engine> Script<E> {
     fn done(&mut self, error: Option<String>) -> Reply {
         let tool = self.runtime.has_tool(&self.scope).unwrap_or(false);
         let keys = tool && self.runtime.has_key_handlers(&self.scope).unwrap_or(false);
-        Reply::Done { output: self.runtime.take_output(), error, running: self.runtime.is_running(), tool, keys }
+        let (palettes, error) = match self.runtime.take_palettes() {
+            Ok(palettes) => (palettes, error),
+            Err(e) => (Vec::new(), error.or(Some(e.to_string()))),
+        };
+        let (running, open) = (self.runtime.is_running(), self.runtime.has_palettes());
+        Reply::Done { output: self.runtime.take_output(), error, running, tool, keys, palettes, open }
     }
 }
 
@@ -153,7 +162,15 @@ impl Worker {
                     Ok(script) => script,
                     Err(e) => {
                         // The app may have stopped the script already; then nobody listens.
-                        let _ = outbox.send(Reply::Done { output: Vec::new(), error: Some(e.to_string()), running: false, tool: false, keys: false });
+                        let _ = outbox.send(Reply::Done {
+                            output: Vec::new(),
+                            error: Some(e.to_string()),
+                            running: false,
+                            tool: false,
+                            keys: false,
+                            palettes: Vec::new(),
+                            open: false,
+                        });
                         return;
                     }
                 };

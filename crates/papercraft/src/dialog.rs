@@ -98,14 +98,37 @@ fn prompt<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>])
         _ => None,
     };
     let globals = globals(call)?;
+    let list = describe(call, &globals, components, values.as_ref())?;
+    let answer = ask(call, json!({ "type": "prompt", "title": title, "components": list }))?;
+    let Json::Object(answer) = answer else {
+        return Ok(Value::Null);
+    };
+    let result = match values {
+        Some(values) => values,
+        None => call.new_object()?,
+    };
+    for component in &list {
+        let name = component["name"].as_str().unwrap_or_default();
+        if let Some(value) = answer.get(name) {
+            let value = from_component(call, &globals, component, value)?;
+            call.set(&result, name, &value)?;
+        }
+    }
+    Ok(Value::Js(result))
+}
+
+/// The components as the host gets them: each definition as JSON with its `name`, its `type`
+/// filled in where the script left it out, and its `value` from `values` or the definition, a
+/// colour as CSS.
+pub(crate) fn describe<H: Clone>(call: &mut dyn Call<H>, globals: &Globals<H>, components: &H, values: Option<&H>) -> Result<Vec<Json>, Error> {
     let mut list = Vec::new();
-    for name in keys(call, &globals, components)? {
+    for name in keys(call, globals, components)? {
         let definition = object(call, components, &name)?;
-        let mut component = match to_json(call, &globals, &Value::Js(definition.clone()))? {
+        let mut component = match to_json(call, globals, &Value::Js(definition.clone()))? {
             Json::Object(component) => component,
             _ => Map::new(),
         };
-        let value = match &values {
+        let value = match values {
             Some(values) => match call.get(values, &name)? {
                 Value::Undefined => call.get(&definition, "value")?,
                 value => value,
@@ -117,7 +140,7 @@ fn prompt<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>])
             Value::Js(color) if matches!(call.get(color, "toCSS")?, Value::Js(_)) => method(call, color, "toCSS", &[Value::Bool(true)])?,
             _ => value,
         };
-        component.insert("value".into(), to_json(call, &globals, &value)?);
+        component.insert("value".into(), to_json(call, globals, &value)?);
         if !component.contains_key("type") {
             let kind = kind(&component, call.get(&definition, "onClick")?);
             component.insert("type".into(), json!(kind));
@@ -125,27 +148,15 @@ fn prompt<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>])
         component.insert("name".into(), json!(name));
         list.push(Json::Object(component));
     }
-    let types: Vec<(String, String)> =
-        list.iter().map(|c| (c["name"].as_str().unwrap_or_default().to_owned(), c["type"].as_str().unwrap_or_default().to_owned())).collect();
-    let answer = ask(call, json!({ "type": "prompt", "title": title, "components": list }))?;
-    let Json::Object(answer) = answer else {
-        return Ok(Value::Null);
-    };
-    let result = match values {
-        Some(values) => values,
-        None => call.new_object()?,
-    };
-    for (name, kind) in types {
-        let Some(value) = answer.get(&name) else {
-            continue;
-        };
-        let value = match (kind.as_str(), value) {
-            ("color", Json::String(css)) => call.construct(&globals.color, &[Value::String(css.clone())])?,
-            _ => from_json(call, &globals, value)?,
-        };
-        call.set(&result, &name, &value)?;
+    Ok(list)
+}
+
+/// The script value of `component`'s value `json` from the host: a colour from CSS.
+pub(crate) fn from_component<H: Clone>(call: &mut dyn Call<H>, globals: &Globals<H>, component: &Json, json: &Json) -> Result<Value<H>, Error> {
+    match (component["type"].as_str(), json) {
+        (Some("color"), Json::String(css)) => call.construct(&globals.color, &[Value::String(css.clone())]),
+        _ => from_json(call, globals, json),
     }
-    Ok(Value::Js(result))
 }
 
 /// A component's type where its definition leaves it out, as Scriptographer read it from the
@@ -164,7 +175,7 @@ fn kind<H>(component: &Map<String, Json>, on_click: Value<H>) -> &'static str {
     }
 }
 
-fn globals<H: Clone>(call: &mut dyn Call<H>) -> Result<Globals<H>, Error> {
+pub(crate) fn globals<H: Clone>(call: &mut dyn Call<H>) -> Result<Globals<H>, Error> {
     let host = call.host()?;
     let host = host.borrow();
     let globals = host.dialog_globals.as_ref().ok_or_else(|| Error::Script("Dialog is not set up".into()))?;

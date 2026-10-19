@@ -1,11 +1,12 @@
-//! Scriptographer's `Dialog`: the script asks, the host answers, the script goes on with it.
+//! Scriptographer's `Dialog` and `Palette`: the script asks, the host answers, the script goes on
+//! with it.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use serde_json::{Value, json};
-use vectorcraft_papercraft::{Engine, Runtime};
+use vectorcraft_papercraft::{Engine, PaletteEvent, Runtime};
 
 /// Runs `script` with dialogs answered by `answers`, in turn. Returns the questions and the output.
 fn run<E: Engine>(script: &str, answers: Vec<Value>) -> (Vec<Value>, Vec<String>) {
@@ -69,6 +70,44 @@ fn without_a_host_dialogs_throw<E: Engine>() {
     assert!(error.to_string().contains("Dialogs need the desktop app"), "{error}");
 }
 
+fn palettes_report_and_take_what_the_user_does<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(400.0, 300.0).unwrap();
+    let script = "var values = { radius: 10 }\n\
+        var palette = new Palette('Circles', {\n\
+            radius: { type: 'number', label: 'Radius', onChange: function(value) { console.log('radius', value, values.radius) } },\n\
+            draw: { type: 'button', value: 'Draw', onClick: function() { console.log('draw', values.radius) } }\n\
+        }, values)\n\
+        palette.onChange = function(component) { console.log('changed', component.label) }";
+    runtime.execute(&scope, script).unwrap();
+    let palettes = runtime.take_palettes().unwrap();
+    assert_eq!(
+        palettes,
+        [json!({"id": 1, "title": "Circles", "components": [
+            {"name": "radius", "type": "number", "label": "Radius", "value": 10},
+            {"name": "draw", "type": "button", "value": "Draw"}
+        ]})]
+    );
+    assert!(runtime.take_palettes().unwrap().is_empty(), "reported once, until it changes");
+    runtime.palette_event(1, PaletteEvent::Change("radius".into(), json!(20))).unwrap();
+    runtime.palette_event(1, PaletteEvent::Click("draw".into())).unwrap();
+    assert_eq!(runtime.take_output(), ["radius 20 20", "changed Radius", "draw 20"]);
+    runtime.execute(&scope, "project.activeLayer.data.x = 1").unwrap();
+    assert!(runtime.take_palettes().unwrap().is_empty(), "the change came from the panel");
+    assert!(runtime.has_palettes());
+    runtime.palette_event(1, PaletteEvent::Close).unwrap();
+    assert!(!runtime.has_palettes());
+}
+
+fn what_the_script_changes_shows_in_the_palette<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(400.0, 300.0).unwrap();
+    runtime.execute(&scope, "var values = {}\nnew Palette('P', { size: { value: 1 } }, values)\nfunction onFrame() { values.size = 2 }").unwrap();
+    assert_eq!(runtime.take_palettes().unwrap()[0]["components"][0]["value"], 1);
+    runtime.run_timers(20.0).unwrap();
+    assert_eq!(runtime.take_palettes().unwrap()[0]["components"][0]["value"], 2);
+}
+
 macro_rules! engine_tests {
     ($module:ident, $engine:ty) => {
         mod $module {
@@ -85,6 +124,16 @@ macro_rules! engine_tests {
             #[test]
             fn a_cancelled_prompt_returns_null() {
                 super::a_cancelled_prompt_returns_null::<$engine>();
+            }
+
+            #[test]
+            fn palettes_report_and_take_what_the_user_does() {
+                super::palettes_report_and_take_what_the_user_does::<$engine>();
+            }
+
+            #[test]
+            fn what_the_script_changes_shows_in_the_palette() {
+                super::what_the_script_changes_shows_in_the_palette::<$engine>();
             }
 
             #[test]

@@ -1647,6 +1647,7 @@ impl VectorcraftApp {
         });
         dock::floating_panel(self, &ctx);
         floating::show(self, &ctx);
+        scripts::palettes(self, &ctx);
         dialogs::show(self, &ctx);
         export_progress::show(self, &ctx);
         plugin_runs::show(self, &ctx);

@@ -1,6 +1,6 @@
 //! A PaperCraft script's dialog: `Dialog.alert`, `confirm` and `prompt`, while the script waits
-//! for the answer ([`crate::scripts`]). Its title, message, labels and options are the script's,
-//! shown as they are.
+//! for the answer ([`crate::scripts`]), and the components palettes share with it. Its title,
+//! message, labels and options are the script's, shown as they are.
 //!
 //! Fields: `script` (the script's id), `question` (as the script asked it: `type`, `title`,
 //! `message`, `components`) and `values` (a prompt's values by name, as the user edits them).
@@ -18,6 +18,8 @@ pub const KIND: &str = "scriptDialog";
 const LABEL_W: f32 = 110.0;
 /// Width of a prompt's fields.
 const FIELD_W: f32 = 180.0;
+/// Width of a prompt's or palette's rows.
+pub(crate) const WIDTH: f32 = LABEL_W + FIELD_W + 8.0;
 
 pub(super) const SPEC: DialogSpec = DialogSpec {
     heading: |d| d.fields["question"]["title"].as_str().unwrap_or_default().to_owned(),
@@ -68,36 +70,50 @@ fn body(ui: &mut egui::Ui, d: &mut Dialog) {
         let Some(name) = c["name"].as_str() else {
             continue;
         };
-        let label = c["label"].as_str().unwrap_or(name);
-        let value = values.get(name).cloned().unwrap_or(Value::Null);
-        let enabled = c["enabled"].as_bool().unwrap_or(true);
-        if c["visible"].as_bool() == Some(false) {
-            continue;
-        }
-        let changed = ui
-            .add_enabled_ui(enabled, |ui| match c["type"].as_str().unwrap_or("string") {
-                "ruler" | "menu-separator" => {
-                    widgets::divider(ui);
-                    None
-                }
-                "text" => {
-                    ui.label(value.as_str().map_or_else(|| label.to_owned(), str::to_owned));
-                    None
-                }
-                kind => row(ui, label, |ui| field(ui, name, kind, c, &value)),
-            })
-            .inner;
-        if let Some(value) = changed {
+        if let Some(Edit::Value(value)) = component(ui, c, values.get(name).unwrap_or(&Value::Null)) {
             values.insert(name.to_owned(), value);
         }
     }
     d.fields.insert("values".into(), Value::Object(values));
 }
 
+/// What the user did with a component.
+pub(crate) enum Edit {
+    Value(Value),
+    /// Clicked a button.
+    Click,
+}
+
+/// Component `c` of a prompt or palette showing `value`, with its label: a row, a ruler or a line
+/// of text. Hidden components take no room, disabled ones are greyed.
+pub(crate) fn component(ui: &mut egui::Ui, c: &Value, value: &Value) -> Option<Edit> {
+    let name = c["name"].as_str().unwrap_or_default();
+    if c["visible"].as_bool() == Some(false) {
+        return None;
+    }
+    let label = c["label"].as_str().unwrap_or(name);
+    let enabled = c["enabled"].as_bool().unwrap_or(true);
+    ui.add_enabled_ui(enabled, |ui| match c["type"].as_str().unwrap_or("string") {
+        "ruler" | "menu-separator" => {
+            widgets::divider(ui);
+            None
+        }
+        "text" => {
+            ui.label(value.as_str().map_or_else(|| label.to_owned(), str::to_owned));
+            None
+        }
+        "button" => row(ui, c["label"].as_str().unwrap_or_default(), |ui| ui.button(text(value)).clicked().then_some(Edit::Click)),
+        kind => row(ui, label, |ui| field(ui, name, kind, c, value).map(Edit::Value)),
+    })
+    .inner
+}
+
 /// A row: the component's label (the script's, as it is), then its field.
-fn row(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui) -> Option<Value>) -> Option<Value> {
+fn row(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui) -> Option<Edit>) -> Option<Edit> {
+    let dim = crate::theme::Tokens::get(ui.ctx()).text_dim;
     ui.horizontal(|ui| {
-        ui.add_sized([LABEL_W, 24.0], egui::Label::new(label).truncate());
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(LABEL_W, 24.0), egui::Sense::hover());
+        ui.painter().with_clip_rect(rect).text(rect.left_center(), egui::Align2::LEFT_CENTER, label, egui::FontId::proportional(12.5), dim);
         add(ui)
     })
     .inner
@@ -137,7 +153,7 @@ fn field(ui: &mut egui::Ui, name: &str, kind: &str, c: &Value, value: &Value) ->
             let rows = if c["multiline"].as_bool() == Some(true) { c["rows"].as_u64().unwrap_or(4) as usize } else { 1 };
             widgets::text_field(ui, id, Some(&text(value)), FIELD_W, rows).map(|s| json!(s))
         }
-        // Buttons, fonts and menu entries: palettes have them, dialogs don't.
+        // Fonts and menu entries: not yet.
         _ => None,
     }
 }

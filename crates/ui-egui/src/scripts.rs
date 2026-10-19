@@ -6,7 +6,8 @@
 //! sends it its work with the document as it is, waits a moment for what it changed, and goes on
 //! when it takes longer. Edits made in the meantime win over the script's. A script runs on the document it started on: it waits while another one is active, and stops
 //! when its document closes. One tool script at a time is the PaperCraft Tool, which works in
-//! every document.
+//! every document. A script's dialogs (`Dialog.prompt`…) show as app dialogs while it waits, its
+//! palettes (`new Palette`) as floating panels while it runs.
 //!
 //! `ui.runScript {path?}` runs a script (without a path it asks for the file),
 //! `ui.stopScripts` stops the running ones and `ui.evaluateScript {code}` runs a line in the
@@ -23,7 +24,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use vectorcraft_doc::{Document, NodeId};
 use vectorcraft_papercraft::worker::{Reply, Request, Work, Worker};
-use vectorcraft_papercraft::{Modifiers, MouseEvent};
+use vectorcraft_papercraft::{Modifiers, MouseEvent, PaletteEvent};
 use vectorcraft_tools::Cursor;
 
 use crate::{FilePick, VectorcraftApp};
@@ -121,6 +122,22 @@ struct Running {
     queued: VecDeque<Work>,
     /// The dialog it waits on (`Dialog.alert`, `confirm`, `prompt`).
     asking: Option<Asking>,
+    /// Its palettes (`new Palette`), as they show.
+    palettes: Vec<PaletteView>,
+    /// Whether it has palettes open, as its last work said: it then keeps running.
+    open: bool,
+}
+
+/// A script's palette, as the panel shows it.
+struct PaletteView {
+    id: u64,
+    title: String,
+    /// As the script describes them, values included.
+    components: Vec<Value>,
+    /// The values by name, as the panel shows them.
+    values: serde_json::Map<String, Value>,
+    /// Its top left corner, once shown.
+    pos: Option<egui::Pos2>,
 }
 
 /// A script's dialog: its question, and whether it shows (it waits while another dialog is open).
@@ -136,6 +153,7 @@ enum Kind {
     Frame,
     Mouse,
     Key,
+    Palette,
 }
 
 impl Scripts {
@@ -330,6 +348,8 @@ fn start(app: &VectorcraftApp, name: String, path: Option<PathBuf>, source: Stri
         busy: None,
         queued,
         asking: None,
+        palettes: Vec::new(),
+        open: false,
     })
 }
 
@@ -401,7 +421,7 @@ fn pump(app: &mut VectorcraftApp, script: &mut Running, mut frame: Option<f64>, 
                 Some(work) => work,
                 None => match frame.take() {
                     Some(now) if script.timers => Work::Frame(now),
-                    _ => return Ok(script.timers || script.tool),
+                    _ => return Ok(script.timers || script.tool || script.open),
                 },
             };
             send(app, script, work)?;
@@ -438,6 +458,7 @@ fn send(app: &mut VectorcraftApp, script: &mut Running, work: Work) -> Result<()
         Work::Execute(_) => Kind::Execute,
         Work::Frame(_) => Kind::Frame,
         Work::Key(..) => Kind::Key,
+        Work::Palette(..) => Kind::Palette,
         Work::Mouse(event, ..) => {
             if event == MouseEvent::Down {
                 // A drag starts its own undo step.
@@ -472,15 +493,104 @@ fn settle(app: &mut VectorcraftApp, script: &mut Running, wait: Duration) -> Opt
                 script.asking = Some(Asking { question, shown: false });
                 return None;
             }
-            Reply::Done { output, error, running, tool, keys } => {
+            Reply::Done { output, error, running, tool, keys, palettes, open } => {
                 show_output(app, output);
                 script.busy = None;
                 script.timers = running;
+                script.open = open;
+                show_palettes(script, palettes);
                 return Some(Done { error: error.or(failed), tool, keys });
             }
         }
     }
     None
+}
+
+/// Puts the palettes the script reports as new or changed in the ones it shows.
+fn show_palettes(script: &mut Running, palettes: Vec<Value>) {
+    for palette in palettes {
+        let Some(id) = palette["id"].as_u64() else {
+            continue;
+        };
+        let components = palette["components"].as_array().cloned().unwrap_or_default();
+        let values = components.iter().filter_map(|c| Some((c["name"].as_str()?.to_owned(), c["value"].clone()))).collect();
+        let title = palette["title"].as_str().unwrap_or_default().to_owned();
+        match script.palettes.iter_mut().find(|p| p.id == id) {
+            Some(view) => (view.title, view.components, view.values) = (title, components, values),
+            None => script.palettes.push(PaletteView { id, title, components, values, pos: None }),
+        }
+    }
+}
+
+/// The scripts' palettes, as floating panels: what the user changes goes into the panel at once,
+/// and to the script as work. The × closes a palette.
+pub(crate) fn palettes(app: &mut VectorcraftApp, ctx: &egui::Context) {
+    use crate::dialogs::script::{Edit, component};
+    let t = crate::theme::Tokens::get(ctx);
+    let start = ctx.content_rect().center() - egui::vec2(120.0, 120.0);
+    let mut events = Vec::new();
+    let mut shown = 0.0;
+    for script in app.scripts.running.iter_mut().chain(&mut app.scripts.console) {
+        for view in &mut script.palettes {
+            let pos = *view.pos.get_or_insert(start + egui::vec2(shown, shown));
+            shown += 24.0;
+            let area = egui::Id::new(("papercraft-palette", script.id, view.id));
+            egui::Area::new(area).order(egui::Order::Middle).fixed_pos(pos).show(ctx, |ui| {
+                let frame = egui::Frame::popup(ui.style()).fill(t.panel).corner_radius(4).inner_margin(egui::Margin::ZERO);
+                frame.show(ui, |ui| {
+                    ui.set_width(crate::dialogs::script::WIDTH + 16.0);
+                    // Title bar: its title, the grip that moves it and the × that closes it.
+                    let (bar, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), crate::floating::STRIP), egui::Sense::hover());
+                    ui.painter().rect_filled(bar, egui::CornerRadius { nw: 4, ne: 4, sw: 0, se: 0 }, t.tab_strip);
+                    let close = egui::Rect::from_center_size(bar.right_center() - egui::vec2(13.0, 0.0), egui::vec2(18.0, 18.0));
+                    ui.painter().text(
+                        bar.left_center() + egui::vec2(8.0, 0.0),
+                        egui::Align2::LEFT_CENTER,
+                        &view.title,
+                        crate::theme::semibold(12.0),
+                        t.text,
+                    );
+                    let grip = ui.interact(
+                        egui::Rect::from_min_max(bar.min, egui::pos2(close.left(), bar.bottom())),
+                        ui.id().with("grip"),
+                        egui::Sense::drag(),
+                    );
+                    if grip.dragged() {
+                        view.pos = Some(pos + grip.drag_delta());
+                    }
+                    let x = ui.interact(close, ui.id().with("close"), egui::Sense::click());
+                    crate::icons::paint(ui, "x", close.shrink(3.0), if x.hovered() { t.text_strong } else { t.text_dim });
+                    if x.clicked() {
+                        events.push((script.id, view.id, PaletteEvent::Close));
+                    }
+                    egui::Frame::NONE.inner_margin(8).show(ui, |ui| {
+                        for c in &view.components {
+                            let Some(name) = c["name"].as_str() else {
+                                continue;
+                            };
+                            match component(ui, c, view.values.get(name).unwrap_or(&Value::Null)) {
+                                Some(Edit::Value(value)) => {
+                                    view.values.insert(name.to_owned(), value.clone());
+                                    events.push((script.id, view.id, PaletteEvent::Change(name.to_owned(), value)));
+                                }
+                                Some(Edit::Click) => events.push((script.id, view.id, PaletteEvent::Click(name.to_owned()))),
+                                None => {}
+                            }
+                        }
+                    });
+                });
+            });
+        }
+    }
+    for (script, palette, event) in events {
+        if let Some(script) = app.scripts.running.iter_mut().chain(&mut app.scripts.console).find(|s| s.id == script) {
+            if event == PaletteEvent::Close {
+                script.palettes.retain(|p| p.id != palette);
+            }
+            script.queued.push_back(Work::Palette(palette, event));
+        }
+        ctx.request_repaint();
+    }
 }
 
 /// Shows the dialogs scripts wait on, one at a time while no other dialog is open, and answers a

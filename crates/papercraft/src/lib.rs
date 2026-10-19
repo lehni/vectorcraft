@@ -12,6 +12,7 @@ mod canvas;
 mod dialog;
 mod engine;
 mod engines;
+mod palette;
 pub mod source;
 pub mod worker;
 mod writeback;
@@ -31,6 +32,7 @@ pub use engines::boa::Boa;
 pub use engines::browser::Browser;
 #[cfg(all(feature = "v8", not(target_arch = "wasm32")))]
 pub use engines::v8::V8;
+pub use palette::PaletteEvent;
 
 /// The engine scripts run in on this platform: the browser's on the web, V8 on desktop, Boa where
 /// V8 is left out.
@@ -69,6 +71,9 @@ pub struct Host<H> {
     ask: Option<dialog::Ask>,
     /// What `Dialog` uses of the script's realm.
     dialog_globals: Option<dialog::Globals<H>>,
+    /// The palettes the script made, open.
+    palettes: Vec<palette::Palette<H>>,
+    next_palette_id: u64,
 }
 
 struct Interval<H> {
@@ -89,6 +94,8 @@ impl<H> Default for Host<H> {
             canvas_methods: Vec::new(),
             ask: None,
             dialog_globals: None,
+            palettes: Vec::new(),
+            next_palette_id: 0,
         }
     }
 }
@@ -113,6 +120,7 @@ impl<E: Engine> Runtime<E> {
         let paper = engine.with_call(|call| object(call, &global, "paper"))?;
         let mut runtime = Self { engine, host, paper };
         dialog::install(&mut runtime, &global)?;
+        palette::install(&mut runtime.engine, &global)?;
         Ok(runtime)
     }
 
