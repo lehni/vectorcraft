@@ -650,8 +650,10 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     // Selection visuals and tool overlays.
     let revolve_edit = app.ui.dialog.as_ref().is_some_and(crate::dialogs::revolve_gizmo::active);
     let view_info = app.view_info();
-    // View → Hide Gradient Annotator hides the Gradient tool's annotator.
-    let mut overlays = if !revolve_edit && (app.session.tool_id() != "gradient" || app.ui.view.gradient_annotator) {
+    // View → Hide Gradient Annotator hides the Gradient tool's annotator. While a PaperCraft tool
+    // script has the mouse, the app's tool shows nothing.
+    let script_tool = app.scripts.active_tool().is_some();
+    let mut overlays = if !revolve_edit && !script_tool && (app.session.tool_id() != "gradient" || app.ui.view.gradient_annotator) {
         app.session.overlays(view_info)
     } else {
         vec![]
@@ -2450,7 +2452,10 @@ fn hover_highlight(app: &VectorcraftApp, p: &egui::Painter, xf: &Xf) {
     if !app.ui.view.smart_guides || !app.session.prefs.object_highlighting || app.ui.view.snap_to_grid || app.ui.view.pixel_preview {
         return;
     }
-    if app.session.tool_busy() || !matches!(app.session.tool_id(), "selection" | "directSelection" | "groupSelection") {
+    if app.session.tool_busy()
+        || !matches!(app.session.tool_id(), "selection" | "directSelection" | "groupSelection")
+        || app.scripts.active_tool().is_some()
+    {
         return;
     }
     let Some(st) = app.session.active() else { return };

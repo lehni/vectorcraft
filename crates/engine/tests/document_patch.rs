@@ -183,3 +183,31 @@ fn keep_leaves_out_what_changed_since_the_callers_copy() {
     assert_ne!(node(&mut s, a)["name"], "script", "the newer move stays");
     assert_eq!(children(&s, layer).len(), 3);
 }
+
+/// A new group gets its new and its existing children in one patch: an insert or an order list
+/// names it as `{new: k}`. Existing objects keep their ids.
+#[test]
+fn new_parents_take_new_and_existing_children() {
+    let (mut s, layer, [a, b, c]) = three_rectangles();
+    let mut group = node(&mut s, layer);
+    group["kind"] = json!({"type": "group", "children": []});
+    group["name"] = json!("Group");
+    let copy = node(&mut s, a);
+    let result = s
+        .execute(
+            "document.patch",
+            &json!({
+                "insert": [{"parent": layer, "node": group}, {"parent": {"new": 0}, "node": copy}],
+                "order": [
+                    {"parent": layer, "children": [a, {"new": 0}]},
+                    {"parent": {"new": 0}, "children": [b, {"new": 1}, c]},
+                ],
+            }),
+        )
+        .unwrap();
+    let ids: Vec<u64> = result["ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+    assert_eq!(children(&s, layer), [a, ids[0]]);
+    assert_eq!(children(&s, ids[0]), [b, ids[1], c], "b and c moved in, keeping their ids");
+    let again = node(&mut s, a);
+    assert!(s.execute("document.patch", &json!({"insert": [{"parent": {"new": 0}, "node": again}]})).is_err(), "only an earlier insert");
+}

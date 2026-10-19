@@ -19,7 +19,7 @@ pub fn specs() -> Vec<CommandSpec> {
         "Patch Document",
         [],
         None,
-        "{label?: undo step name (default \"Edit\"), extend?: true adds to the newest undo step instead of recording one (for a caller whose last edit that step is), remove?: [ids], insert?: [{parent: id|null (null: the layer list), index?: position among the parent's children (bottom first; default: on top), node: object JSON as document.node returns it (its ids are replaced with new ones)}], replace?: [object JSON with its id (a container sent without its children keeps them)], order?: [{parent: id|null, children: [id|{new: k}]}] (the parent's children become exactly these, bottom first; listed objects from elsewhere move here; {new: k} places the k-th insert), keep?: {objects: [ids], lists: [parent id|null]} (what changed since the caller's copy of the document, which the patch leaves out)} applied in that order, as one undo step; during an interaction (a drag) it applies beneath it, leaving out the objects the interaction changed too → {ids: [the new id of each insert], skipped?: [the objects left out]}",
+        "{label?: undo step name (default \"Edit\"), extend?: true adds to the newest undo step instead of recording one (for a caller whose last edit that step is), remove?: [ids], insert?: [{parent: id|null|{new: k} (null: the layer list; {new: k}: the k-th insert, an earlier one), index?: position among the parent's children (bottom first; default: on top), node: object JSON as document.node returns it (its ids are replaced with new ones)}], replace?: [object JSON with its id (a container sent without its children keeps them)], order?: [{parent: id|null|{new: k}, children: [id|{new: k}]}] (the parent's children become exactly these, bottom first; listed objects from elsewhere move here; {new: k} places the k-th insert), keep?: {objects: [ids], lists: [parent id|null]} (what changed since the caller's copy of the document, which the patch leaves out)} applied in that order, as one undo step; during an interaction (a drag) it applies beneath it, leaving out the objects the interaction changed too → {ids: [the new id of each insert], skipped?: [the objects left out]}",
         has_doc,
         patch
     )]
@@ -31,13 +31,21 @@ enum Slot {
     New(usize),
 }
 
+/// Where an insert or an order list goes: the layer list, an existing object, or the k-th insert.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Parent {
+    Layers,
+    Old(NodeId),
+    New(usize),
+}
+
 /// A parsed patch.
 struct Ops {
     remove: Vec<NodeId>,
-    inserts: Vec<(Option<NodeId>, Option<usize>, Node)>,
+    inserts: Vec<(Parent, Option<usize>, Node)>,
     /// Each object, and whether it keeps its children.
     replaces: Vec<(Node, bool)>,
-    orders: Vec<(Option<NodeId>, Vec<Slot>)>,
+    orders: Vec<(Parent, Vec<Slot>)>,
 }
 
 fn patch(s: &mut Session, p: &Value) -> Result<Value> {
@@ -63,8 +71,10 @@ fn parse(p: &Value) -> Result<Ops> {
     let remove = list(p, "remove")?.iter().map(|v| node_id(v, "remove")).collect::<Result<Vec<_>>>()?;
     let inserts = list(p, "insert")?
         .iter()
-        .map(|entry| {
-            let parent = parent_id(entry)?;
+        .enumerate()
+        .map(|(k, entry)| {
+            // A new parent is an insert before this one.
+            let parent = parent(entry, k)?;
             let index = match entry.get("index") {
                 None | Some(Value::Null) => None,
                 Some(v) => {
@@ -98,7 +108,7 @@ fn parse(p: &Value) -> Result<Ops> {
                     None => node_id(c, "order").map(Slot::Old),
                 })
                 .collect::<Result<Vec<_>>>()?;
-            Ok((parent_id(entry)?, slots))
+            Ok((parent(entry, inserts.len())?, slots))
         })
         .collect::<Result<Vec<_>>>()?;
     Ok(Ops { remove, inserts, replaces, orders })
@@ -107,37 +117,52 @@ fn parse(p: &Value) -> Result<Ops> {
 /// Applies `ops` to `doc`. Returns the new ids of the inserts.
 fn apply(doc: &mut Document, ops: &Ops) -> Result<Vec<u64>> {
     doc.remove_many(&ops.remove).map_err(|e| bad(CMD, format!("remove: {e}")))?;
-    let mut placed = vec![false; ops.inserts.len()];
-    ops.orders.iter().flat_map(|(_, slots)| slots).for_each(|slot| {
-        if let Slot::New(k) = slot
-            && let Some(p) = placed.get_mut(*k)
-        {
-            *p = true;
-        }
-    });
-    // New objects get new ids; those an order list places wait for it.
+    // New objects get new ids and go in at once, an order list then puts them in their place.
     let mut fresh = Vec::with_capacity(ops.inserts.len());
-    let mut pending: HashMap<usize, Arc<Node>> = HashMap::new();
-    for (k, (parent, index, node)) in ops.inserts.iter().enumerate() {
-        check_place(doc, *parent, node)?;
+    for (parent, index, node) in &ops.inserts {
+        let parent = resolve(*parent, &fresh)?;
+        check_place(doc, parent, node)?;
         let node = doc.reid(node);
-        fresh.push(node.id.0);
-        if placed.get(k).copied().unwrap_or(false) {
-            pending.insert(k, Arc::new(node));
-        } else {
-            doc.insert(*parent, index.unwrap_or(usize::MAX), node).map_err(|e| bad(CMD, format!("insert: {e}")))?;
-        }
+        fresh.push(node.id);
+        doc.insert(parent, index.unwrap_or(usize::MAX), node).map_err(|e| bad(CMD, format!("insert: {e}")))?;
     }
     for (node, keep) in &ops.replaces {
         replace(doc, node.clone(), *keep)?;
     }
-    for (parent, slots) in &ops.orders {
-        order(doc, *parent, slots, &mut pending)?;
+    let orders = ops
+        .orders
+        .iter()
+        .map(|(parent, slots)| {
+            let slots = slots.iter().map(|slot| resolve(Parent::from(slot), &fresh)?.ok_or_else(|| bad(CMD, "order: no such object")));
+            Ok((resolve(*parent, &fresh)?, slots.collect::<Result<Vec<_>>>()?))
+        })
+        .collect::<Result<Vec<(Option<NodeId>, Vec<NodeId>)>>>()?;
+    // Every listed object moves to its parent first, so the lists can come in any order.
+    for (parent, slots) in &orders {
+        gather(doc, *parent, slots)?;
     }
-    if !pending.is_empty() {
-        return Err(bad(CMD, "an insert placed by {new: k} was listed twice"));
+    for (parent, slots) in &orders {
+        order(doc, *parent, slots)?;
     }
-    Ok(fresh)
+    Ok(fresh.iter().map(|id| id.0).collect())
+}
+
+/// The object `parent` names, with `fresh` the ids of the inserts so far; `None`: the layer list.
+fn resolve(parent: Parent, fresh: &[NodeId]) -> Result<Option<NodeId>> {
+    match parent {
+        Parent::Layers => Ok(None),
+        Parent::Old(id) => Ok(Some(id)),
+        Parent::New(k) => fresh.get(k).copied().map(Some).ok_or_else(|| bad(CMD, "{new: k} must name an earlier insert")),
+    }
+}
+
+impl From<&Slot> for Parent {
+    fn from(slot: &Slot) -> Self {
+        match slot {
+            Slot::Old(id) => Parent::Old(*id),
+            Slot::New(k) => Parent::New(*k),
+        }
+    }
 }
 
 /// A patch while an interaction (a drag, a dialog's preview) is in progress applies beneath it:
@@ -178,8 +203,16 @@ fn leave_out(ops: &mut Ops, touched: &Touched) -> Vec<u64> {
     ops.replaces.retain(|(node, _)| !touched.nodes.contains(&node.id));
     // A parent whose children the interaction changed keeps them; the new objects the patch
     // placed there go on top instead.
-    let unordered: Vec<(Option<NodeId>, Vec<Slot>)> = ops.orders.extract_if(.., |(parent, _)| touched.lists.contains(parent)).collect();
-    skipped.extend(unordered.iter().filter_map(|(parent, _)| parent.map(|p| p.0)));
+    let touches = |parent: &Parent| match parent {
+        Parent::Layers => touched.lists.contains(&None),
+        Parent::Old(id) => touched.lists.contains(&Some(*id)),
+        Parent::New(_) => false,
+    };
+    let unordered: Vec<(Parent, Vec<Slot>)> = ops.orders.extract_if(.., |(parent, _)| touches(parent)).collect();
+    skipped.extend(unordered.iter().filter_map(|(parent, _)| match parent {
+        Parent::Old(id) => Some(id.0),
+        _ => None,
+    }));
     for slot in unordered.iter().flat_map(|(_, slots)| slots) {
         if let Slot::New(k) = slot
             && let Some(insert) = ops.inserts.get_mut(*k)
@@ -255,10 +288,20 @@ fn node_id(v: &Value, key: &str) -> Result<NodeId> {
     v.as_u64().map(NodeId).ok_or_else(|| bad(CMD, format!("{key}: object ids are non-negative integers")))
 }
 
-fn parent_id(entry: &Value) -> Result<Option<NodeId>> {
+/// An entry's `parent`: an object's id, `null` for the layer list, or `{new: k}` for the k-th
+/// insert, one of the first `inserts`.
+fn parent(entry: &Value, inserts: usize) -> Result<Parent> {
     match entry.get("parent") {
-        None | Some(Value::Null) => Ok(None),
-        Some(v) => node_id(v, "parent").map(Some),
+        None | Some(Value::Null) => Ok(Parent::Layers),
+        Some(v) => match v.get("new") {
+            Some(k) => k
+                .as_u64()
+                .and_then(|k| usize::try_from(k).ok())
+                .filter(|k| *k < inserts)
+                .map(Parent::New)
+                .ok_or_else(|| bad(CMD, "parent {new: k} must name an earlier insert")),
+            None => node_id(v, "parent").map(Parent::Old),
+        },
     }
 }
 
@@ -322,25 +365,24 @@ fn replace(doc: &mut Document, mut node: Node, keep: bool) -> Result<()> {
     Ok(())
 }
 
-fn order(doc: &mut Document, parent: Option<NodeId>, slots: &[Slot], pending: &mut HashMap<usize, Arc<Node>>) -> Result<()> {
-    // Objects listed from other parents move here first.
+/// Moves the objects in `slots` that are elsewhere into `parent`.
+fn gather(doc: &mut Document, parent: Option<NodeId>, slots: &[NodeId]) -> Result<()> {
     let here: HashSet<NodeId> = doc.children(parent).ok_or_else(|| bad(CMD, "order: the parent holds no objects"))?.iter().map(|c| c.id).collect();
-    for slot in slots {
-        if let Slot::Old(id) = slot
-            && !here.contains(id)
-        {
+    for id in slots {
+        if !here.contains(id) {
             doc.move_node(*id, parent, usize::MAX).map_err(|e| bad(CMD, format!("order: {e}")))?;
         }
     }
+    Ok(())
+}
+
+/// Makes `parent`'s children exactly `slots`, gathered there.
+fn order(doc: &mut Document, parent: Option<NodeId>, slots: &[NodeId]) -> Result<()> {
     let children = doc.children_mut(parent).map_err(|e| bad(CMD, format!("order: {e}")))?;
     let mut by_id: HashMap<NodeId, Arc<Node>> = std::mem::take(children).into_iter().map(|c| (c.id, c)).collect();
     let mut ordered = Vec::with_capacity(slots.len());
-    for slot in slots {
-        let node = match slot {
-            Slot::Old(id) => by_id.remove(id).ok_or_else(|| bad(CMD, format!("order: object {id} is listed twice")))?,
-            Slot::New(k) => pending.remove(k).ok_or_else(|| bad(CMD, "order: an insert is listed twice"))?,
-        };
-        ordered.push(node);
+    for id in slots {
+        ordered.push(by_id.remove(id).ok_or_else(|| bad(CMD, format!("order: object {id} is listed twice")))?);
     }
     if let Some(id) = by_id.keys().next() {
         return Err(bad(CMD, format!("order: object {id} is in the parent but not listed: remove or move it in the same patch")));

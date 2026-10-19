@@ -283,6 +283,35 @@ fn edits_to_objects_a_script_made_reach_it<E: Engine>() {
     assert_eq!(runtime.take_output().last().map(String::as_str), Some("40"), "the script sees the user's change");
 }
 
+/// An item already in the document that the script moves into a new group goes there, and the
+/// items in the new group are the document's objects from then on: later changes reach them.
+fn items_moved_into_a_new_group<E: Engine>() {
+    let (mut s, a, b) = document();
+    let st = s.active().unwrap();
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(400.0, 300.0).unwrap();
+    runtime.bind(&scope, st.doc.clone(), st.selection.clone()).unwrap();
+    let write_back = |s: &mut Session, runtime: &mut Runtime<E>| {
+        let patch = runtime.take_patch(&scope).unwrap().unwrap();
+        let result = s.execute("document.patch", &patch.params).unwrap();
+        let st = s.active().unwrap();
+        runtime.apply_ids(&scope, patch, &result, st.doc.clone(), st.selection.clone(), false).unwrap();
+    };
+    runtime.execute(&scope, "new Path.Circle({ center: [200, 150], radius: 10 })").unwrap();
+    write_back(&mut s, &mut runtime);
+    runtime.execute(&scope, "var circle = project.activeLayer.lastChild\nvar group = new Group([circle])\ngroup.addChild(circle.clone())").unwrap();
+    write_back(&mut s, &mut runtime);
+    runtime.execute(&scope, "project.activeLayer.lastChild.lastChild.position += [100, 0]").unwrap();
+    write_back(&mut s, &mut runtime);
+    let layer = &s.active().unwrap().doc.layers[0];
+    let ids: Vec<NodeId> = layer.children().unwrap().iter().map(|c| c.id).collect();
+    assert_eq!(ids.len(), 3, "a, b and the group: the circle moved into it");
+    assert_eq!(&ids[..2], [a, b]);
+    let group = layer.children().unwrap()[2].children().unwrap();
+    let left: Vec<f64> = group.iter().map(|c| c.geometric_bounds().unwrap().x0.round()).collect();
+    assert_eq!(left, [190.0, 290.0], "the clone, a new item in the new group, moved later");
+}
+
 macro_rules! engine_tests {
     ($module:ident, $engine:ty $(, live_sync: $live_sync:meta)?) => {
         mod $module {
@@ -330,6 +359,11 @@ macro_rules! engine_tests {
             #[test]
             fn tool_scripts_get_pointer_events() {
                 super::tool_scripts_get_pointer_events::<$engine>();
+            }
+
+            #[test]
+            fn items_moved_into_a_new_group() {
+                super::items_moved_into_a_new_group::<$engine>();
             }
 
             #[test]

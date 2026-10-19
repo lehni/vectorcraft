@@ -29,8 +29,6 @@ mod change {
 pub(crate) struct Change<H> {
     item: H,
     flags: u32,
-    /// Paper.js's own id, to recognise new items in their parents' child lists.
-    id: f64,
     key: Option<NodeId>,
     inserted: bool,
     class: String,
@@ -38,7 +36,6 @@ pub(crate) struct Change<H> {
 
 impl<H: Clone> Change<H> {
     pub(crate) fn read(call: &mut dyn Call<H>, item: H, flags: u32) -> Result<Self, Error> {
-        let id = number(call.get(&item, "id")?);
         let key = match call.get(&item, "key")? {
             Value::Number(n) if n.is_finite() && n >= 0.0 => Some(NodeId(n as u64)),
             _ => None,
@@ -48,7 +45,7 @@ impl<H: Clone> Change<H> {
             Value::String(class) => class,
             _ => String::new(),
         };
-        Ok(Self { item, flags, id, key, inserted, class })
+        Ok(Self { item, flags, key, inserted, class })
     }
 }
 
@@ -56,11 +53,7 @@ impl<H: Clone> Change<H> {
 pub(crate) fn patch<H: Clone>(call: &mut dyn Call<H>, doc: &Arc<Document>, changes: Vec<Change<H>>) -> Result<Option<Patch<H>>, Error> {
     let mut remove = Vec::new();
     let mut replace = Vec::new();
-    let mut order = Vec::new();
-    let mut insert = Vec::new();
-    let mut inserted = Vec::new();
-    // New items by Paper.js id: their index among the inserts.
-    let mut new: HashMap<u64, usize> = HashMap::new();
+    let mut news = News { insert: Vec::new(), inserted: Vec::new(), new: HashMap::new(), order: Vec::new() };
     let mut parents = Vec::new();
     for change in &changes {
         match change.key {
@@ -77,29 +70,19 @@ pub(crate) fn patch<H: Clone>(call: &mut dyn Call<H>, doc: &Arc<Document>, chang
                     parents.push((id, change.item.clone()));
                 }
             }
-            // A new item inside another new item comes with that one's JSON.
+            // A new item inside another new item goes in with that one.
             None if change.inserted => {
                 let parent = call.get(&change.item, "parent")?;
-                let parent_is_new = match &parent {
-                    Value::Js(parent) => matches!(call.get(parent, "key")?, Value::Null | Value::Undefined) && !is_project(call, parent)?,
-                    _ => false,
-                };
-                if parent_is_new {
-                    continue;
-                }
                 let parent_key = match &parent {
                     Value::Js(parent) => match call.get(parent, "key")? {
                         Value::Number(n) => Some(n as u64),
-                        _ => None,
+                        _ if is_project(call, parent)? => None,
+                        _ => continue,
                     },
                     _ => None,
                 };
-                let json = export(call, &change.item)?;
-                let node = new_node(&json)?;
                 let index = number(call.get(&change.item, "index")?) as u64;
-                new.insert(change.id as u64, insert.len());
-                insert.push(json!({ "parent": parent_key, "index": index, "node": node_json(&node)? }));
-                inserted.push(change.item.clone());
+                news.add(call, &change.item, json!(parent_key), Some(index))?;
             }
             None => {}
         }
@@ -114,14 +97,15 @@ pub(crate) fn patch<H: Clone>(call: &mut dyn Call<H>, doc: &Arc<Document>, chang
                 Value::Number(key) => slots.push(json!(key as u64)),
                 _ => {
                     let paper_id = number(call.get(&child, "id")?) as u64;
-                    let k = new.get(&paper_id).ok_or_else(|| Error::Script("a new item is missing from the change log".into()))?;
+                    let k = news.new.get(&paper_id).ok_or_else(|| Error::Script("a new item is missing from the change log".into()))?;
                     slots.push(json!({ "new": k }));
                 }
             }
         }
-        order.push(json!({ "parent": id.0, "children": slots }));
+        news.order.push(json!({ "parent": id.0, "children": slots }));
     }
     let mut params = Map::new();
+    let News { insert, inserted, order, .. } = news;
     for (key, list) in [("remove", remove), ("insert", insert), ("replace", replace), ("order", order)] {
         if !list.is_empty() {
             params.insert(key.into(), Json::Array(list));
@@ -132,6 +116,57 @@ pub(crate) fn patch<H: Clone>(call: &mut dyn Call<H>, doc: &Arc<Document>, chang
     }
     params.insert("label".into(), json!("Script"));
     Ok(Some(Patch::new(Json::Object(params), inserted)))
+}
+
+/// The new items of a patch: each one an insert, in its parent's place, the parents first.
+struct News<H> {
+    insert: Vec<Json>,
+    /// The items, in the order of their inserts, which get the inserts' ids.
+    inserted: Vec<H>,
+    /// New items by Paper.js id: their index among the inserts.
+    new: HashMap<u64, usize>,
+    order: Vec<Json>,
+}
+
+impl<H: Clone> News<H> {
+    /// Inserts `item` into `parent` (an id, `null` or `{new: k}`) at `index`, and a group's or
+    /// layer's new children after it. The children it holds, new or already in the document, are
+    /// its order list, so objects a script moved into a new group keep their ids.
+    fn add(&mut self, call: &mut dyn Call<H>, item: &H, parent: Json, index: Option<u64>) -> Result<(), Error> {
+        let k = self.insert.len();
+        let mut json = export(call, item)?;
+        let container = matches!(json.get(0).and_then(Json::as_str), Some("Group" | "Layer"));
+        if container && let Some(props) = json.get_mut(1).and_then(Json::as_object_mut) {
+            props.remove("children");
+        }
+        let mut entry = json!({ "parent": parent, "node": node_json(&new_node(&json)?)? });
+        if let Some(index) = index {
+            entry["index"] = json!(index);
+        }
+        self.insert.push(entry);
+        self.inserted.push(item.clone());
+        self.new.insert(number(call.get(item, "id")?) as u64, k);
+        if !container {
+            return Ok(());
+        }
+        let children = object(call, item, "children")?;
+        let count = number(call.get(&children, "length")?) as usize;
+        let mut slots = Vec::with_capacity(count);
+        for i in 0..count {
+            let child = object(call, &children, &i.to_string())?;
+            match call.get(&child, "key")? {
+                Value::Number(key) => slots.push(json!(key as u64)),
+                _ => {
+                    slots.push(json!({ "new": self.insert.len() }));
+                    self.add(call, &child, json!({ "new": k }), None)?;
+                }
+            }
+        }
+        if !slots.is_empty() {
+            self.order.push(json!({ "parent": { "new": k }, "children": slots }));
+        }
+        Ok(())
+    }
 }
 
 fn is_project<H>(call: &mut dyn Call<H>, item: &H) -> Result<bool, Error> {
