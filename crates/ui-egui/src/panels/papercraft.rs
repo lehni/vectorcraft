@@ -2,8 +2,8 @@
 //! Tool scripts (they define mouse or key handlers) have a pencil, the one the PaperCraft Tool
 //! stands for a coloured one, running scripts their name in the accent colour. Double-click opens a
 //! script in its editor. The bottom bar has Scriptographer's buttons in its groups: execute the
-//! selected script and stop the running ones, edit, create a script or a folder, show or hide the
-//! console. The panel menu lists the folder again or chooses another one.
+//! selected script and stop the running ones, edit, create a script or a folder, and on the right,
+//! show or hide the console. The panel menu lists the folder again or chooses another one.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -43,7 +43,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     // Laid out from the bottom: the bar stays at the bottom, the tree takes the height above it.
     ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
         // Scriptographer's buttons, in its groups: execute and stop, edit, new script and folder,
-        // console.
+        // and the console on the right.
         ui.horizontal(|ui| {
             let script = selected.clone().filter(|p| p.is_file());
             let into =
@@ -72,10 +72,12 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
             {
                 selected = r["path"].as_str().map(PathBuf::from);
             }
-            ui.add_space(GAP);
-            if widgets::icon_button(ui, "terminal", tl!("Show / Hide Console"), false, 24.0).clicked() {
-                command(app, "window.panel", json!({ "panel": crate::panels::papercraft_console::ID, "toggle": true }));
-            }
+            // The console's button on the right.
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if widgets::icon_button(ui, "terminal", tl!("Show / Hide Console"), false, 24.0).clicked() {
+                    command(app, "window.panel", json!({ "panel": crate::panels::papercraft_console::ID, "toggle": true }));
+                }
+            });
         });
         widgets::divider(ui);
         ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
