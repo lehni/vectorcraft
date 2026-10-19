@@ -78,7 +78,7 @@ fn palettes_report_and_take_what_the_user_does<E: Engine>() {
             radius: { type: 'number', label: 'Radius', onChange: function(value) { console.log('radius', value, values.radius) } },\n\
             draw: { type: 'button', value: 'Draw', onClick: function() { console.log('draw', values.radius) } }\n\
         }, values)\n\
-        palette.onChange = function(component) { console.log('changed', component.label) }";
+        palette.onChange = function(component) { console.log('changed', component.name, component.value, component.label) }";
     runtime.execute(&scope, script).unwrap();
     let palettes = runtime.take_palettes().unwrap();
     assert_eq!(
@@ -91,7 +91,7 @@ fn palettes_report_and_take_what_the_user_does<E: Engine>() {
     assert!(runtime.take_palettes().unwrap().is_empty(), "reported once, until it changes");
     runtime.palette_event(1, PaletteEvent::Change("radius".into(), json!(20))).unwrap();
     runtime.palette_event(1, PaletteEvent::Click("draw".into())).unwrap();
-    assert_eq!(runtime.take_output(), ["radius 20 20", "changed Radius", "draw 20"]);
+    assert_eq!(runtime.take_output(), ["radius 20 20", "changed radius 20 Radius", "draw 20"]);
     runtime.execute(&scope, "project.activeLayer.data.x = 1").unwrap();
     assert!(runtime.take_palettes().unwrap().is_empty(), "the change came from the panel");
     assert!(runtime.has_palettes());

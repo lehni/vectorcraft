@@ -18,8 +18,9 @@ use crate::{Engine, Error, Modifiers, MouseEvent, PaletteEvent, Patch, PlatformE
 
 /// What the app asks a worker to do.
 pub enum Request {
-    /// Catch up with the document, then do `work`.
-    Run { doc: Arc<Document>, selection: Selection, work: Work },
+    /// Catch up with the document and the style new art takes in the app (as
+    /// [`crate::source::current_style`] makes it), then do `work`.
+    Run { doc: Arc<Document>, selection: Selection, style: Json, work: Work },
     /// The answer to [`Reply::Changes`]: `document.patch`'s result, and the document after it.
     /// `behind` when the document had changed in other ways since the patch's base.
     Applied { result: Json, doc: Arc<Document>, selection: Selection, behind: bool },
@@ -62,6 +63,9 @@ struct Script<E: Engine> {
     runtime: Runtime<E>,
     scope: Scope<E::Handle>,
     pending: Option<Patch<E::Handle>>,
+    /// The app's style, as last set as the project's current style: set again only when the app's
+    /// changes, so a style the script sets itself stays until then.
+    style: Json,
 }
 
 impl<E: Engine> Script<E> {
@@ -70,12 +74,12 @@ impl<E: Engine> Script<E> {
         let mut runtime = Runtime::<E>::new()?;
         let scope = runtime.create_scope(size.0, size.1)?;
         runtime.bind(&scope, doc, selection)?;
-        Ok(Self { runtime, scope, pending: None })
+        Ok(Self { runtime, scope, pending: None, style: Json::Null })
     }
 
     fn handle(&mut self, request: Request) -> Vec<Reply> {
         match request {
-            Request::Run { doc, selection, work } => self.run(doc, selection, work),
+            Request::Run { doc, selection, style, work } => self.run(doc, selection, style, work),
             // An answer no dialog waits for.
             Request::Answer(_) => Vec::new(),
             Request::Applied { result, doc, selection, behind } => match self.pending.take() {
@@ -90,7 +94,13 @@ impl<E: Engine> Script<E> {
 
     /// Does `work` on the document, and replies what it changed, even when it threw, as a browser
     /// keeps what a script did before an error.
-    fn run(&mut self, doc: Arc<Document>, selection: Selection, work: Work) -> Vec<Reply> {
+    fn run(&mut self, doc: Arc<Document>, selection: Selection, style: Json, work: Work) -> Vec<Reply> {
+        if style != self.style {
+            if let Err(e) = self.runtime.set_current_style(&self.scope, &style) {
+                return vec![self.done(Some(e.to_string()))];
+            }
+            self.style = style;
+        }
         let before = match self.runtime.update(&self.scope, doc, selection).and_then(|()| self.runtime.selected_ids(&self.scope)) {
             Ok(before) => before,
             Err(e) => return vec![self.done(Some(e.to_string()))],

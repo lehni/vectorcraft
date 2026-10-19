@@ -133,7 +133,10 @@ impl<E: Engine> Runtime<E> {
                 if let Some(reported) = call.host()?.borrow_mut().palettes.iter_mut().find(|p| p.id == id) {
                     reported.reported = state.to_string();
                 }
+                // Handlers get the component with its name and value, as Scriptographer's had them.
                 let definition = object(call, &components, &name)?;
+                call.set(&definition, "name", &Value::String(name.clone()))?;
+                call.set(&definition, "value", &value)?;
                 handler(call, &definition, "onChange", &[value])?;
                 handler(call, &palette, "onChange", &[Value::Js(definition)])
             }

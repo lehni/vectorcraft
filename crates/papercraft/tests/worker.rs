@@ -24,7 +24,8 @@ fn spawn(s: &Session) -> Worker {
 
 fn send(s: &Session, worker: &Worker, work: Work) {
     let st = s.active().unwrap();
-    worker.send(Request::Run { doc: st.doc.clone(), selection: st.selection.clone(), work });
+    let style = serde_json::json!({ "strokeColor": [0, 0, 0], "strokeWidth": 1 });
+    worker.send(Request::Run { doc: st.doc.clone(), selection: st.selection.clone(), style, work });
 }
 
 /// Applies the replies until `Done`, as the app does, and returns `Done`'s error.

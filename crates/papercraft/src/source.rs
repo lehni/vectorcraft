@@ -278,6 +278,12 @@ fn style(node: &Node, props: &mut Map<String, Value>) {
     }
 }
 
+/// The style new art takes in the app, as Paper.js's `project.currentStyle` has it: what new items
+/// a script makes get, as in Scriptographer, where they took the document's current style.
+pub fn current_style(fill: &Paint, stroke: &Paint, stroke_width: f64) -> Value {
+    json!({ "fillColor": color(fill), "strokeColor": color(stroke), "strokeWidth": stroke_width })
+}
+
 /// A solid paint as a Paper.js colour. Gradients and patterns have no Paper.js form yet.
 fn color(paint: &Paint) -> Option<Value> {
     let Paint::Solid { color, .. } = paint else {

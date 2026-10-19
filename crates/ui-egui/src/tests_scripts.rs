@@ -398,3 +398,17 @@ fn the_scripts_folder_is_listed_again_when_the_app_comes_to_the_front() {
     assert_eq!(app.scripts.tree(&folder, false).len(), 2, "back in front, listed again");
     let _ = std::fs::remove_dir_all(&folder);
 }
+
+/// New items a script makes take the style new art takes in the app, as in Scriptographer.
+#[test]
+fn new_items_take_the_apps_paint() {
+    let (mut app, _) = app();
+    app.session.paint.fill = vectorcraft_color::Paint::solid(vectorcraft_color::Color::rgb(1.0, 0.0, 0.0));
+    app.session.paint.stroke_width = 3.0;
+    let path = tempfile_path::Path::new("new Path.Circle({ center: [50, 50], radius: 10 })");
+    app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
+    let layer = &app.session.doc().unwrap().doc.layers[0];
+    let circle = layer.children().unwrap().last().unwrap();
+    assert_eq!(circle.appearance.fill_paint(), vectorcraft_color::Paint::solid(vectorcraft_color::Color::rgb(1.0, 0.0, 0.0)));
+    assert_eq!(circle.appearance.stroke().map(|s| s.width), Some(3.0));
+}

@@ -197,6 +197,16 @@ impl<E: Engine> Runtime<E> {
         !self.host.borrow().intervals.is_empty()
     }
 
+    /// Sets `project.currentStyle` of `scope`: `style` as [`source::current_style`] makes it.
+    pub fn set_current_style(&mut self, scope: &Scope<E::Handle>, style: &serde_json::Value) -> Result<(), Error> {
+        self.engine.with_call(|call| {
+            let globals = dialog::globals(call)?;
+            let style = dialog::from_json(call, &globals, style)?;
+            let project = object(call, &scope.0, "project")?;
+            call.set(&project, "currentStyle", &style)
+        })
+    }
+
     /// A way to stop the runtime's scripts from another thread, where the engine has one.
     pub fn interrupt(&mut self) -> Option<Interrupt> {
         self.engine.interrupt()

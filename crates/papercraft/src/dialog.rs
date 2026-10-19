@@ -209,7 +209,7 @@ fn to_json<H: Clone>(call: &mut dyn Call<H>, globals: &Globals<H>, value: &Value
 }
 
 /// `json` as a script value, through `JSON.parse()` for arrays and objects.
-fn from_json<H: Clone>(call: &mut dyn Call<H>, globals: &Globals<H>, json: &Json) -> Result<Value<H>, Error> {
+pub(crate) fn from_json<H: Clone>(call: &mut dyn Call<H>, globals: &Globals<H>, json: &Json) -> Result<Value<H>, Error> {
     Ok(match json {
         Json::Null => Value::Null,
         Json::Bool(b) => Value::Bool(*b),

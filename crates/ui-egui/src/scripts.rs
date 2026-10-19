@@ -475,7 +475,9 @@ fn send(app: &mut VectorcraftApp, script: &mut Running, work: Work) -> Result<()
             Kind::Mouse
         }
     });
-    script.worker.send(Request::Run { doc, selection, work });
+    let paint = &app.session.paint;
+    let style = vectorcraft_papercraft::source::current_style(&paint.fill, &paint.stroke, paint.stroke_width);
+    script.worker.send(Request::Run { doc, selection, style, work });
     Ok(())
 }
 
