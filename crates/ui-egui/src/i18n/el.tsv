@@ -1493,6 +1493,7 @@ font-technology	Variable	Μεταβλητές
 	Evaluate Script	Αξιολόγηση σεναρίου
 	New Script	Νέο σενάριο
 	PaperCraft Console	Κονσόλα PaperCraft
+	PaperCraft Tool	Εργαλείο PaperCraft
 	Choose Scripts Folder…	Επιλογή φακέλου σεναρίων…
 	Choose the folder your scripts are in.	Επιλέξτε τον φάκελο όπου βρίσκονται τα σενάριά σας.
 	Clear Console	Εκκαθάριση κονσόλας

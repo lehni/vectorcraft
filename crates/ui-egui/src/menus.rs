@@ -1126,6 +1126,12 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
     ),
     ("ui.editScript", "Edit Script…", "", "{path} open a PaperCraft script in the system's editor for its kind of file"),
     (
+        "ui.scriptTool",
+        "PaperCraft Tool",
+        "",
+        "{} make the PaperCraft Tool the active tool, when a tool script is assigned to it (its onActivate runs) → {active}",
+    ),
+    (
         "ui.scriptFolders",
         "Manage Script Folders…",
         "",
@@ -1972,6 +1978,10 @@ pub fn run_ui_command(app: &mut VectorcraftApp, id: &str, p: &Value) -> Option<R
         "ui.newScript" => crate::scripts::new_script(app, p),
         "ui.newScriptFolder" => crate::scripts::new_folder(app, p),
         "ui.editScript" => crate::scripts::edit_script(app, p),
+        "ui.scriptTool" => {
+            app.scripts.select_tool();
+            Ok(json!({ "active": app.scripts.active_tool().is_some() }))
+        }
         "ui.scriptFolders" => {
             crate::dialogs::script_folders::open(app);
             Ok(Value::Null)

@@ -1531,6 +1531,7 @@ font-technology	Variable	Променливи
 	Evaluate Script	Изчисляване на скрипт
 	New Script	Нов скрипт
 	PaperCraft Console	Конзола на PaperCraft
+	PaperCraft Tool	Инструмент на PaperCraft
 	Choose Scripts Folder…	Избор на папка със скриптове…
 	Choose the folder your scripts are in.	Изберете папката, в която са скриптовете ви.
 	Clear Console	Изчистване на конзолата

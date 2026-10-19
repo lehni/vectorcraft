@@ -1565,6 +1565,7 @@ font-technology	Variable	Variables
 	Evaluate Script	Évaluer le script
 	New Script	Nouveau script
 	PaperCraft Console	Console PaperCraft
+	PaperCraft Tool	Outil PaperCraft
 	Choose Scripts Folder…	Choisir le dossier des scripts…
 	Choose the folder your scripts are in.	Choisissez le dossier où se trouvent vos scripts.
 	Clear Console	Effacer la console

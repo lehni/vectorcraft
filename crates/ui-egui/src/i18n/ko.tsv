@@ -1843,6 +1843,7 @@ font-technology	Variable	가변
 	Evaluate Script	스크립트 평가
 	New Script	새 스크립트
 	PaperCraft Console	PaperCraft 콘솔
+	PaperCraft Tool	PaperCraft 도구
 	Choose Scripts Folder…	스크립트 폴더 선택…
 	Choose the folder your scripts are in.	스크립트가 있는 폴더를 선택하세요.
 	Clear Console	콘솔 지우기

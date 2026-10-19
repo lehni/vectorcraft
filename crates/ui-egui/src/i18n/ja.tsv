@@ -1810,6 +1810,7 @@ font-technology	Variable	バリアブル
 	Evaluate Script	スクリプトを評価
 	New Script	新規スクリプト
 	PaperCraft Console	PaperCraft コンソール
+	PaperCraft Tool	PaperCraft ツール
 	Choose Scripts Folder…	スクリプトフォルダーを選択…
 	Choose the folder your scripts are in.	スクリプトのあるフォルダーを選択してください。
 	Clear Console	コンソールをクリア

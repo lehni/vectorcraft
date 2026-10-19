@@ -328,6 +328,22 @@ impl<E: Engine> Runtime<E> {
         })
     }
 
+    /// The user picked the script's tool (`true`) or another one: its `onActivate` runs (again,
+    /// when it was already the active tool), or its `onDeactivate`.
+    pub fn activate_tool(&mut self, scope: &Scope<E::Handle>, active: bool) -> Result<(), Error> {
+        self.engine.with_call(|call| {
+            let Value::Js(tool) = call.get(&scope.0, "tool")? else {
+                return Ok(());
+            };
+            if active {
+                method(call, &tool, "activate", &[])?;
+            } else {
+                method(call, &tool, "emit", &[Value::String("deactivate".into())])?;
+            }
+            Ok(())
+        })
+    }
+
     /// Whether the tool of the script in `scope` handles keys: it has `onKeyDown` or `onKeyUp`.
     pub fn has_key_handlers(&mut self, scope: &Scope<E::Handle>) -> Result<bool, Error> {
         self.engine.with_call(|call| {

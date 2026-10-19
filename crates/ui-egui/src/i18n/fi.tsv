@@ -3082,6 +3082,7 @@ theme	Appearance	Ulkoasu
 	Evaluate Script	Arvioi komentosarja
 	New Script	Uusi komentosarja
 	PaperCraft Console	PaperCraft-konsoli
+	PaperCraft Tool	PaperCraft-työkalu
 	Choose Scripts Folder…	Valitse komentosarjakansio…
 	Choose the folder your scripts are in.	Valitse kansio, jossa komentosarjasi ovat.
 	Clear Console	Tyhjennä konsoli

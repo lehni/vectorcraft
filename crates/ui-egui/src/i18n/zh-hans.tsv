@@ -1517,6 +1517,7 @@ file-filter	Templates	模板
 	Evaluate Script	计算脚本
 	New Script	新建脚本
 	PaperCraft Console	PaperCraft 控制台
+	PaperCraft Tool	PaperCraft 工具
 	Choose Scripts Folder…	选择脚本文件夹…
 	Choose the folder your scripts are in.	请选择存放脚本的文件夹。
 	Clear Console	清除控制台

@@ -1533,6 +1533,7 @@ font-technology	Variable	Variabla
 	Evaluate Script	Utvärdera skript
 	New Script	Nytt skript
 	PaperCraft Console	PaperCraft-konsol
+	PaperCraft Tool	PaperCraft-verktyg
 	Choose Scripts Folder…	Välj skriptmapp…
 	Choose the folder your scripts are in.	Välj mappen där dina skript finns.
 	Clear Console	Rensa konsolen

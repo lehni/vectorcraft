@@ -1589,6 +1589,7 @@ file-filter	Templates	Шаблоны
 	Evaluate Script	Вычислить скрипт
 	New Script	Новый скрипт
 	PaperCraft Console	Консоль PaperCraft
+	PaperCraft Tool	Инструмент PaperCraft
 	Choose Scripts Folder…	Выбрать папку скриптов…
 	Choose the folder your scripts are in.	Выберите папку, в которой лежат ваши скрипты.
 	Clear Console	Очистить консоль

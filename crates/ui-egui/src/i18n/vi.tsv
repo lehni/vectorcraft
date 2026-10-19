@@ -1854,6 +1854,7 @@ file-filter	Templates	Mẫu
 	Evaluate Script	Đánh giá tập lệnh
 	New Script	Tập lệnh mới
 	PaperCraft Console	Bảng điều khiển PaperCraft
+	PaperCraft Tool	Công cụ PaperCraft
 	Choose Scripts Folder…	Chọn thư mục tập lệnh…
 	Choose the folder your scripts are in.	Chọn thư mục chứa các tập lệnh của bạn.
 	Clear Console	Xóa bảng điều khiển

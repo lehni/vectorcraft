@@ -164,6 +164,7 @@ enum Kind {
     Mouse,
     Key,
     Palette,
+    Activate,
 }
 
 impl Scripts {
@@ -185,6 +186,14 @@ impl Scripts {
     /// Makes the PaperCraft Tool the active tool, when a tool script is assigned to it.
     pub fn select_tool(&mut self) {
         self.tool_active = self.tool.is_some();
+        self.activate_tool(self.tool_active);
+    }
+
+    /// Tells the tool scripts the user picked their tool, or another one.
+    fn activate_tool(&mut self, active: bool) {
+        for script in self.running.iter_mut().filter(|s| s.tool) {
+            script.queued.push_back(Work::Activate(active));
+        }
     }
 
     /// Unloads the tool scripts the PaperCraft Tool no longer stands for, from every document.
@@ -199,7 +208,10 @@ impl Scripts {
     /// Makes the app's own tools active again: the canvas no longer sends pointer events to the
     /// tool script, which stays assigned to the PaperCraft Tool.
     pub fn deselect_tool(&mut self) {
-        self.tool_active = false;
+        if self.tool_active {
+            self.tool_active = false;
+            self.activate_tool(false);
+        }
     }
 
     /// The files of the running scripts.
@@ -513,6 +525,7 @@ fn pump(app: &mut VectorcraftApp, script: &mut Running, mut frame: Option<f64>, 
             if app.scripts.tool().is_none_or(|t| t != path) {
                 app.scripts.tool = Some(ToolScript { path, source: script.source.clone(), keys });
                 app.scripts.tool_active = true;
+                script.queued.push_back(Work::Activate(true));
             }
         }
     }
@@ -527,6 +540,7 @@ fn send(app: &mut VectorcraftApp, script: &mut Running, work: Work) -> Result<()
         Work::Frame(_) => Kind::Frame,
         Work::Key(..) => Kind::Key,
         Work::Palette(..) => Kind::Palette,
+        Work::Activate(_) => Kind::Activate,
         Work::Mouse(event, ..) => {
             if event == MouseEvent::Down {
                 // A drag starts its own undo step.
@@ -827,6 +841,8 @@ fn to_tool(app: &mut VectorcraftApp, active: u64, work: impl IntoIterator<Item =
 fn load_tool(app: &mut VectorcraftApp, ToolScript { path, source, .. }: ToolScript) -> Result<Running, String> {
     let mut script = start(app, file_name(&path), Some(path), source)?;
     script.tool = true;
+    // The tool is the active tool: in this document too.
+    script.queued.push_back(Work::Activate(true));
     Ok(script)
 }
 

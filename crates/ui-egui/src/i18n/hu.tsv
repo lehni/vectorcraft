@@ -1977,6 +1977,7 @@ file-filter	Templates	Sablonok
 	Evaluate Script	Szkript kiértékelése
 	New Script	Új szkript
 	PaperCraft Console	PaperCraft-konzol
+	PaperCraft Tool	PaperCraft eszköz
 	Choose Scripts Folder…	Szkriptmappa kiválasztása…
 	Choose the folder your scripts are in.	Válassza ki a szkriptjeit tartalmazó mappát.
 	Clear Console	Konzol törlése

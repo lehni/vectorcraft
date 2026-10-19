@@ -544,3 +544,24 @@ fn script_preferences_last_from_one_run_to_the_next() {
     assert_eq!(app.ui.papercraft_preferences[path.0.to_string_lossy().as_ref()], json!({"count": 2}));
     assert!(app.prefs_changed, "kept with the app's settings");
 }
+
+/// A tool script hears when the user picks its tool and another one, as Paper.js's onActivate and
+/// onDeactivate; `ui.scriptTool` picks it.
+#[test]
+fn a_tool_script_hears_when_its_tool_is_picked() {
+    let (mut app, _) = app();
+    let path = tempfile_path::Path::new(
+        "function onActivate() { console.log('activate') }\nfunction onDeactivate() { console.log('deactivate') }\nfunction onMouseDown() {}",
+    );
+    let ctx = egui::Context::default();
+    let log = |app: &VectorcraftApp| app.scripts.log().iter().map(|l| l.text.clone()).collect::<Vec<_>>();
+    app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
+    crate::scripts::frame(&mut app, &ctx, 0.1);
+    assert_eq!(log(&app), ["activate"], "assigned, it is the active tool");
+    app.select_tool("rectangle");
+    crate::scripts::frame(&mut app, &ctx, 0.2);
+    assert_eq!(log(&app), ["activate", "deactivate"]);
+    assert_eq!(app.run("ui.scriptTool", json!({})).unwrap()["active"], true);
+    crate::scripts::frame(&mut app, &ctx, 0.3);
+    assert_eq!(log(&app), ["activate", "deactivate", "activate"]);
+}

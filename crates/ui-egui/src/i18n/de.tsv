@@ -1566,6 +1566,7 @@ file-filter	Templates	Vorlagen
 	Evaluate Script	Skript auswerten
 	New Script	Neues Skript
 	PaperCraft Console	PaperCraft-Konsole
+	PaperCraft Tool	PaperCraft-Werkzeug
 	Choose Scripts Folder…	Skriptordner wählen…
 	Choose the folder your scripts are in.	Wählen Sie den Ordner, in dem Ihre Skripte liegen.
 	Clear Console	Konsole leeren

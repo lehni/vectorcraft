@@ -1555,6 +1555,7 @@ file-filter	Templates	範本
 	Evaluate Script	評估指令碼
 	New Script	新增指令碼
 	PaperCraft Console	PaperCraft 主控台
+	PaperCraft Tool	PaperCraft 工具
 	Choose Scripts Folder…	選擇指令碼資料夾…
 	Choose the folder your scripts are in.	請選擇存放指令碼的資料夾。
 	Clear Console	清除主控台

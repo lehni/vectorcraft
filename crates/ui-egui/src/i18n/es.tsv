@@ -1566,6 +1566,7 @@ font-technology	Variable	Variables
 	Evaluate Script	Evaluar script
 	New Script	Nuevo script
 	PaperCraft Console	Consola de PaperCraft
+	PaperCraft Tool	Herramienta PaperCraft
 	Choose Scripts Folder…	Elegir carpeta de scripts…
 	Choose the folder your scripts are in.	Elija la carpeta donde están sus scripts.
 	Clear Console	Borrar consola

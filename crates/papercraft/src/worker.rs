@@ -42,6 +42,8 @@ pub enum Work {
     Key(bool, String, Option<String>, Modifiers),
     /// What the user did in one of the script's palettes.
     Palette(u64, PaletteEvent),
+    /// The user picked the script's tool (`true`), or another one.
+    Activate(bool),
 }
 
 /// What a worker tells the app.
@@ -123,6 +125,7 @@ impl<E: Engine> Script<E> {
             Work::Mouse(event, point, modifiers) => self.runtime.mouse_event(&self.scope, event, point, modifiers),
             Work::Key(down, key, character, modifiers) => self.runtime.key_event(&self.scope, down, &key, character.as_deref(), modifiers),
             Work::Palette(id, event) => self.runtime.palette_event(id, event),
+            Work::Activate(active) => self.runtime.activate_tool(&self.scope, active),
         };
         let mut replies = Vec::new();
         let changes = self.changes(before).map(|changes| replies.extend(changes));
