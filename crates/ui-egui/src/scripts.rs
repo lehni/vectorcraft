@@ -94,6 +94,8 @@ struct ToolScript {
 
 /// A script that runs, on its thread.
 struct Running {
+    /// Names it for the dialog it waits on.
+    id: u64,
     /// The file name, for messages.
     name: String,
     /// The file it runs, if any (not for the console).
@@ -117,6 +119,14 @@ struct Running {
     busy: Option<Kind>,
     /// The work waiting to be sent: pointer events while it works.
     queued: VecDeque<Work>,
+    /// The dialog it waits on (`Dialog.alert`, `confirm`, `prompt`).
+    asking: Option<Asking>,
+}
+
+/// A script's dialog: its question, and whether it shows (it waits while another dialog is open).
+struct Asking {
+    question: Value,
+    shown: bool,
 }
 
 /// What a script's work is, while it does it.
@@ -129,9 +139,9 @@ enum Kind {
 }
 
 impl Scripts {
-    /// Whether a script has timers left or is working.
+    /// Whether a script has timers left or is working (not waiting on a dialog).
     pub fn is_running(&self) -> bool {
-        self.running.iter().chain(&self.console).any(|s| s.timers || s.busy.is_some())
+        self.running.iter().chain(&self.console).any(|s| s.timers || (s.busy.is_some() && s.asking.is_none()))
     }
 
     /// The tool script the PaperCraft Tool button stands for.
@@ -291,6 +301,9 @@ pub(crate) fn stop(app: &mut VectorcraftApp) -> Result<Value, String> {
     app.scripts.console = None;
     app.scripts.tool = None;
     app.scripts.tool_active = false;
+    if app.ui.dialog.as_ref().is_some_and(|d| d.kind == crate::dialogs::script::KIND) {
+        app.ui.dialog = None;
+    }
     Ok(json!({ "stopped": stopped }))
 }
 
@@ -301,7 +314,23 @@ fn start(app: &VectorcraftApp, name: String, path: Option<PathBuf>, source: Stri
     let size = doc.artboards.first().map_or((800.0, 600.0), |a| (a.rect.width(), a.rect.height()));
     let worker = Worker::spawn(size, doc, selection).map_err(|e| e.to_string())?;
     let queued = if source.is_empty() { VecDeque::new() } else { VecDeque::from([Work::Execute(source.clone())]) };
-    Ok(Running { name, path, source, worker, doc: state.uid, started: app.last_time, last: None, tool: false, timers: false, busy: None, queued })
+    static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    Ok(Running {
+        id,
+        name,
+        path,
+        source,
+        worker,
+        doc: state.uid,
+        started: app.last_time,
+        last: None,
+        tool: false,
+        timers: false,
+        busy: None,
+        queued,
+        asking: None,
+    })
 }
 
 /// Runs the script's queued work, waiting at most `wait` for each. Returns whether it keeps
@@ -316,6 +345,7 @@ pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
     if app.scripts.running.is_empty() && app.scripts.console.is_none() {
         return;
     }
+    dialogs(app);
     let mut scripts = std::mem::take(&mut app.scripts.running);
     let active = app.session.active().map(|d| d.uid);
     scripts.retain_mut(|script| {
@@ -362,6 +392,10 @@ pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
 /// Returns whether the script keeps running, or the error of the work that failed.
 fn pump(app: &mut VectorcraftApp, script: &mut Running, mut frame: Option<f64>, wait: Duration) -> Result<bool, String> {
     loop {
+        // Waiting on a dialog: nothing else until it's answered.
+        if script.asking.is_some() {
+            return Ok(true);
+        }
         if script.busy.is_none() {
             let work = match script.queued.pop_front() {
                 Some(work) => work,
@@ -423,8 +457,8 @@ struct Done {
     keys: bool,
 }
 
-/// Applies what the script's work changed as its replies come, until the work is done, or a reply
-/// takes longer than `wait`.
+/// Applies what the script's work changed as its replies come, until the work is done, the script
+/// asks a dialog, or a reply takes longer than `wait`.
 fn settle(app: &mut VectorcraftApp, script: &mut Running, wait: Duration) -> Option<Done> {
     let mut failed = None;
     while let Some(reply) = script.worker.recv(wait) {
@@ -433,6 +467,10 @@ fn settle(app: &mut VectorcraftApp, script: &mut Running, wait: Duration) -> Opt
                 if let Err(e) = write_back(app, script, patch, base, &before, &selected) {
                     failed.get_or_insert(e);
                 }
+            }
+            Reply::Ask(question) => {
+                script.asking = Some(Asking { question, shown: false });
+                return None;
             }
             Reply::Done { output, error, running, tool, keys } => {
                 show_output(app, output);
@@ -443,6 +481,36 @@ fn settle(app: &mut VectorcraftApp, script: &mut Running, wait: Duration) -> Opt
         }
     }
     None
+}
+
+/// Shows the dialogs scripts wait on, one at a time while no other dialog is open, and answers a
+/// dialog that closed without OK as Cancel would.
+fn dialogs(app: &mut VectorcraftApp) {
+    let open = app.ui.dialog.as_ref().filter(|d| d.kind == crate::dialogs::script::KIND).and_then(|d| d.fields.get("script")?.as_u64());
+    let mut show = None;
+    for script in app.scripts.running.iter_mut().chain(&mut app.scripts.console) {
+        let Some(asking) = &mut script.asking else {
+            continue;
+        };
+        if asking.shown && open != Some(script.id) {
+            script.worker.send(Request::Answer(crate::dialogs::script::cancelled(&asking.question)));
+            script.asking = None;
+        } else if !asking.shown && show.is_none() && app.ui.dialog.is_none() {
+            asking.shown = true;
+            show = Some((script.id, asking.question.clone()));
+        }
+    }
+    if let Some((id, question)) = show {
+        crate::dialogs::script::open(app, id, &question);
+    }
+}
+
+/// The user's answer to the dialog the script `id` waits on.
+pub(crate) fn answer(app: &mut VectorcraftApp, id: u64, answer: Value) {
+    if let Some(script) = app.scripts.running.iter_mut().chain(&mut app.scripts.console).find(|s| s.id == id && s.asking.is_some()) {
+        script.worker.send(Request::Answer(answer));
+        script.asking = None;
+    }
 }
 
 /// A script's file name, for messages.

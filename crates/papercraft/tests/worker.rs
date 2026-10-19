@@ -37,6 +37,7 @@ fn settle(s: &mut Session, worker: &Worker) -> Option<String> {
                 worker.send(Request::Applied { result, doc: st.doc.clone(), selection: st.selection.clone(), behind: false });
             }
             Reply::Done { error, .. } => return error,
+            Reply::Ask(question) => panic!("unexpected dialog: {question}"),
         }
     }
 }
@@ -67,4 +68,18 @@ fn an_endless_loop_stops_when_interrupted() {
     assert!(worker.recv(Duration::from_millis(200)).is_none(), "it loops, and the app goes on");
     worker.interrupt();
     assert!(settle(&mut s, &worker).is_some(), "it stopped with an error");
+}
+
+/// A dialog waits on the script's thread for the app's answer.
+#[test]
+fn a_dialog_waits_for_the_answer() {
+    let s = session();
+    let worker = spawn(&s);
+    send(&s, &worker, Work::Execute("console.log(Dialog.confirm('Sure?'))".into()));
+    let Some(Reply::Ask(question)) = worker.recv(WAIT) else { panic!("a question") };
+    assert_eq!(question["message"], "Sure?");
+    assert!(worker.recv(Duration::from_millis(100)).is_none(), "the script waits");
+    worker.send(Request::Answer(json!(true)));
+    let Some(Reply::Done { output, error: None, .. }) = worker.recv(WAIT) else { panic!("done") };
+    assert_eq!(output, ["true"]);
 }

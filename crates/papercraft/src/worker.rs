@@ -23,6 +23,8 @@ pub enum Request {
     /// The answer to [`Reply::Changes`]: `document.patch`'s result, and the document after it.
     /// `behind` when the document had changed in other ways since the patch's base.
     Applied { result: Json, doc: Arc<Document>, selection: Selection, behind: bool },
+    /// The answer to [`Reply::Ask`].
+    Answer(Json),
 }
 
 /// A script's work.
@@ -41,6 +43,9 @@ pub enum Work {
 
 /// What a worker tells the app.
 pub enum Reply {
+    /// The script shows a dialog (`Dialog.alert`, `confirm`, `prompt`) and waits for the user's
+    /// answer ([`Request::Answer`]); the question as [`crate::Runtime::set_ask`] has it.
+    Ask(Json),
     /// What the script changed: a patch of `base`, the document it read (the app answers with
     /// [`Request::Applied`]), and the objects selected in its project before and after.
     Changes { patch: Option<Json>, base: Arc<Document>, before: BTreeSet<NodeId>, selected: BTreeSet<NodeId> },
@@ -68,6 +73,8 @@ impl<E: Engine> Script<E> {
     fn handle(&mut self, request: Request) -> Vec<Reply> {
         match request {
             Request::Run { doc, selection, work } => self.run(doc, selection, work),
+            // An answer no dialog waits for.
+            Request::Answer(_) => Vec::new(),
             Request::Applied { result, doc, selection, behind } => match self.pending.take() {
                 Some(patch) => match self.runtime.apply_ids(&self.scope, patch, &result, doc, selection, behind) {
                     Ok(()) => Vec::new(),
@@ -141,6 +148,7 @@ impl Worker {
         std::thread::Builder::new()
             .name("papercraft script".into())
             .spawn(move || {
+                let inbox = std::rc::Rc::new(inbox);
                 let mut script = match Script::<PlatformEngine>::new(size, doc, selection) {
                     Ok(script) => script,
                     Err(e) => {
@@ -152,6 +160,19 @@ impl Worker {
                 if let Ok(mut slot) = shared.lock() {
                     *slot = script.runtime.interrupt();
                 }
+                // A dialog asks the app, and waits for its answer: the app sends nothing else
+                // meanwhile. Stopped, the script throws.
+                let (asking, answers) = (outbox.clone(), inbox.clone());
+                script.runtime.set_ask(Box::new(move |question| {
+                    asking.send(Reply::Ask(question)).map_err(|_| Error::Script("stopped".into()))?;
+                    loop {
+                        match answers.recv() {
+                            Ok(Request::Answer(answer)) => return Ok(answer),
+                            Ok(_) => continue,
+                            Err(_) => return Err(Error::Script("stopped".into())),
+                        }
+                    }
+                }));
                 // Until the app drops the worker.
                 while let Ok(request) = inbox.recv()
                     && !is_stopped()

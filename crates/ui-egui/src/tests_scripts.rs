@@ -263,3 +263,46 @@ fn a_tool_script_gets_the_plain_keys() {
     assert_eq!(log, ["a A", "left "]);
     assert_eq!(left, [key(egui::Key::V, egui::Modifiers::COMMAND)], "Cmd+V stays the app's");
 }
+
+/// A script that asks with `Dialog.prompt` waits for the answer while the app goes on, then works
+/// with the values given.
+#[test]
+fn a_script_waits_for_its_prompt() {
+    let (mut app, id) = app();
+    let path = tempfile_path::Path::new(
+        "var values = Dialog.prompt('Move', { dx: { type: 'number', label: 'Distance', value: 10 } })\n\
+         if (values) project.activeLayer.firstChild.position.x += values.dx",
+    );
+    let result = app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
+    assert_eq!(result["started"], true, "the app goes on while the script waits");
+    let ctx = egui::Context::default();
+    crate::scripts::frame(&mut app, &ctx, 1.0);
+    let dialog = app.ui.dialog.as_mut().expect("the prompt shows");
+    assert_eq!(dialog.kind, crate::dialogs::script::KIND);
+    assert_eq!(dialog.fields["values"], json!({"dx": 10}));
+    dialog.fields.insert("values".into(), json!({"dx": 50}));
+    crate::dialogs::confirm(&mut app).unwrap();
+    crate::scripts::frame(&mut app, &ctx, 2.0);
+    assert_eq!(left(&app, id), 60.0, "the script moved it by the distance given");
+    assert!(!app.scripts.is_running());
+}
+
+/// A prompt closed with Cancel returns null; a dialog waits while another dialog is open.
+#[test]
+fn a_cancelled_prompt_and_one_that_waits_its_turn() {
+    let (mut app, id) = app();
+    crate::dialogs::confirm::tell(&mut app, "Hello", "");
+    let path = tempfile_path::Path::new("if (Dialog.prompt('Move', { dx: { value: 10 } })) project.activeLayer.firstChild.position.x += 100");
+    app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
+    let ctx = egui::Context::default();
+    crate::scripts::frame(&mut app, &ctx, 1.0);
+    assert_eq!(app.ui.dialog.as_ref().unwrap().kind, crate::dialogs::confirm::MESSAGE, "the open dialog stays");
+    crate::dialogs::cancel(&mut app);
+    crate::scripts::frame(&mut app, &ctx, 2.0);
+    assert_eq!(app.ui.dialog.as_ref().unwrap().kind, crate::dialogs::script::KIND, "then the prompt shows");
+    crate::dialogs::cancel(&mut app);
+    crate::scripts::frame(&mut app, &ctx, 3.0);
+    assert_eq!(left(&app, id), 10.0, "cancelled: nothing moved");
+    assert!(!app.scripts.is_running());
+    assert!(app.scripts.log().iter().all(|l| !l.error));
+}

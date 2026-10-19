@@ -9,6 +9,7 @@
 
 mod binding;
 mod canvas;
+mod dialog;
 mod engine;
 mod engines;
 pub mod source;
@@ -22,6 +23,7 @@ use std::sync::Arc;
 use vectorcraft_doc::Document;
 
 pub use binding::Patch;
+pub use dialog::Ask;
 pub use engine::{Call, Engine, HostFunction, Interrupt, Value};
 #[cfg(feature = "boa")]
 pub use engines::boa::Boa;
@@ -63,6 +65,10 @@ pub struct Host<H> {
     bound: Option<binding::Bound>,
     /// The methods of every `OffscreenCanvas`, by name.
     canvas_methods: Vec<(&'static str, H)>,
+    /// Answers the script's dialogs ([`Runtime::set_ask`]).
+    ask: Option<dialog::Ask>,
+    /// What `Dialog` uses of the script's realm.
+    dialog_globals: Option<dialog::Globals<H>>,
 }
 
 struct Interval<H> {
@@ -74,7 +80,16 @@ struct Interval<H> {
 
 impl<H> Default for Host<H> {
     fn default() -> Self {
-        Self { output: Vec::new(), next_interval_id: 0, now: 0.0, intervals: Vec::new(), bound: None, canvas_methods: Vec::new() }
+        Self {
+            output: Vec::new(),
+            next_interval_id: 0,
+            now: 0.0,
+            intervals: Vec::new(),
+            bound: None,
+            canvas_methods: Vec::new(),
+            ask: None,
+            dialog_globals: None,
+        }
     }
 }
 
@@ -96,7 +111,9 @@ impl<E: Engine> Runtime<E> {
         engine.eval(PAPER_JS)?;
         let global = engine.global()?;
         let paper = engine.with_call(|call| object(call, &global, "paper"))?;
-        Ok(Self { engine, host, paper })
+        let mut runtime = Self { engine, host, paper };
+        dialog::install(&mut runtime, &global)?;
+        Ok(runtime)
     }
 
     /// Creates a scope whose view has the given size.
