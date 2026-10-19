@@ -228,6 +228,7 @@ pub fn panel_menu_items(app: &mut VectorcraftApp, ui: &mut Ui, id: &str) -> bool
         "tabs" => tabs::menu(app, ui),
         "libraries" => libraries::menu(app, ui),
         flattener_preview::ID => flattener_preview::menu(app, ui),
+        papercraft::ID => papercraft::menu(app, ui),
         "attributes" => attributes::menu(app, ui),
         svg_interactivity::ID => svg_interactivity::menu(app, ui),
         "colorThemes" => color_themes::menu(app, ui),

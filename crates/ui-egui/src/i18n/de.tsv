@@ -1570,7 +1570,11 @@ file-filter	Templates	Vorlagen
 	Choose the folder your scripts are in.	Wählen Sie den Ordner, in dem Ihre Skripte liegen.
 	Clear Console	Konsole leeren
 	Reload	Neu laden
-	Run Script	Skript ausführen
+	Execute Script	Skript ausführen
+	Edit Script…	Skript bearbeiten…
+	Create a New Script…	Neues Skript erstellen…
+	Create New Folder…	Neuen Ordner erstellen…
+	Show / Hide Console	Konsole ein-/ausblenden
 	Run a tool script to assign it to this tool button	Führen Sie ein Werkzeugskript aus, um es dieser Werkzeugschaltfläche zuzuweisen
 	PaperCraft	PaperCraft
 	Install Plug-in	Plug-in installieren
@@ -3796,6 +3800,8 @@ theme	Appearance	Erscheinungsbild
 @msg	choose a scripts folder first	wählen Sie zuerst einen Skriptordner
 @msg	missing code	Code fehlt
 @msg	too many untitled scripts	zu viele unbenannte Skripte
+@msg	missing path	Pfad fehlt
+@msg	too many new folders	zu viele neue Ordner
 @msg	Release Guides: no guides	Hilfslinien zurückwandeln: keine Hilfslinien
 @msg	Release: no layer to put the rectangle in	Zurückwandeln: keine Ebene, die das Rechteck aufnehmen könnte
 @msg	Replace Spine: select a blend and a path	Achse ersetzen: Wählen Sie eine Angleichung und einen Pfad aus

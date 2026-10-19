@@ -3024,7 +3024,11 @@ theme	Appearance	Wygląd
 	Choose the folder your scripts are in.	Wybierz folder, w którym są twoje skrypty.
 	Clear Console	Wyczyść konsolę
 	Reload	Wczytaj ponownie
-	Run Script	Uruchom skrypt
+	Execute Script	Uruchom skrypt
+	Edit Script…	Edytuj skrypt…
+	Create a New Script…	Utwórz nowy skrypt…
+	Create New Folder…	Utwórz nowy folder…
+	Show / Hide Console	Pokaż / ukryj konsolę
 	Run a tool script to assign it to this tool button	Uruchom skrypt narzędzia, aby przypisać go do tego przycisku
 	PaperCraft	PaperCraft
 	Begin Undo Group	Rozpocznij grupę cofania
@@ -3998,6 +4002,8 @@ imageTrace	Outline	Kontur
 @msg	choose a scripts folder first	najpierw wybierz folder skryptów
 @msg	missing code	brak kodu
 @msg	too many untitled scripts	zbyt wiele skryptów bez nazwy
+@msg	missing path	brak ścieżki
+@msg	too many new folders	zbyt wiele nowych folderów
 @msg	Release Guides: no guides	Uwolnij linie pomocnicze: brak linii pomocniczych
 @msg	Release: no layer to put the rectangle in	Uwolnij: brak warstwy, na której można umieścić prostokąt
 @msg	Replace Spine: select a blend and a path	Zastąp grzbiet: zaznacz przejście i ścieżkę

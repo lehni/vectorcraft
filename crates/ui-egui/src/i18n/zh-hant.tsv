@@ -1559,7 +1559,11 @@ file-filter	Templates	範本
 	Choose the folder your scripts are in.	請選擇存放指令碼的資料夾。
 	Clear Console	清除主控台
 	Reload	重新載入
-	Run Script	執行指令碼
+	Execute Script	執行指令碼
+	Edit Script…	編輯指令碼…
+	Create a New Script…	建立新指令碼…
+	Create New Folder…	建立新資料夾…
+	Show / Hide Console	顯示 / 隱藏主控台
 	Run a tool script to assign it to this tool button	執行工具指令碼即可指定給此工具按鈕
 	PaperCraft	PaperCraft
 	Install Plug-in	安裝增效模組
@@ -2115,6 +2119,8 @@ file-filter	Templates	範本
 @msg	choose a scripts folder first	請先選擇指令碼資料夾
 @msg	missing code	沒有程式碼
 @msg	too many untitled scripts	未命名的指令碼太多
+@msg	missing path	沒有路徑
+@msg	too many new folders	新資料夾太多
 @msg	no file system here	此處沒有檔案系統
 @msg	nothing to preview	沒有可預覽的內容
 @msg	Saved {n} files beside {path}	已在 {path} 旁儲存 {n} 個檔案

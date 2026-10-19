@@ -1595,7 +1595,11 @@ file-filter	Templates	Modelli
 	Choose the folder your scripts are in.	Scegli la cartella in cui si trovano i tuoi script.
 	Clear Console	Pulisci console
 	Reload	Ricarica
-	Run Script	Esegui script
+	Execute Script	Esegui script
+	Edit Script…	Modifica script…
+	Create a New Script…	Crea un nuovo script…
+	Create New Folder…	Crea nuova cartella…
+	Show / Hide Console	Mostra / nascondi console
 	Run a tool script to assign it to this tool button	Esegui uno script di strumento per assegnarlo a questo pulsante
 	PaperCraft	PaperCraft
 	Install Plug-in	Installa plug-in
@@ -3912,6 +3916,8 @@ axis	Both	Entrambi
 @msg	choose a scripts folder first	scegli prima una cartella di script
 @msg	missing code	codice mancante
 @msg	too many untitled scripts	troppi script senza titolo
+@msg	missing path	percorso mancante
+@msg	too many new folders	troppe nuove cartelle
 @msg	Release Guides: no guides	Rilascia guide: nessuna guida
 @msg	Release: no layer to put the rectangle in	Rilascia: nessun livello in cui inserire il rettangolo
 @msg	Replace Spine: select a blend and a path	Sostituisci dorsale: seleziona una fusione e un tracciato

@@ -1847,7 +1847,11 @@ font-technology	Variable	가변
 	Choose the folder your scripts are in.	스크립트가 있는 폴더를 선택하세요.
 	Clear Console	콘솔 지우기
 	Reload	다시 불러오기
-	Run Script	스크립트 실행
+	Execute Script	스크립트 실행
+	Edit Script…	스크립트 편집…
+	Create a New Script…	새 스크립트 만들기…
+	Create New Folder…	새 폴더 만들기…
+	Show / Hide Console	콘솔 표시 / 숨기기
 	Run a tool script to assign it to this tool button	도구 스크립트를 실행하면 이 도구 버튼에 지정됩니다
 	PaperCraft	PaperCraft
 	Install Plug-in	플러그인 설치
@@ -4342,6 +4346,8 @@ theme	Appearance	외관
 @msg	choose a scripts folder first	먼저 스크립트 폴더를 선택하세요
 @msg	missing code	코드가 없습니다
 @msg	too many untitled scripts	제목 없는 스크립트가 너무 많습니다
+@msg	missing path	경로가 없습니다
+@msg	too many new folders	새 폴더가 너무 많습니다
 @msg	no file system here	여기에는 파일 시스템이 없습니다
 @msg	nothing to preview	미리 볼 항목이 없습니다
 @msg	Saved {n} files beside {path}	{path} 옆에 파일 {n}개를 저장했습니다

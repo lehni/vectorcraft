@@ -1593,7 +1593,11 @@ file-filter	Templates	Шаблоны
 	Choose the folder your scripts are in.	Выберите папку, в которой лежат ваши скрипты.
 	Clear Console	Очистить консоль
 	Reload	Перезагрузить
-	Run Script	Запустить скрипт
+	Execute Script	Выполнить скрипт
+	Edit Script…	Редактировать скрипт…
+	Create a New Script…	Создать новый скрипт…
+	Create New Folder…	Создать новую папку…
+	Show / Hide Console	Показать / скрыть консоль
 	Run a tool script to assign it to this tool button	Запустите скрипт инструмента, чтобы назначить его этой кнопке
 	PaperCraft	PaperCraft
 	Install Plug-in	Установить модуль
@@ -3908,6 +3912,8 @@ axis	Both	Оба
 @msg	choose a scripts folder first	сначала выберите папку скриптов
 @msg	missing code	нет кода
 @msg	too many untitled scripts	слишком много безымянных скриптов
+@msg	missing path	нет пути
+@msg	too many new folders	слишком много новых папок
 @msg	Release Guides: no guides	Освобождение направляющих: нет направляющих
 @msg	Release: no layer to put the rectangle in	Освобождение: нет слоя для помещения прямоугольника
 @msg	Replace Spine: select a blend and a path	Замена остова: выделите переход и контур

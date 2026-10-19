@@ -1981,7 +1981,11 @@ file-filter	Templates	Sablonok
 	Choose the folder your scripts are in.	Válassza ki a szkriptjeit tartalmazó mappát.
 	Clear Console	Konzol törlése
 	Reload	Újratöltés
-	Run Script	Szkript futtatása
+	Execute Script	Szkript futtatása
+	Edit Script…	Szkript szerkesztése…
+	Create a New Script…	Új szkript létrehozása…
+	Create New Folder…	Új mappa létrehozása…
+	Show / Hide Console	Konzol megjelenítése / elrejtése
 	Run a tool script to assign it to this tool button	Futtasson egy eszközszkriptet, hogy ehhez az eszközgombhoz rendelje
 	PaperCraft	PaperCraft
 	Install Plug-in	Bővítmény telepítése
@@ -4911,6 +4915,8 @@ imageTrace	Outline	Körvonal
 @msg	choose a scripts folder first	először válasszon szkriptmappát
 @msg	missing code	hiányzik a kód
 @msg	too many untitled scripts	túl sok névtelen szkript
+@msg	missing path	hiányzik az útvonal
+@msg	too many new folders	túl sok új mappa
 @msg	print settings are not an object	a nyomtatási beállítások nem objektumot alkotnak
 @msg	printing isn't available here	itt nem lehet nyomtatni
 @msg	range `{s}` is empty	a tartomány üres: `{s}`

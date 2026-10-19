@@ -1858,7 +1858,11 @@ file-filter	Templates	Mẫu
 	Choose the folder your scripts are in.	Chọn thư mục chứa các tập lệnh của bạn.
 	Clear Console	Xóa bảng điều khiển
 	Reload	Tải lại
-	Run Script	Chạy tập lệnh
+	Execute Script	Chạy tập lệnh
+	Edit Script…	Sửa tập lệnh…
+	Create a New Script…	Tạo tập lệnh mới…
+	Create New Folder…	Tạo thư mục mới…
+	Show / Hide Console	Hiện / ẩn bảng điều khiển
 	Run a tool script to assign it to this tool button	Chạy một tập lệnh công cụ để gán nó cho nút công cụ này
 	PaperCraft	PaperCraft
 	Install Plug-in	Cài đặt plug-in
@@ -4560,6 +4564,8 @@ theme	Appearance	Giao diện
 @msg	choose a scripts folder first	hãy chọn thư mục tập lệnh trước
 @msg	missing code	thiếu mã
 @msg	too many untitled scripts	quá nhiều tập lệnh không tên
+@msg	missing path	thiếu đường dẫn
+@msg	too many new folders	quá nhiều thư mục mới
 @msg	print settings are not an object	cài đặt in không phải là đối tượng
 @msg	printing isn't available here	in không khả dụng ở đây
 @msg	range `{s}` is empty	phạm vi `{s}` trống

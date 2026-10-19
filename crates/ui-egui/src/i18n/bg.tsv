@@ -1535,7 +1535,11 @@ font-technology	Variable	Променливи
 	Choose the folder your scripts are in.	Изберете папката, в която са скриптовете ви.
 	Clear Console	Изчистване на конзолата
 	Reload	Презареждане
-	Run Script	Изпълнение на скрипт
+	Execute Script	Изпълнение на скрипт
+	Edit Script…	Редактиране на скрипт…
+	Create a New Script…	Създаване на нов скрипт…
+	Create New Folder…	Създаване на нова папка…
+	Show / Hide Console	Показване / скриване на конзолата
 	Run a tool script to assign it to this tool button	Изпълнете скрипт за инструмент, за да го зададете на този бутон
 	PaperCraft	PaperCraft
 	Install Plug-in	Инсталиране на приставка
@@ -3788,6 +3792,8 @@ axis	Both	И двете
 @msg	choose a scripts folder first	първо изберете папка със скриптове
 @msg	missing code	липсва код
 @msg	too many untitled scripts	твърде много скриптове без име
+@msg	missing path	липсва път
+@msg	too many new folders	твърде много нови папки
 @msg	Release Guides: no guides	Освобождаване на водачи: няма водачи
 @msg	Release: no layer to put the rectangle in	Освобождаване: няма слой, в който да се постави правоъгълникът
 @msg	Replace Spine: select a blend and a path	Замяна на оста: изберете плавно преливане и път

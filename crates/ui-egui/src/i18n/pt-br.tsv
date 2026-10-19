@@ -1357,7 +1357,11 @@
 	Choose the folder your scripts are in.	Escolha a pasta onde estão seus scripts.
 	Clear Console	Limpar console
 	Reload	Recarregar
-	Run Script	Executar script
+	Execute Script	Executar script
+	Edit Script…	Editar script…
+	Create a New Script…	Criar um novo script…
+	Create New Folder…	Criar nova pasta…
+	Show / Hide Console	Mostrar / ocultar console
 	Run a tool script to assign it to this tool button	Execute um script de ferramenta para atribuí-lo a este botão
 	PaperCraft	PaperCraft
 	Install Plug-in	Instalar Plug-in
@@ -3455,6 +3459,8 @@ axis	Both	Ambos
 @msg	choose a scripts folder first	escolha primeiro uma pasta de scripts
 @msg	missing code	código ausente
 @msg	too many untitled scripts	scripts sem título demais
+@msg	missing path	caminho ausente
+@msg	too many new folders	pastas novas demais
 @msg	Release Guides: no guides	Liberar guias: não há guias
 @msg	Release: no layer to put the rectangle in	Liberar: não há camada para colocar o retângulo
 @msg	Replace Spine: select a blend and a path	Substituir coluna: selecione uma mesclagem e um traçado

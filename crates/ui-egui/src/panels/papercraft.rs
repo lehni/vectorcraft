@@ -1,7 +1,9 @@
 //! The PaperCraft panel: the scripts folder as a tree, as Scriptographer's palette showed it.
-//! Tool scripts (they define mouse or key handlers) have a pencil, running scripts their name in
-//! the accent colour. Double-click runs a script; the bottom bar runs the selected one, stops the
-//! running ones, adds a new script, lists the folder again and chooses another folder.
+//! Tool scripts (they define mouse or key handlers) have a pencil, the one the PaperCraft Tool
+//! stands for a coloured one, running scripts their name in the accent colour. Double-click opens a
+//! script in its editor. The bottom bar has Scriptographer's buttons in its groups: execute the
+//! selected script and stop the running ones, edit, create a script or a folder, show or hide the
+//! console. The panel menu lists the folder again or chooses another one.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -20,6 +22,8 @@ const SELECTED: &str = "papercraft-selected";
 const OPEN: &str = "papercraft-open";
 const ROW: f32 = 22.0;
 const INDENT: f32 = 14.0;
+/// The space between the bottom bar's groups of buttons.
+const GAP: f32 = 8.0;
 
 pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     let Some(folder) = app.ui.papercraft_folder.clone().map(PathBuf::from) else {
@@ -33,41 +37,44 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     };
     let mut selected: Option<PathBuf> = pstate(ui.ctx(), SELECTED);
     let mut open: BTreeSet<PathBuf> = pstate(ui.ctx(), OPEN);
-    let mut run = None;
+    let (mut run, mut edit) = (None, None);
     let running = app.scripts.running_paths();
     let active = app.scripts.tool().map(PathBuf::from);
     // Laid out from the bottom: the bar stays at the bottom, the tree takes the height above it.
     ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+        // Scriptographer's buttons, in its groups: execute and stop, edit, new script and folder,
+        // console.
         ui.horizontal(|ui| {
-            if widgets::icon_button(ui, "play", tl!("Run Script"), false, 24.0).clicked()
-                && let Some(path) = selected.clone().filter(|p| p.is_file())
+            let script = selected.clone().filter(|p| p.is_file());
+            let into =
+                selected.as_ref().map(|p| if p.is_dir() { p.clone() } else { p.parent().map(PathBuf::from).unwrap_or_else(|| folder.clone()) });
+            let into = into.map_or(json!({}), |f| json!({ "folder": f.to_string_lossy() }));
+            if widgets::icon_button_enabled(ui, "play", tl!("Execute Script"), false, script.is_some(), 24.0).clicked() {
+                run = script.clone();
+            }
+            if widgets::icon_button(ui, "square", tl!("Stop Running Scripts"), false, 24.0).clicked() {
+                command(app, "ui.stopScripts", json!({}));
+            }
+            ui.add_space(GAP);
+            if widgets::icon_button_enabled(ui, "file-pen", tl!("Edit Script…"), false, script.is_some(), 24.0).clicked()
+                && let Some(path) = &script
             {
-                run = Some(path);
+                command(app, "ui.editScript", json!({ "path": path.to_string_lossy() }));
             }
-            if widgets::icon_button(ui, "square", tl!("Stop Running Scripts"), false, 24.0).clicked()
-                && let Err(e) = app.run("ui.stopScripts", json!({}))
+            ui.add_space(GAP);
+            if widgets::icon_button(ui, "file-plus", tl!("Create a New Script…"), false, 24.0).clicked()
+                && let Some(r) = command(app, "ui.newScript", into.clone())
             {
-                app.status(e);
+                selected = r["path"].as_str().map(PathBuf::from);
             }
-            if widgets::icon_button(ui, "file-plus", tl!("New Script"), false, 24.0).clicked() {
-                let into =
-                    selected.as_ref().map(|p| if p.is_dir() { p.clone() } else { p.parent().map(PathBuf::from).unwrap_or_else(|| folder.clone()) });
-                let params = into.map_or(json!({}), |f| json!({ "folder": f.to_string_lossy() }));
-                match app.run("ui.newScript", params) {
-                    Ok(r) => selected = r["path"].as_str().map(PathBuf::from),
-                    Err(e) => app.status(e),
-                }
-            }
-            if widgets::icon_button(ui, "rotate-cw", tl!("Reload"), false, 24.0).clicked() {
-                app.scripts.tree(&folder, true);
-            }
-            if widgets::icon_button(ui, "folder-open", tl!("Choose Scripts Folder…"), false, 24.0).clicked() {
-                choose_folder(app);
-            }
-            if widgets::icon_button(ui, "terminal", tl!("PaperCraft Console"), false, 24.0).clicked()
-                && let Err(e) = app.run("window.panel", json!({ "panel": crate::panels::papercraft_console::ID, "toggle": true }))
+            if widgets::icon_button(ui, "folder-plus", tl!("Create New Folder…"), false, 24.0).clicked()
+                && let Some(r) = command(app, "ui.newScriptFolder", into)
             {
-                app.status(e);
+                selected = r["path"].as_str().map(PathBuf::from);
+            }
+            ui.add_space(GAP);
+            if widgets::icon_button(ui, "terminal", tl!("Show / Hide Console"), false, 24.0).clicked() {
+                command(app, "window.panel", json!({ "panel": crate::panels::papercraft_console::ID, "toggle": true }));
             }
         });
         widgets::divider(ui);
@@ -91,7 +98,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
                                 open.insert(entry.path.clone());
                             }
                         }
-                        Some(Action::Run) => run = Some(entry.path.clone()),
+                        Some(Action::Edit) => edit = Some(entry.path.clone()),
                         None => {}
                     }
                 }
@@ -100,17 +107,37 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     });
     set_pstate(ui.ctx(), SELECTED, selected);
     set_pstate(ui.ctx(), OPEN, open);
-    if let Some(path) = run
-        && let Err(e) = app.run("ui.runScript", json!({ "path": path.to_string_lossy() }))
-    {
-        app.status(e);
+    if let Some(path) = run {
+        command(app, "ui.runScript", json!({ "path": path.to_string_lossy() }));
     }
+    if let Some(path) = edit {
+        command(app, "ui.editScript", json!({ "path": path.to_string_lossy() }));
+    }
+}
+
+/// The panel's (≡) menu: list the scripts folder again, or choose another one.
+pub fn menu(app: &mut VectorcraftApp, ui: &mut Ui) {
+    let folder = app.ui.papercraft_folder.clone().map(PathBuf::from);
+    if widgets::menu_item(ui, "Reload", folder.is_some(), false)
+        && let Some(folder) = folder
+    {
+        app.scripts.tree(&folder, true);
+    }
+    if widgets::menu_item(ui, "Choose Scripts Folder…", true, false) {
+        choose_folder(app);
+    }
+}
+
+/// Runs a command, its error in the status bar. Returns its result.
+fn command(app: &mut VectorcraftApp, id: &str, params: serde_json::Value) -> Option<serde_json::Value> {
+    app.run(id, params).map_err(|e| app.status(e)).ok()
 }
 
 enum Action {
     Select,
     Toggle,
-    Run,
+    /// Double-click on a script opens it in its editor, as in Scriptographer.
+    Edit,
 }
 
 /// The visible rows: every entry, and the children of open folders, with their depth.
@@ -177,7 +204,7 @@ fn row(ui: &mut Ui, depth: usize, entry: &Entry, Row { selected, open, running, 
         if resp.double_clicked() {
             action = Some(match entry.kind {
                 EntryKind::Folder(_) => Action::Toggle,
-                EntryKind::Script { .. } => Action::Run,
+                EntryKind::Script { .. } => Action::Edit,
             });
         } else if resp.clicked() {
             action = Some(Action::Select);

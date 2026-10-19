@@ -1814,7 +1814,11 @@ font-technology	Variable	バリアブル
 	Choose the folder your scripts are in.	スクリプトのあるフォルダーを選択してください。
 	Clear Console	コンソールをクリア
 	Reload	再読み込み
-	Run Script	スクリプトを実行
+	Execute Script	スクリプトを実行
+	Edit Script…	スクリプトを編集…
+	Create a New Script…	新規スクリプトを作成…
+	Create New Folder…	新規フォルダーを作成…
+	Show / Hide Console	コンソールを表示 / 非表示
 	Run a tool script to assign it to this tool button	ツールスクリプトを実行すると、このツールボタンに割り当てられます
 	PaperCraft	PaperCraft
 	Install Plug-in	プラグインをインストール
@@ -4410,6 +4414,8 @@ swatch	Bright Violet	ビビッドバイオレット
 @msg	choose a scripts folder first	先にスクリプトフォルダーを選択してください
 @msg	missing code	コードがありません
 @msg	too many untitled scripts	無題のスクリプトが多すぎます
+@msg	missing path	パスがありません
+@msg	too many new folders	新規フォルダーが多すぎます
 @msg	no file system here	この環境にはファイルシステムがありません
 @msg	nothing to preview	プレビューするものがありません
 @msg	Saved {n} files beside {path}	{path} と同じ場所にファイルを {n} 個保存しました

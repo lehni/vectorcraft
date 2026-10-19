@@ -1537,7 +1537,11 @@ font-technology	Variable	Variabla
 	Choose the folder your scripts are in.	Välj mappen där dina skript finns.
 	Clear Console	Rensa konsolen
 	Reload	Läs in igen
-	Run Script	Kör skript
+	Execute Script	Kör skript
+	Edit Script…	Redigera skript…
+	Create a New Script…	Skapa ett nytt skript…
+	Create New Folder…	Skapa ny mapp…
+	Show / Hide Console	Visa / dölj konsol
 	Run a tool script to assign it to this tool button	Kör ett verktygsskript för att tilldela det till den här verktygsknappen
 	PaperCraft	PaperCraft
 	Install Plug-in	Installera plugin
@@ -3792,6 +3796,8 @@ axis	Both	Båda
 @msg	choose a scripts folder first	välj först en skriptmapp
 @msg	missing code	kod saknas
 @msg	too many untitled scripts	för många namnlösa skript
+@msg	missing path	sökväg saknas
+@msg	too many new folders	för många nya mappar
 @msg	Release Guides: no guides	Släpp stödlinjer: inga stödlinjer
 @msg	Release: no layer to put the rectangle in	Släpp: inget lager att placera rektangeln i
 @msg	Replace Spine: select a blend and a path	Ersätt ryggrad: markera en blandning och en bana

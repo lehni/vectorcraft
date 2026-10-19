@@ -1497,7 +1497,11 @@ font-technology	Variable	Μεταβλητές
 	Choose the folder your scripts are in.	Επιλέξτε τον φάκελο όπου βρίσκονται τα σενάριά σας.
 	Clear Console	Εκκαθάριση κονσόλας
 	Reload	Επαναφόρτωση
-	Run Script	Εκτέλεση σεναρίου
+	Execute Script	Εκτέλεση σεναρίου
+	Edit Script…	Επεξεργασία σεναρίου…
+	Create a New Script…	Δημιουργία νέου σεναρίου…
+	Create New Folder…	Δημιουργία νέου φακέλου…
+	Show / Hide Console	Εμφάνιση / απόκρυψη κονσόλας
 	Run a tool script to assign it to this tool button	Εκτελέστε ένα σενάριο εργαλείου για να το αντιστοιχίσετε σε αυτό το κουμπί
 	PaperCraft	PaperCraft
 	Install Plug-in	Εγκατάσταση προσθέτου
@@ -2138,6 +2142,8 @@ axis	Both	Και τα δύο
 @msg	choose a scripts folder first	επιλέξτε πρώτα φάκελο σεναρίων
 @msg	missing code	λείπει ο κώδικας
 @msg	too many untitled scripts	πάρα πολλά σενάρια χωρίς τίτλο
+@msg	missing path	λείπει η διαδρομή
+@msg	too many new folders	πάρα πολλοί νέοι φάκελοι
 @msg	Release Guides: no guides	Αποδέσμευση οδηγών: δεν υπάρχουν οδηγοί
 @msg	Release: no layer to put the rectangle in	Αποδέσμευση: δεν υπάρχει επίπεδο για να τοποθετηθεί το ορθογώνιο
 @msg	Replace Spine: select a blend and a path	Αντικατάσταση κεντρικής καμπύλης: επιλέξτε ανάμειξη και διαδρομή

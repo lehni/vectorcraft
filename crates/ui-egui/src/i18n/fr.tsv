@@ -1569,7 +1569,11 @@ font-technology	Variable	Variables
 	Choose the folder your scripts are in.	Choisissez le dossier où se trouvent vos scripts.
 	Clear Console	Effacer la console
 	Reload	Recharger
-	Run Script	Exécuter le script
+	Execute Script	Exécuter le script
+	Edit Script…	Modifier le script…
+	Create a New Script…	Créer un nouveau script…
+	Create New Folder…	Créer un nouveau dossier…
+	Show / Hide Console	Afficher / masquer la console
 	Run a tool script to assign it to this tool button	Exécutez un script d’outil pour l’attribuer à ce bouton d’outil
 	PaperCraft	PaperCraft
 	Install Plug-in	Installer un module externe
@@ -3869,6 +3873,8 @@ axis	Both	Les deux
 @msg	choose a scripts folder first	choisissez d’abord un dossier de scripts
 @msg	missing code	code manquant
 @msg	too many untitled scripts	trop de scripts sans titre
+@msg	missing path	chemin manquant
+@msg	too many new folders	trop de nouveaux dossiers
 @msg	Release Guides: no guides	Annuler les repères : aucun repère
 @msg	Release: no layer to put the rectangle in	Annuler : aucun calque où placer le rectangle
 @msg	Replace Spine: select a blend and a path	Remplacer la dorsale : sélectionnez un dégradé de formes et un tracé

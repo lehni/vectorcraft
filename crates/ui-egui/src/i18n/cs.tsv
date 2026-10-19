@@ -3146,7 +3146,11 @@ theme	Appearance	Motiv
 	Choose the folder your scripts are in.	Vyberte složku, ve které jsou vaše skripty.
 	Clear Console	Vymazat konzoli
 	Reload	Znovu načíst
-	Run Script	Spustit skript
+	Execute Script	Spustit skript
+	Edit Script…	Upravit skript…
+	Create a New Script…	Vytvořit nový skript…
+	Create New Folder…	Vytvořit novou složku…
+	Show / Hide Console	Zobrazit / skrýt konzoli
 	Run a tool script to assign it to this tool button	Spusťte skript nástroje, aby se přiřadil tomuto tlačítku nástroje
 	PaperCraft	PaperCraft
 	Begin Undo Group	Zahájit skupinu kroků zpět
@@ -4176,6 +4180,8 @@ imageTrace	Outline	Obrys
 @msg	choose a scripts folder first	nejprve vyberte složku skriptů
 @msg	missing code	chybí kód
 @msg	too many untitled scripts	příliš mnoho nepojmenovaných skriptů
+@msg	missing path	chybí cesta
+@msg	too many new folders	příliš mnoho nových složek
 @msg	Release Guides: no guides	Uvolnit vodítka: žádná vodítka
 @msg	Release: no layer to put the rectangle in	Uvolnit: chybí vrstva, do které by šel obdélník umístit
 @msg	Replace Spine: select a blend and a path	Nahradit páteř: vyberte prolnutí a cestu

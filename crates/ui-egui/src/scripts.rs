@@ -440,6 +440,30 @@ fn show_output(app: &mut VectorcraftApp, script: &mut Running) {
     }
 }
 
+/// `ui.editScript {path}`: opens the script in the system's editor for it.
+pub(crate) fn edit_script(app: &mut VectorcraftApp, p: &Value) -> Result<Value, String> {
+    let path = p.get("path").and_then(Value::as_str).ok_or("missing path")?;
+    let open = app.services.open_file.as_mut().ok_or("no app to open files here")?;
+    open(path)?;
+    Ok(Value::Null)
+}
+
+/// `ui.newScriptFolder`: a new folder in the scripts folder (or `folder`), named New Folder or the
+/// first free New Folder N. Returns its path.
+pub(crate) fn new_folder(app: &mut VectorcraftApp, p: &Value) -> Result<Value, String> {
+    let folder = match p.get("folder").and_then(Value::as_str) {
+        Some(folder) => PathBuf::from(folder),
+        None => app.ui.papercraft_folder.clone().map(PathBuf::from).ok_or("choose a scripts folder first")?,
+    };
+    let path = (1..1000)
+        .map(|n| folder.join(if n == 1 { "New Folder".to_owned() } else { format!("New Folder {n}") }))
+        .find(|path| !path.exists())
+        .ok_or("too many new folders")?;
+    std::fs::create_dir(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    app.scripts.tree = None;
+    Ok(json!({ "path": path.to_string_lossy() }))
+}
+
 /// `ui.newScript`: a new, empty script in the scripts folder (or `folder`), named Untitled.js or
 /// the first free Untitled N.js. Returns its path.
 pub(crate) fn new_script(app: &mut VectorcraftApp, p: &Value) -> Result<Value, String> {

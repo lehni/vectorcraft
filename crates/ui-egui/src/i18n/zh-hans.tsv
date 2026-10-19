@@ -1521,7 +1521,11 @@ file-filter	Templates	模板
 	Choose the folder your scripts are in.	请选择存放脚本的文件夹。
 	Clear Console	清除控制台
 	Reload	重新加载
-	Run Script	运行脚本
+	Execute Script	运行脚本
+	Edit Script…	编辑脚本…
+	Create a New Script…	新建脚本…
+	Create New Folder…	新建文件夹…
+	Show / Hide Console	显示 / 隐藏控制台
 	Run a tool script to assign it to this tool button	运行工具脚本即可将其指定给此工具按钮
 	PaperCraft	PaperCraft
 	Install Plug-in	安装插件
@@ -4135,6 +4139,8 @@ imageTrace	Outline	轮廓
 @msg	choose a scripts folder first	请先选择脚本文件夹
 @msg	missing code	缺少代码
 @msg	too many untitled scripts	未命名的脚本太多
+@msg	missing path	缺少路径
+@msg	too many new folders	新文件夹太多
 @msg	no file system here	此处没有文件系统
 @msg	nothing to preview	没有可预览的内容
 @msg	Saved {n} files beside {path}	已在 {path} 旁保存 {n} 个文件

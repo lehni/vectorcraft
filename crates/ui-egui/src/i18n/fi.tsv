@@ -3086,7 +3086,11 @@ theme	Appearance	Ulkoasu
 	Choose the folder your scripts are in.	Valitse kansio, jossa komentosarjasi ovat.
 	Clear Console	Tyhjennä konsoli
 	Reload	Lataa uudelleen
-	Run Script	Suorita komentosarja
+	Execute Script	Suorita komentosarja
+	Edit Script…	Muokkaa komentosarjaa…
+	Create a New Script…	Luo uusi komentosarja…
+	Create New Folder…	Luo uusi kansio…
+	Show / Hide Console	Näytä / piilota konsoli
 	Run a tool script to assign it to this tool button	Suorita työkalukomentosarja liittääksesi sen tähän työkalupainikkeeseen
 	PaperCraft	PaperCraft
 	Begin Undo Group	Aloita kumoamisryhmä
@@ -4094,6 +4098,8 @@ imageTrace	Outline	Ääriviiva
 @msg	choose a scripts folder first	valitse ensin komentosarjakansio
 @msg	missing code	koodi puuttuu
 @msg	too many untitled scripts	liikaa nimettömiä komentosarjoja
+@msg	missing path	polku puuttuu
+@msg	too many new folders	liikaa uusia kansioita
 @msg	Release Guides: no guides	Vapauta apuviivat: ei apuviivoja
 @msg	Release: no layer to put the rectangle in	Vapauta: ei tasoa, johon suorakulmion voisi sijoittaa
 @msg	Replace Spine: select a blend and a path	Korvaa selkäranka: valitse sulautus ja polku

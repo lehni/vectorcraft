@@ -2721,7 +2721,11 @@ theme	Appearance	იერსახე
 	Choose the folder your scripts are in.	აირჩიეთ საქაღალდე, სადაც თქვენი სკრიპტებია.
 	Clear Console	კონსოლის გასუფთავება
 	Reload	ხელახლა ჩატვირთვა
-	Run Script	სკრიპტის გაშვება
+	Execute Script	სკრიპტის გაშვება
+	Edit Script…	სკრიპტის რედაქტირება…
+	Create a New Script…	ახალი სკრიპტის შექმნა…
+	Create New Folder…	ახალი საქაღალდის შექმნა…
+	Show / Hide Console	კონსოლის ჩვენება / დამალვა
 	Run a tool script to assign it to this tool button	გაუშვით ხელსაწყოს სკრიპტი, რომ ეს ღილაკი მას მიენიჭოს
 	PaperCraft	PaperCraft
 	Begin Undo Group	დაბრუნების ჯგუფის დაწყება
@@ -3670,6 +3674,8 @@ font-technology	Variable	ცვლადი
 @msg	choose a scripts folder first	ჯერ აირჩიეთ სკრიპტების საქაღალდე
 @msg	missing code	კოდი აკლია
 @msg	too many untitled scripts	ზედმეტად ბევრი უსათაურო სკრიპტი
+@msg	missing path	ბილიკი აკლია
+@msg	too many new folders	ზედმეტად ბევრი ახალი საქაღალდე
 @msg	Release Guides: no guides	დამხმარე ხაზების მოხსნა: დამხმარე ხაზები არ არის
 @msg	Release: no layer to put the rectangle in	მოხსნა: მართკუთხედის ჩასასმელი შრე არ არის
 @msg	Replace Spine: select a blend and a path	ხერხემლის ჩანაცვლება: მონიშნეთ გადასვლა და ტრაექტორია

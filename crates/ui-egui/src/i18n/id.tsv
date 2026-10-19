@@ -2909,7 +2909,11 @@ theme	Appearance	Tampilan
 	Choose the folder your scripts are in.	Pilih folder tempat skrip Anda berada.
 	Clear Console	Bersihkan Konsol
 	Reload	Muat Ulang
-	Run Script	Jalankan Skrip
+	Execute Script	Jalankan Skrip
+	Edit Script…	Edit Skrip…
+	Create a New Script…	Buat Skrip Baru…
+	Create New Folder…	Buat Folder Baru…
+	Show / Hide Console	Tampilkan / Sembunyikan Konsol
 	Run a tool script to assign it to this tool button	Jalankan skrip alat untuk menetapkannya ke tombol alat ini
 	PaperCraft	PaperCraft
 	Begin Undo Group	Mulai grup urungkan
@@ -3909,6 +3913,8 @@ imageTrace	Outline	Kontur
 @msg	choose a scripts folder first	pilih folder skrip terlebih dahulu
 @msg	missing code	kode tidak ada
 @msg	too many untitled scripts	terlalu banyak skrip tanpa judul
+@msg	missing path	jalur tidak ada
+@msg	too many new folders	terlalu banyak folder baru
 @msg	Release Guides: no guides	Lepaskan panduan: tidak ada panduan
 @msg	Release: no layer to put the rectangle in	Lepaskan: tidak ada lapisan untuk menaruh persegi panjangnya
 @msg	Replace Spine: select a blend and a path	Ganti rangka: pilih satu blend dan satu jalur

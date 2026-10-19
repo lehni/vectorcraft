@@ -2909,7 +2909,11 @@ theme	Appearance	Udseende
 	Choose the folder your scripts are in.	Vælg den mappe, dine scripts ligger i.
 	Clear Console	Ryd konsol
 	Reload	Genindlæs
-	Run Script	Kør script
+	Execute Script	Kør script
+	Edit Script…	Rediger script…
+	Create a New Script…	Opret et nyt script…
+	Create New Folder…	Opret ny mappe…
+	Show / Hide Console	Vis / skjul konsol
 	Run a tool script to assign it to this tool button	Kør et værktøjsscript for at knytte det til denne værktøjsknap
 	PaperCraft	PaperCraft
 	Begin Undo Group	Start fortrydelsesgruppe
@@ -3909,6 +3913,8 @@ imageTrace	Outline	Kontur
 @msg	choose a scripts folder first	vælg først en scriptmappe
 @msg	missing code	kode mangler
 @msg	too many untitled scripts	for mange unavngivne scripts
+@msg	missing path	sti mangler
+@msg	too many new folders	for mange nye mapper
 @msg	Release Guides: no guides	Frigiv hjælpelinjer: ingen hjælpelinjer
 @msg	Release: no layer to put the rectangle in	Frigiv: intet lag at lægge rektanglet i
 @msg	Replace Spine: select a blend and a path	Erstat rygrad: markér en blanding og en kurve
