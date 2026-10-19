@@ -121,43 +121,23 @@ fn pen(p: &mut Ink, o: Pos2, badge: &str) {
     }
 }
 
-/// The PaperCraft Tool's pencil: Scriptographer's tool cursor, pixel for pixel (`#` black, `.`
-/// white), its hotspot the lead tip's pixel at the left of the second row from the bottom.
-const SCRIPT_PENCIL: [&str; 16] = [
-    "            ### ",
-    "           #...#",
-    "          ##...#",
-    "         ##.#..#",
-    "        #.##.## ",
-    "       #...###  ",
-    "      #.....#   ",
-    "     #.....#    ",
-    "    #.....#     ",
-    "   #.....#      ",
-    "  #.....#       ",
-    " #.....#        ",
-    "#.#...#         ",
-    "#..#.#          ",
-    "##..#           ",
-    "####            ",
-];
-
-/// [`SCRIPT_PENCIL`] with its hotspot at `o`, one point a pixel. One mesh of crisp squares: shapes
-/// would be feathered, and seams would show between the pixels.
+/// The PaperCraft Tool's pencil: Scriptographer's 16 × 16 tool cursor, traced. Its points are on
+/// that bitmap's pixel centres, `(x, y)` from the top left, the hotspot the lead tip's pixel at
+/// `(0, 14)`: 1-point lines on white, as the bitmap had them.
 fn script_pencil(p: &mut Ink, o: Pos2) {
-    let mut mesh = Mesh::default();
-    for (y, row) in SCRIPT_PENCIL.iter().enumerate() {
-        for (x, c) in row.chars().enumerate() {
-            let color = match c {
-                '#' => INK,
-                '.' => HALO,
-                _ => continue,
-            };
-            let min = o + vec2(x as f32, y as f32 - 14.0);
-            mesh.add_colored_rect(egui::Rect::from_min_size(min, vec2(1.0, 1.0)), color);
-        }
+    let at = |(x, y): (f32, f32)| o + vec2(x, y - 14.0);
+    let line = Stroke::new(1.0, INK);
+    // The body's edges run along x + y = 13 and 19; the eraser is a half circle across them.
+    let (center, r) = (at((13.25, 2.75)), 3.0 / 2f32.sqrt());
+    let eraser = (0..=12).map(|i| center + egui::Vec2::angled(std::f32::consts::PI * (1.25 + i as f32 / 12.0)) * r);
+    let outline: Vec<Pos2> = [at((0.5, 15.5)), at((0.5, 12.5))].into_iter().chain(eraser).chain([at((4.5, 14.5)), at((3.5, 15.5))]).collect();
+    p.add(Shape::convex_polygon(outline, HALO, line));
+    // The lead.
+    p.add(Shape::convex_polygon([(0.5, 13.5), (0.5, 15.5), (2.5, 15.5)].map(at).to_vec(), INK, line));
+    // Where the wood is sharpened, and the band before the eraser.
+    for (a, b) in [((1.5, 11.5), (4.5, 14.5)), ((9.5, 3.5), (12.5, 6.5)), ((11.75, 1.25), (14.75, 4.25))] {
+        p.line_segment([at(a), at(b)], line);
     }
-    p.add(Shape::mesh(mesh));
 }
 
 /// The Anchor Point tool's caret (as its toolbar icon): a small hollow square on the anchor at
