@@ -9,7 +9,7 @@
  *
  * All rights reserved.
  *
- * Date: Mon Oct 19 20:11:47 2026 +0200
+ * Date: Mon Oct 19 21:44:33 2026 +0200
  *
  ***
  *
@@ -780,7 +780,8 @@ var PaperScope = Base.extend({
 			applyMatrix: true,
 			insertItems: true,
 			handleSize: 4,
-			hitTolerance: 0
+			hitTolerance: 0,
+			scaleStrokes: false
 		});
 		this.project = null;
 		this.projects = [];
@@ -2647,6 +2648,10 @@ var Matrix = Base.extend({
 		return det && !isNaN(det) && isFinite(this._tx) && isFinite(this._ty);
 	},
 
+	_getMeanScale: function() {
+		return Math.sqrt(Math.abs(this._a * this._d - this._b * this._c));
+	},
+
 	isSingular: function() {
 		return !this.isInvertible();
 	},
@@ -4173,10 +4178,21 @@ new function() {
 			res;
 
 		function filter(hit) {
+			if (Array.isArray(hit)) {
+				var first = null;
+				for (var i = 0, l = hit.length; i < l; i++) {
+					var res = filter(hit[i]);
+					first = first || res;
+				}
+				return first;
+			}
 			if (hit && match && !match(hit))
 				hit = null;
-			if (hit && options.all)
+			if (hit && options.all) {
+				if (hit.point)
+					hit.point = that.getGlobalMatrix().transform(hit.point);
 				options.all.push(hit);
+			}
 			return hit;
 		}
 
@@ -4220,7 +4236,7 @@ new function() {
 							: viewMatrix._shiftless().invert()))
 				|| null;
 		}
-		if (res && res.point) {
+		if (res && res.point && !options.all) {
 			res.point = pointMatrix.transform(res.point);
 		}
 		return res;
@@ -8293,6 +8309,15 @@ var PathItem = Item.extend({
 	initialize: function PathItem() {
 	},
 
+	_scaleStroke: function(matrix) {
+		var style = this._style;
+		if (this._project._scope.settings.scaleStrokes
+				&& style.getStrokeScaling()) {
+			style.setStrokeWidth(style.getStrokeWidth()
+					* matrix._getMeanScale());
+		}
+	},
+
 	statics: {
 		create: function(arg) {
 			var data,
@@ -8761,6 +8786,7 @@ var Path = PathItem.extend({
 			coords = new Array(6);
 		for (var i = 0, l = segments.length; i < l; i++)
 			segments[i]._transformCoordinates(matrix, coords, true);
+		this._scaleStroke(matrix);
 		return true;
 	},
 
@@ -9391,6 +9417,7 @@ var Path = PathItem.extend({
 			strokePadding = tolerancePadding,
 			join, cap, miterLimit,
 			area, loc, res,
+			hits = options.all && [],
 			hitStroke = options.stroke && style.hasStroke(),
 			hitFill = options.fill && style.hasFill(),
 			hitCurves = options.curves,
@@ -9420,10 +9447,13 @@ var Path = PathItem.extend({
 				if (pt !== anchor)
 					pt = pt.add(anchor);
 				if (isCloseEnough(pt, strokePadding)) {
-					return new HitResult(name, that, {
+					var hit = new HitResult(name, that, {
 						segment: seg,
 						point: pt
 					});
+					if (!hits)
+						return hit;
+					hits.push(hit);
 				}
 			}
 		}
@@ -9497,7 +9527,7 @@ var Path = PathItem.extend({
 				}
 			}
 		}
-		return !loc && hitFill && this._contains(point)
+		res = !loc && hitFill && this._contains(point)
 				|| loc && !hitStroke && !hitCurves
 					? new HitResult('fill', this)
 					: loc
@@ -9506,6 +9536,16 @@ var Path = PathItem.extend({
 							point: loc.getPoint()
 						})
 						: null;
+		if (hits) {
+			hits.sort(function(hit1, hit2) {
+				return hit1.point.getDistance(point)
+						- hit2.point.getDistance(point);
+			});
+			if (res)
+				hits.push(res);
+			return hits;
+		}
+		return res;
 	}
 
 }, Base.each(Curve._evaluateMethods,
@@ -10342,6 +10382,11 @@ var CompoundPath = PathItem.extend({
 				this.addChildren(Array.isArray(arg) ? arg : arguments);
 			}
 		}
+	},
+
+	_transformContent: function _transformContent(matrix) {
+		this._scaleStroke(matrix);
+		return _transformContent.base.apply(this, arguments);
 	},
 
 	insertChildren: function insertChildren(index, items) {
@@ -11831,6 +11876,16 @@ var PointText = TextItem.extend({
 				hasStroke = style.hasStroke(),
 				leading = style.getLeading(),
 				shadowColor = ctx.shadowColor;
+			if (hasStroke && !style.getStrokeScaling()) {
+				var scale = viewMatrix._getMeanScale();
+				ctx.lineWidth /= scale;
+				if ('setLineDash' in ctx) {
+					ctx.setLineDash(ctx.getLineDash().map(function(dash) {
+						return dash / scale;
+					}));
+					ctx.lineDashOffset /= scale;
+				}
+			}
 			ctx.font = style.getFontStyle();
 			ctx.textAlign = style.getJustification();
 			ctx.letterSpacing = style.getTrackingStyle();
@@ -13095,7 +13150,7 @@ var View = Base.extend(Emitter, {
 		}
 
 		function getCanvasSize() {
-			var size = DomElement.getSize(element);
+			var size = new Size(element.offsetWidth, element.offsetHeight);
 			return size.isNaN() || size.isZero()
 					? new Size(getSize('width'), getSize('height'))
 					: size.subtract(DomElement.getInsets(element));
@@ -13699,6 +13754,7 @@ new function() {
 	var itemEventsMap = {
 		mousedown: {
 			mousedown: 1,
+			mouseup: 1,
 			mousedrag: 1,
 			click: 1,
 			doubleclick: 1
@@ -13732,12 +13788,29 @@ new function() {
 						|| tool && tool.responds(type);
 			}
 
+			function needsUp(hitItem) {
+				if (view.responds('mouseup')
+						|| tool && tool.responds('mouseup'))
+					return true;
+				for (var item = hitItem; item; item = item._parent) {
+					for (var key in itemEventsMap.mouseup) {
+						if (item.responds(key))
+							return true;
+					}
+				}
+				return false;
+			}
+
 			if (nativeMove && dragging && responds('mousedrag'))
 				type = 'mousedrag';
 			if (!point)
 				point = this.getEventPoint(event);
 
-			var inView = this.getBounds().contains(point),
+			var target = DomEvent.getTarget(event),
+				isCovered = nativeMove && !dragging && target
+						&& target.nodeType === 1
+						&& !target.contains(this._element),
+				inView = !isCovered && this.getBounds().contains(point),
 				hit = hitItems && inView && view._project.hitTest(point, {
 					tolerance: 0,
 					fill: true,
@@ -13804,7 +13877,7 @@ new function() {
 
 			if (
 				event.cancelable !== false
-				&& (called && !mouse.move || mouse.down && responds('mouseup'))
+				&& (called && !mouse.move || mouse.down && needsUp(hitItem))
 			) {
 				event.preventDefault();
 			}
@@ -15249,6 +15322,13 @@ new function() {
 		},
 
 		_load: function() {
+			var that = this;
+			whileLoading(this._project, function() {
+				that._loadContent();
+			});
+		},
+
+		_loadContent: function() {
 			var project = this._project,
 				json = project._source.getItem(this._key),
 				ctor = this.constructor,
@@ -15257,25 +15337,25 @@ new function() {
 				that = this;
 			if (this instanceof Group || this._hasChildren)
 				Base.push(kept, childrenFields);
-			whileLoading(project, function() {
-				that._contentFields.forEach(function(name) {
+			if (this._contentFields) {
+				this._contentFields.forEach(function(name) {
 					defineValue(that, name, ctor.prototype[name]);
 				});
-				kept.forEach(function(name) {
-					if (that.hasOwnProperty(name))
-						values[name] = that[name];
-				});
-				ctor.call(that, { insert: false, project: project });
-				kept.forEach(function(name) {
-					if (name in values) {
-						that[name] = values[name];
-					} else {
-						delete that[name];
-					}
-				});
-				Base.importJSON(json, that);
-				that._shell = false;
+			}
+			kept.forEach(function(name) {
+				if (that.hasOwnProperty(name))
+					values[name] = that[name];
 			});
+			ctor.call(this, { insert: false, project: project });
+			kept.forEach(function(name) {
+				if (name in values) {
+					that[name] = values[name];
+				} else {
+					delete that[name];
+				}
+			});
+			Base.importJSON(json, this);
+			this._shell = false;
 		},
 
 		_loadChildren: function() {
@@ -15288,7 +15368,9 @@ new function() {
 		},
 
 		_unload: function() {
-			if (!this._shell) {
+			if (!this._contentFields) {
+				this._loadContent();
+			} else if (!this._shell) {
 				var that = this;
 				this._contentFields.forEach(function(name) {
 					delete that[name];
@@ -15444,7 +15526,7 @@ var SvgStyles = Base.each({
 	dashArray: ['stroke-dasharray', 'array'],
 	dashOffset: ['stroke-dashoffset', 'number'],
 	fontFamily: ['font-family', 'string'],
-	fontWeight: ['font-weight', 'string'],
+	fontWeight: ['font-weight', 'font'],
 	fontSize: ['font-size', 'number'],
 	tracking: ['letter-spacing', 'tracking'],
 	justification: ['text-anchor', 'lookup', {
@@ -15793,6 +15875,14 @@ new function() {
 				}
 				if (type === 'style') {
 					style.push(entry.attribute + ': ' + value);
+				} else if (type === 'font') {
+					var font = ('' + value).match(
+							/^(.*?)\s*\b(italic|oblique)\b\s*(.*)$/i);
+					attrs[entry.attribute] = font
+							? (font[1] + ' ' + font[3]).trim() || 'normal'
+							: value;
+					if (font)
+						attrs['font-style'] = font[2].toLowerCase();
 				} else {
 					attrs[entry.attribute] = value == null ? 'none'
 							: type === 'color' ? value.gradient
@@ -16303,6 +16393,15 @@ new function() {
 		display: function(item, value) {
 			if (item.setVisible)
 				item.setVisible(value !== null);
+		},
+
+		'font-style': function(item, value) {
+			if (item.setFontWeight && /^(italic|oblique)$/.test(value)) {
+				var weight = ('' + item.getFontWeight())
+						.replace(/\s*\b(italic|oblique)\b/gi, '');
+				item.setFontWeight(/^(normal|400)$/.test(weight) ? value
+						: weight + ' ' + value);
+			}
 		},
 
 		'letter-spacing': function(item, value) {

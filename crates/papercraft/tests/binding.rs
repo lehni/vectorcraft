@@ -267,7 +267,6 @@ macro_rules! engine_tests {
             }
 
             #[test]
-            #[ignore = "Paper.js: invalidate() throws on keyed items that were never shells (CHANNEL.md N14)"]
             fn edits_to_objects_a_script_made_reach_it() {
                 super::edits_to_objects_a_script_made_reach_it::<$engine>();
             }
