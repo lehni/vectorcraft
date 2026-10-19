@@ -2,7 +2,9 @@
 //! as a Paper.js project, and what it changes comes back as one undo step. A script with `onFrame`
 //! or an interval keeps running, driven by the app's frames, until it stops or Stop Running
 //! Scripts stops it; the whole run is one undo step while nothing else edits the document in
-//! between. Before each frame the script's project catches up with edits made outside it.
+//! between. Before each frame the script's project catches up with edits made outside it. A
+//! script runs on the document it started on: it waits while another one is active, and stops
+//! when its document closes. One tool script at a time is the PaperCraft Tool.
 //!
 //! `ui.runScript {path?}` runs a script (without a path it asks for the file),
 //! `ui.stopScripts` stops the running ones and `ui.evaluateScript {code}` runs a line in the
@@ -74,6 +76,9 @@ struct Running {
     /// The file it runs, if any (not for the console).
     path: Option<PathBuf>,
     runtime: Runtime<PlatformEngine>,
+    /// The document it runs on (`DocState::uid`). It waits while another document is active, and
+    /// stops when its document closes.
+    doc: u64,
     scope: Scope<<PlatformEngine as Engine>::Handle>,
     /// The app's clock when it started, in seconds.
     started: f64,
@@ -200,8 +205,9 @@ pub(crate) fn run(app: &mut VectorcraftApp, p: &Value) -> Result<Value, String> 
     script.tool = result.is_ok() && script.runtime.has_tool(&script.scope).map_err(|e| e.to_string())?;
     let tool = script.tool;
     if running || tool {
-        // Run again, a script replaces the one that runs from the same file.
-        app.scripts.running.retain(|s| s.path.as_deref() != Some(&path));
+        // Run again, a script replaces the one that runs from the same file; a tool script
+        // replaces the one the PaperCraft Tool stood for, as there is one tool button.
+        app.scripts.running.retain(|s| s.path.as_deref() != Some(&path) && !(tool && s.tool));
         app.scripts.running.push(script);
     }
     if tool {
@@ -216,7 +222,9 @@ pub(crate) fn run(app: &mut VectorcraftApp, p: &Value) -> Result<Value, String> 
 /// `ui.evaluateScript {code}`: run `code` in the console's project, made on the first line.
 pub(crate) fn evaluate(app: &mut VectorcraftApp, p: &Value) -> Result<Value, String> {
     let code = p.get("code").and_then(Value::as_str).ok_or("missing code")?.to_owned();
-    let mut console = match app.scripts.console.take() {
+    // The console's project is on the active document: a new one for another document.
+    let active = app.session.doc().map_err(|e| e.to_string())?.uid;
+    let mut console = match app.scripts.console.take().filter(|c| c.doc == active) {
         Some(console) => console,
         None => start(app, "Console".into(), None)?,
     };
@@ -244,7 +252,7 @@ fn start(app: &VectorcraftApp, name: String, path: Option<PathBuf>) -> Result<Ru
     let mut runtime = Runtime::<PlatformEngine>::new().map_err(|e| e.to_string())?;
     let scope = runtime.create_scope(size.0, size.1).map_err(|e| e.to_string())?;
     runtime.bind(&scope, doc, selection).map_err(|e| e.to_string())?;
-    Ok(Running { name, path, runtime, scope, started: app.last_time, last: None, tool: false })
+    Ok(Running { name, path, runtime, doc: state.uid, scope, started: app.last_time, last: None, tool: false })
 }
 
 /// Runs `source` in the script's project and writes back what it changed, even when it threw, as
@@ -264,11 +272,19 @@ fn execute(app: &mut VectorcraftApp, script: &mut Running, source: &str) -> Resu
 /// Drives the running scripts, once per frame: their timers and `onFrame` handlers run, and what
 /// they changed goes back to the document.
 pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
-    if !app.scripts.is_running() {
+    if app.scripts.running.is_empty() && app.scripts.console.is_none() {
         return;
     }
     let mut scripts = std::mem::take(&mut app.scripts.running);
+    let active = app.session.active().map(|d| d.uid);
     scripts.retain_mut(|script| {
+        if !is_open(app, script.doc) {
+            app.scripts.push_log(format!("{} stopped: its document closed", script.name), false);
+            return false;
+        }
+        if active != Some(script.doc) {
+            return true;
+        }
         let keeps = if script.runtime.is_running() { tick(app, script, now) || script.tool } else { script.tool };
         if !keeps {
             app.scripts.push_log(format!("{} stopped", script.name), false);
@@ -278,15 +294,24 @@ pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
     // Scripts started by a script's frame join the list.
     scripts.append(&mut app.scripts.running);
     app.scripts.running = scripts;
+    if app.scripts.tool.as_ref().is_some_and(|tool| !app.scripts.running.iter().any(|s| s.path.as_ref() == Some(tool))) {
+        app.scripts.tool = None;
+        app.scripts.tool_active = false;
+    }
     if let Some(mut console) = app.scripts.console.take() {
-        if console.runtime.is_running() {
+        if active == Some(console.doc) && console.runtime.is_running() {
             tick(app, &mut console, now);
         }
-        app.scripts.console = Some(console);
+        app.scripts.console = Some(console).filter(|c| is_open(app, c.doc));
     }
     if app.scripts.is_running() {
         ctx.request_repaint();
     }
+}
+
+/// Whether the document `uid` is still open.
+fn is_open(app: &VectorcraftApp, uid: u64) -> bool {
+    app.session.documents().iter().any(|d| d.uid == uid)
 }
 
 /// Sends a pointer event on the canvas to the active tool script. Returns whether there is one,
@@ -302,6 +327,10 @@ pub(crate) fn pointer(app: &mut VectorcraftApp, ev: &vectorcraft_tools::PointerE
         app.scripts.tool_active = false;
         return false;
     };
+    // The tool script works on its own document: on another one the PaperCraft Tool does nothing.
+    if app.session.active().map(|d| d.uid) != app.scripts.running.get(index).map(|s| s.doc) {
+        return true;
+    }
     let event = match ev.kind {
         PointerKind::Down => MouseEvent::Down,
         PointerKind::Drag => MouseEvent::Drag,

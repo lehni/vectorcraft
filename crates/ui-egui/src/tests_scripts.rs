@@ -150,3 +150,47 @@ fn an_animation_goes_on_after_the_user_moves_its_object() {
     assert!(app.scripts.is_running(), "{}", app.ui.status);
     assert_eq!(left(&app, id), after_drag + 10.0, "the animation goes on from where the drag left it");
 }
+
+/// A tool script that draws a circle where the mouse goes down.
+const TOOL: &str = "function onMouseDown(event) { new Path.Circle({ center: event.point, radius: 5 }) }";
+
+/// There is one PaperCraft Tool button: running a tool script replaces the one it stood for.
+#[test]
+fn a_tool_script_replaces_the_previous_one() {
+    let (mut app, _) = app();
+    let (first, second) = (tempfile_path::Path::new(TOOL), tempfile_path::Path::new(TOOL));
+    for path in [&first, &second] {
+        app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
+    }
+    assert_eq!(app.scripts.running_paths(), std::collections::BTreeSet::from([second.0.clone()]), "only the second one is loaded");
+    assert_eq!(app.scripts.tool(), Some(second.0.as_path()));
+}
+
+/// A script runs on the document it started on: it waits while another document is active, and
+/// stops when its document closes, the PaperCraft Tool with it.
+#[test]
+fn scripts_stop_when_their_document_closes() {
+    let (mut app, id, _path) = running();
+    let tool = tempfile_path::Path::new(TOOL);
+    app.run("ui.runScript", json!({ "path": tool.0.to_string_lossy() })).unwrap();
+    let ctx = egui::Context::default();
+    app.run("file.new", json!({})).unwrap();
+    crate::scripts::frame(&mut app, &ctx, 1.0);
+    assert_eq!(children(&app), 0, "the script doesn't reach the other document");
+    assert!(pointer(&mut app, vectorcraft_tools::PointerKind::Down, 50.0), "the PaperCraft Tool keeps the click");
+    assert_eq!(children(&app), 0, "but draws nothing in the other document");
+    app.run("file.close", json!({})).unwrap();
+    crate::scripts::frame(&mut app, &ctx, 2.0);
+    assert_eq!(left(&app, id), 20.0, "back on its document, it goes on");
+    // Closed with Don't Save.
+    app.run("file.close", json!({})).unwrap();
+    app.ui.dialog.as_mut().unwrap().fields.insert("discard".into(), json!(true));
+    crate::dialogs::confirm(&mut app).unwrap();
+    crate::scripts::frame(&mut app, &ctx, 3.0);
+    assert!(app.scripts.running_paths().is_empty(), "both stopped with their document");
+    assert_eq!(app.scripts.tool(), None);
+    let errors = app.scripts.log().iter().filter(|l| l.error).count();
+    crate::scripts::frame(&mut app, &ctx, 4.0);
+    assert_eq!(app.scripts.log().iter().filter(|l| l.error).count(), errors, "and print nothing more");
+    assert_eq!(errors, 0);
+}

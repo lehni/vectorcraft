@@ -108,6 +108,17 @@ fn on_frame_keeps_changing_the_document<E: Engine>() {
     assert_eq!(node(&s, a).geometric_bounds().unwrap().x0, 40.0, "three frames moved it by 30");
 }
 
+fn scripts_without_on_frame_stop<E: Engine>() {
+    let (s, _, _) = document();
+    let st = s.active().unwrap();
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(400.0, 300.0).unwrap();
+    runtime.bind(&scope, st.doc.clone(), st.selection.clone()).unwrap();
+    runtime.execute(&scope, "project.activeLayer.firstChild.position += [10, 0]").unwrap();
+    runtime.run_timers(20.0).unwrap();
+    assert!(!runtime.is_running(), "once the view has updated, nothing is left to run");
+}
+
 /// One frame as the app runs it: the project catches up with the document, the timers run, and
 /// what they changed goes back.
 fn frame<E: Engine>(s: &mut Session, runtime: &mut Runtime<E>, scope: &vectorcraft_papercraft::Scope<E::Handle>, now: f64) {
@@ -243,6 +254,12 @@ macro_rules! engine_tests {
             #[test]
             fn on_frame_keeps_changing_the_document() {
                 super::on_frame_keeps_changing_the_document::<$engine>();
+            }
+
+            #[test]
+            #[ignore = "Paper.js: the requestAnimationFrame fallback never clears its interval (CHANNEL.md N19)"]
+            fn scripts_without_on_frame_stop() {
+                super::scripts_without_on_frame_stop::<$engine>();
             }
 
             #[test]
