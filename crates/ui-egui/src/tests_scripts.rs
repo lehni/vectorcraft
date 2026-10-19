@@ -381,22 +381,104 @@ fn a_palette_opens_where_the_user_put_it() {
 #[test]
 fn the_scripts_folder_is_listed_again_when_the_app_comes_to_the_front() {
     let (mut app, _) = app();
-    let folder = std::env::temp_dir().join(format!("papercraft-folder-{}", std::process::id()));
-    std::fs::create_dir_all(&folder).unwrap();
-    std::fs::write(folder.join("a.js"), "").unwrap();
+    let folder = TempFolder::new("listed");
+    std::fs::write(folder.0.join("a.js"), "").unwrap();
+    let folders = [folder.script_folder("Mine")];
     let ctx = egui::Context::default();
     let focus = |app: &mut VectorcraftApp, focused| {
         let mut out = ctx.run_ui(egui::RawInput { focused, ..Default::default() }, |ui| crate::scripts::frame(app, ui.ctx(), 0.0));
         out.textures_delta.clear();
     };
+    let scripts = |app: &mut VectorcraftApp| match &app.scripts.tree(&folders, false)[0].kind {
+        crate::scripts::EntryKind::Folder(children) => children.len(),
+        _ => 0,
+    };
     focus(&mut app, true);
-    assert_eq!(app.scripts.tree(&folder, false).len(), 1);
-    std::fs::write(folder.join("b.js"), "").unwrap();
-    assert_eq!(app.scripts.tree(&folder, false).len(), 1, "listed once");
+    assert_eq!(scripts(&mut app), 1);
+    std::fs::write(folder.0.join("b.js"), "").unwrap();
+    assert_eq!(scripts(&mut app), 1, "listed once");
     focus(&mut app, false);
     focus(&mut app, true);
-    assert_eq!(app.scripts.tree(&folder, false).len(), 2, "back in front, listed again");
-    let _ = std::fs::remove_dir_all(&folder);
+    assert_eq!(scripts(&mut app), 2, "back in front, listed again");
+}
+
+/// A folder for a test, removed when dropped.
+struct TempFolder(std::path::PathBuf);
+
+impl TempFolder {
+    fn new(name: &str) -> Self {
+        let path = std::env::temp_dir().join(format!("papercraft-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).unwrap();
+        Self(path)
+    }
+
+    fn script_folder(&self, name: &str) -> crate::state::ScriptFolder {
+        crate::state::ScriptFolder { name: name.into(), path: self.0.to_string_lossy().into_owned(), visible: true }
+    }
+}
+
+impl Drop for TempFolder {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// The panel lists the shown script folders, each a root under its name, in their order.
+#[test]
+fn script_folders_are_the_roots_of_the_tree() {
+    let (mut app, _) = app();
+    let (a, b, hidden) = (TempFolder::new("roots-a"), TempFolder::new("roots-b"), TempFolder::new("roots-hidden"));
+    let mut folders = vec![b.script_folder("Second"), a.script_folder("First"), hidden.script_folder("Hidden")];
+    folders[2].visible = false;
+    let names: Vec<String> = app.scripts.tree(&folders, false).iter().map(|e| e.name.clone()).collect();
+    assert_eq!(names, ["Second", "First"]);
+}
+
+/// New Script asks for the name in a save dialog, in the selected folder, suggesting the first free
+/// Untitled N.js; New Folder asks in a dialog. Both select what they made.
+#[test]
+fn new_scripts_and_folders_are_named_by_the_user() {
+    let (mut app, _) = app();
+    let folder = TempFolder::new("new");
+    app.ui.papercraft_folders = vec![folder.script_folder("Mine")];
+    let asked = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let (seen, into) = (asked.clone(), folder.0.clone());
+    app.services.pick_save = Some(Box::new(move |pick: &crate::FilePick| {
+        *seen.borrow_mut() = Some((pick.name.clone(), pick.folder.clone()));
+        Some(into.join("Spiral.js").to_string_lossy().into_owned())
+    }));
+    let r = app.run("ui.newScript", json!({})).unwrap();
+    assert_eq!(*asked.borrow(), Some(("Untitled 1.js".into(), Some(folder.0.to_string_lossy().into_owned()))));
+    assert_eq!(r["path"], folder.0.join("Spiral.js").to_string_lossy().as_ref());
+    assert!(folder.0.join("Spiral.js").is_file());
+    assert_eq!(app.scripts.take_created(), Some(folder.0.join("Spiral.js")), "the panel selects it");
+    let r = app.run("ui.newScriptFolder", json!({})).unwrap();
+    assert_eq!(r["pending"], crate::dialogs::script_folders::NEW_FOLDER);
+    let dialog = app.ui.dialog.as_mut().unwrap();
+    assert_eq!(dialog.fields["name"], "Untitled 1");
+    dialog.fields.insert("name".into(), json!("Tools"));
+    crate::dialogs::confirm(&mut app).unwrap();
+    assert!(folder.0.join("Tools").is_dir());
+    assert!(app.ui.dialog.is_none());
+    assert!(app.run("ui.newScriptFolder", json!({ "name": "Tools" })).is_err(), "it exists");
+}
+
+/// Script Folders edits the list: OK keeps it, and the panel lists it.
+#[test]
+fn script_folders_dialog_keeps_the_list() {
+    let (mut app, _) = app();
+    let (a, b) = (TempFolder::new("dialog-a"), TempFolder::new("dialog-b"));
+    app.ui.papercraft_folders = vec![a.script_folder("A"), b.script_folder("B")];
+    app.run("ui.scriptFolders", json!({})).unwrap();
+    let dialog = app.ui.dialog.as_mut().unwrap();
+    assert_eq!(dialog.kind, crate::dialogs::script_folders::KIND);
+    let mut renamed = b.script_folder("Bee");
+    renamed.visible = false;
+    dialog.fields.insert("folders".into(), json!([renamed, a.script_folder("A")]));
+    crate::dialogs::confirm(&mut app).unwrap();
+    assert_eq!(app.ui.papercraft_folders, [renamed, a.script_folder("A")]);
+    assert!(app.prefs_changed);
 }
 
 /// New items a script makes take the style new art takes in the app, as in Scriptographer.

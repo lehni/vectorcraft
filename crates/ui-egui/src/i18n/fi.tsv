@@ -3090,6 +3090,10 @@ theme	Appearance	Ulkoasu
 	Edit Script…	Muokkaa komentosarjaa…
 	Create a New Script…	Luo uusi komentosarja…
 	Create New Folder…	Luo uusi kansio…
+	Script Folders	Komentosarjakansiot
+	Manage Script Folders…	Hallitse komentosarjakansioita…
+	Add Folder…	Lisää kansio…
+	New Folder	Uusi kansio
 	Show / Hide Console	Näytä / piilota konsoli
 	Run a tool script to assign it to this tool button	Suorita työkalukomentosarja liittääksesi sen tähän työkalupainikkeeseen
 	PaperCraft	PaperCraft
@@ -4096,6 +4100,8 @@ imageTrace	Outline	Ääriviiva
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Esikatselu selaimessa vaatii työpöytäsovelluksen (verkkoversio lataa tiedostot sen sijaan)
 @msg	Running scripts needs the desktop app	Komentosarjojen suorittaminen vaatii työpöytäsovelluksen
 @msg	choose a scripts folder first	valitse ensin komentosarjakansio
+@msg	{_1} already exists	{_1} on jo olemassa
+@msg	{name}: not a file name	{name}: ei ole tiedostonimi
 @msg	missing code	koodi puuttuu
 @msg	too many untitled scripts	liikaa nimettömiä komentosarjoja
 @msg	missing path	polku puuttuu

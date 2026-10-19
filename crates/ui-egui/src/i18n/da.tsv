@@ -2913,6 +2913,10 @@ theme	Appearance	Udseende
 	Edit Script…	Rediger script…
 	Create a New Script…	Opret et nyt script…
 	Create New Folder…	Opret ny mappe…
+	Script Folders	Scriptmapper
+	Manage Script Folders…	Administrer scriptmapper…
+	Add Folder…	Tilføj mappe…
+	New Folder	Ny mappe
 	Show / Hide Console	Vis / skjul konsol
 	Run a tool script to assign it to this tool button	Kør et værktøjsscript for at knytte det til denne værktøjsknap
 	PaperCraft	PaperCraft
@@ -3911,6 +3915,8 @@ imageTrace	Outline	Kontur
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Forhåndsvisning i browser kræver skrivebordsappen (webversionen downloader filer i stedet)
 @msg	Running scripts needs the desktop app	Kørsel af scripts kræver skrivebordsappen
 @msg	choose a scripts folder first	vælg først en scriptmappe
+@msg	{_1} already exists	{_1} findes allerede
+@msg	{name}: not a file name	{name}: er ikke et filnavn
 @msg	missing code	kode mangler
 @msg	too many untitled scripts	for mange unavngivne scripts
 @msg	missing path	sti mangler

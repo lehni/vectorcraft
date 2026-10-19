@@ -1574,6 +1574,10 @@ font-technology	Variable	Variables
 	Edit Script…	Editar script…
 	Create a New Script…	Crear un script nuevo…
 	Create New Folder…	Crear carpeta nueva…
+	Script Folders	Carpetas de scripts
+	Manage Script Folders…	Administrar carpetas de scripts…
+	Add Folder…	Añadir carpeta…
+	New Folder	Carpeta nueva
 	Show / Hide Console	Mostrar / ocultar consola
 	Run a tool script to assign it to this tool button	Ejecute un script de herramienta para asignarlo a este botón
 	PaperCraft	PaperCraft
@@ -3874,6 +3878,8 @@ axis	Both	Ambos
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Previsualizar en el navegador requiere la aplicación de escritorio (la versión web descarga los archivos)
 @msg	Running scripts needs the desktop app	Ejecutar scripts requiere la aplicación de escritorio
 @msg	choose a scripts folder first	elija primero una carpeta de scripts
+@msg	{_1} already exists	{_1} ya existe
+@msg	{name}: not a file name	{name}: no es un nombre de archivo
 @msg	missing code	falta el código
 @msg	too many untitled scripts	demasiados scripts sin título
 @msg	missing path	falta la ruta

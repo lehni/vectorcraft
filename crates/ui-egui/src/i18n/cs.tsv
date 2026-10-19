@@ -3150,6 +3150,10 @@ theme	Appearance	Motiv
 	Edit Script…	Upravit skript…
 	Create a New Script…	Vytvořit nový skript…
 	Create New Folder…	Vytvořit novou složku…
+	Script Folders	Složky skriptů
+	Manage Script Folders…	Spravovat složky skriptů…
+	Add Folder…	Přidat složku…
+	New Folder	Nová složka
 	Show / Hide Console	Zobrazit / skrýt konzoli
 	Run a tool script to assign it to this tool button	Spusťte skript nástroje, aby se přiřadil tomuto tlačítku nástroje
 	PaperCraft	PaperCraft
@@ -4178,6 +4182,8 @@ imageTrace	Outline	Obrys
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Náhled v prohlížeči vyžaduje desktopovou aplikaci (webová verze místo toho stahuje soubory)
 @msg	Running scripts needs the desktop app	Spouštění skriptů vyžaduje desktopovou aplikaci
 @msg	choose a scripts folder first	nejprve vyberte složku skriptů
+@msg	{_1} already exists	{_1} už existuje
+@msg	{name}: not a file name	{name}: není název souboru
 @msg	missing code	chybí kód
 @msg	too many untitled scripts	příliš mnoho nepojmenovaných skriptů
 @msg	missing path	chybí cesta

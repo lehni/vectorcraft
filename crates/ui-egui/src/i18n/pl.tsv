@@ -3028,6 +3028,10 @@ theme	Appearance	Wygląd
 	Edit Script…	Edytuj skrypt…
 	Create a New Script…	Utwórz nowy skrypt…
 	Create New Folder…	Utwórz nowy folder…
+	Script Folders	Foldery skryptów
+	Manage Script Folders…	Zarządzaj folderami skryptów…
+	Add Folder…	Dodaj folder…
+	New Folder	Nowy folder
 	Show / Hide Console	Pokaż / ukryj konsolę
 	Run a tool script to assign it to this tool button	Uruchom skrypt narzędzia, aby przypisać go do tego przycisku
 	PaperCraft	PaperCraft
@@ -4000,6 +4004,8 @@ imageTrace	Outline	Kontur
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Podgląd w przeglądarce wymaga aplikacji desktopowej (wersja webowa zamiast tego pobiera pliki)
 @msg	Running scripts needs the desktop app	Uruchamianie skryptów wymaga aplikacji desktopowej
 @msg	choose a scripts folder first	najpierw wybierz folder skryptów
+@msg	{_1} already exists	{_1} już istnieje
+@msg	{name}: not a file name	{name}: to nie jest nazwa pliku
 @msg	missing code	brak kodu
 @msg	too many untitled scripts	zbyt wiele skryptów bez nazwy
 @msg	missing path	brak ścieżki

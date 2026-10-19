@@ -1862,6 +1862,10 @@ file-filter	Templates	Mẫu
 	Edit Script…	Sửa tập lệnh…
 	Create a New Script…	Tạo tập lệnh mới…
 	Create New Folder…	Tạo thư mục mới…
+	Script Folders	Thư mục tập lệnh
+	Manage Script Folders…	Quản lý thư mục tập lệnh…
+	Add Folder…	Thêm thư mục…
+	New Folder	Thư mục mới
 	Show / Hide Console	Hiện / ẩn bảng điều khiển
 	Run a tool script to assign it to this tool button	Chạy một tập lệnh công cụ để gán nó cho nút công cụ này
 	PaperCraft	PaperCraft
@@ -4562,6 +4566,8 @@ theme	Appearance	Giao diện
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Xem trước trên trình duyệt cần ứng dụng máy tính (web sẽ tải xuống tệp thay thế)
 @msg	Running scripts needs the desktop app	Chạy tập lệnh cần ứng dụng máy tính
 @msg	choose a scripts folder first	hãy chọn thư mục tập lệnh trước
+@msg	{_1} already exists	{_1} đã tồn tại
+@msg	{name}: not a file name	{name}: không phải tên tệp
 @msg	missing code	thiếu mã
 @msg	too many untitled scripts	quá nhiều tập lệnh không tên
 @msg	missing path	thiếu đường dẫn

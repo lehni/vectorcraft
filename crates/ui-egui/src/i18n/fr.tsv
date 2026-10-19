@@ -1573,6 +1573,10 @@ font-technology	Variable	Variables
 	Edit Script…	Modifier le script…
 	Create a New Script…	Créer un nouveau script…
 	Create New Folder…	Créer un nouveau dossier…
+	Script Folders	Dossiers de scripts
+	Manage Script Folders…	Gérer les dossiers de scripts…
+	Add Folder…	Ajouter un dossier…
+	New Folder	Nouveau dossier
 	Show / Hide Console	Afficher / masquer la console
 	Run a tool script to assign it to this tool button	Exécutez un script d’outil pour l’attribuer à ce bouton d’outil
 	PaperCraft	PaperCraft
@@ -3871,6 +3875,8 @@ axis	Both	Les deux
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Aperçu dans le navigateur nécessite l’application de bureau (la version web télécharge les fichiers à la place)
 @msg	Running scripts needs the desktop app	L’exécution de scripts nécessite l’application de bureau
 @msg	choose a scripts folder first	choisissez d’abord un dossier de scripts
+@msg	{_1} already exists	{_1} existe déjà
+@msg	{name}: not a file name	{name} : ce n’est pas un nom de fichier
 @msg	missing code	code manquant
 @msg	too many untitled scripts	trop de scripts sans titre
 @msg	missing path	chemin manquant

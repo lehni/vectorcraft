@@ -1818,6 +1818,10 @@ font-technology	Variable	バリアブル
 	Edit Script…	スクリプトを編集…
 	Create a New Script…	新規スクリプトを作成…
 	Create New Folder…	新規フォルダーを作成…
+	Script Folders	スクリプトフォルダー
+	Manage Script Folders…	スクリプトフォルダーを管理…
+	Add Folder…	フォルダーを追加…
+	New Folder	新規フォルダー
 	Show / Hide Console	コンソールを表示 / 非表示
 	Run a tool script to assign it to this tool button	ツールスクリプトを実行すると、このツールボタンに割り当てられます
 	PaperCraft	PaperCraft
@@ -4412,6 +4416,8 @@ swatch	Bright Violet	ビビッドバイオレット
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	「ブラウザーでプレビュー」にはデスクトップアプリが必要です (Web 版では代わりにファイルをダウンロードします)
 @msg	Running scripts needs the desktop app	スクリプトの実行にはデスクトップアプリが必要です
 @msg	choose a scripts folder first	先にスクリプトフォルダーを選択してください
+@msg	{_1} already exists	{_1} はすでに存在します
+@msg	{name}: not a file name	{name}: ファイル名ではありません
 @msg	missing code	コードがありません
 @msg	too many untitled scripts	無題のスクリプトが多すぎます
 @msg	missing path	パスがありません

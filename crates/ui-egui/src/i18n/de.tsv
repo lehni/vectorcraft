@@ -1574,6 +1574,10 @@ file-filter	Templates	Vorlagen
 	Edit Script…	Skript bearbeiten…
 	Create a New Script…	Neues Skript erstellen…
 	Create New Folder…	Neuen Ordner erstellen…
+	Script Folders	Skriptordner
+	Manage Script Folders…	Skriptordner verwalten…
+	Add Folder…	Ordner hinzufügen…
+	New Folder	Neuer Ordner
 	Show / Hide Console	Konsole ein-/ausblenden
 	Run a tool script to assign it to this tool button	Führen Sie ein Werkzeugskript aus, um es dieser Werkzeugschaltfläche zuzuweisen
 	PaperCraft	PaperCraft
@@ -3798,6 +3802,8 @@ theme	Appearance	Erscheinungsbild
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	„Vorschau im Browser“ erfordert die Desktop-App (im Web werden stattdessen Dateien heruntergeladen)
 @msg	Running scripts needs the desktop app	Skripte ausführen erfordert die Desktop-App
 @msg	choose a scripts folder first	wählen Sie zuerst einen Skriptordner
+@msg	{_1} already exists	{_1} existiert bereits
+@msg	{name}: not a file name	{name}: kein Dateiname
 @msg	missing code	Code fehlt
 @msg	too many untitled scripts	zu viele unbenannte Skripte
 @msg	missing path	Pfad fehlt

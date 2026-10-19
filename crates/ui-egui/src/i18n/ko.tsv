@@ -1851,6 +1851,10 @@ font-technology	Variable	가변
 	Edit Script…	스크립트 편집…
 	Create a New Script…	새 스크립트 만들기…
 	Create New Folder…	새 폴더 만들기…
+	Script Folders	스크립트 폴더
+	Manage Script Folders…	스크립트 폴더 관리…
+	Add Folder…	폴더 추가…
+	New Folder	새 폴더
 	Show / Hide Console	콘솔 표시 / 숨기기
 	Run a tool script to assign it to this tool button	도구 스크립트를 실행하면 이 도구 버튼에 지정됩니다
 	PaperCraft	PaperCraft
@@ -4344,6 +4348,8 @@ theme	Appearance	외관
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	브라우저에서 미리 보기는 데스크톱 앱이 필요합니다(웹에서는 파일을 다운로드합니다)
 @msg	Running scripts needs the desktop app	스크립트를 실행하려면 데스크톱 앱이 필요합니다
 @msg	choose a scripts folder first	먼저 스크립트 폴더를 선택하세요
+@msg	{_1} already exists	{_1}이(가) 이미 있습니다
+@msg	{name}: not a file name	{name}: 파일 이름이 아닙니다
 @msg	missing code	코드가 없습니다
 @msg	too many untitled scripts	제목 없는 스크립트가 너무 많습니다
 @msg	missing path	경로가 없습니다

@@ -1501,6 +1501,10 @@ font-technology	Variable	Μεταβλητές
 	Edit Script…	Επεξεργασία σεναρίου…
 	Create a New Script…	Δημιουργία νέου σεναρίου…
 	Create New Folder…	Δημιουργία νέου φακέλου…
+	Script Folders	Φάκελοι σεναρίων
+	Manage Script Folders…	Διαχείριση φακέλων σεναρίων…
+	Add Folder…	Προσθήκη φακέλου…
+	New Folder	Νέος φάκελος
 	Show / Hide Console	Εμφάνιση / απόκρυψη κονσόλας
 	Run a tool script to assign it to this tool button	Εκτελέστε ένα σενάριο εργαλείου για να το αντιστοιχίσετε σε αυτό το κουμπί
 	PaperCraft	PaperCraft
@@ -2140,6 +2144,8 @@ axis	Both	Και τα δύο
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Η προεπισκόπηση σε πρόγραμμα περιήγησης απαιτεί την εφαρμογή υπολογιστή (η έκδοση ιστού πραγματοποιεί λήψη αρχείων)
 @msg	Running scripts needs the desktop app	Η εκτέλεση σεναρίων απαιτεί την εφαρμογή υπολογιστή
 @msg	choose a scripts folder first	επιλέξτε πρώτα φάκελο σεναρίων
+@msg	{_1} already exists	Το {_1} υπάρχει ήδη
+@msg	{name}: not a file name	{name}: δεν είναι όνομα αρχείου
 @msg	missing code	λείπει ο κώδικας
 @msg	too many untitled scripts	πάρα πολλά σενάρια χωρίς τίτλο
 @msg	missing path	λείπει η διαδρομή

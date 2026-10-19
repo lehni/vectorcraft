@@ -1539,6 +1539,10 @@ font-technology	Variable	Променливи
 	Edit Script…	Редактиране на скрипт…
 	Create a New Script…	Създаване на нов скрипт…
 	Create New Folder…	Създаване на нова папка…
+	Script Folders	Папки със скриптове
+	Manage Script Folders…	Управление на папките със скриптове…
+	Add Folder…	Добавяне на папка…
+	New Folder	Нова папка
 	Show / Hide Console	Показване / скриване на конзолата
 	Run a tool script to assign it to this tool button	Изпълнете скрипт за инструмент, за да го зададете на този бутон
 	PaperCraft	PaperCraft
@@ -3790,6 +3794,8 @@ axis	Both	И двете
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Прегледът в браузър изисква настолното приложение (уеб версията изтегля файловете вместо това)
 @msg	Running scripts needs the desktop app	Изпълнението на скриптове изисква настолното приложение
 @msg	choose a scripts folder first	първо изберете папка със скриптове
+@msg	{_1} already exists	{_1} вече съществува
+@msg	{name}: not a file name	{name}: не е име на файл
 @msg	missing code	липсва код
 @msg	too many untitled scripts	твърде много скриптове без име
 @msg	missing path	липсва път

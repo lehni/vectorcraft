@@ -13,7 +13,7 @@
 //! `ui.stopScripts` stops the running ones and `ui.evaluateScript {code}` runs a line in the
 //! console's own project, which lives as long as the app. Everything scripts print and every error
 //! goes to the log the PaperCraft Console panel shows; the last line also shows in the status bar.
-//! The scripts folder (`UiState::papercraft_folder`) is what the PaperCraft panel lists. A
+//! The scripts folders (`UiState::papercraft_folders`) are what the PaperCraft panel lists. A
 //! script's view is the first artboard, so `view.bounds` is its size.
 
 use std::collections::{BTreeSet, VecDeque};
@@ -27,6 +27,7 @@ use vectorcraft_papercraft::worker::{Reply, Request, Work, Worker};
 use vectorcraft_papercraft::{Modifiers, MouseEvent, PaletteEvent};
 use vectorcraft_tools::Cursor;
 
+use crate::state::ScriptFolder;
 use crate::{FilePick, VectorcraftApp};
 
 /// Script files.
@@ -55,7 +56,9 @@ pub struct Scripts {
     log: Vec<LogLine>,
     /// The scripts folder as last listed, with the folder it lists. Dropped when the app comes to
     /// the front, as scripts may have been added, renamed or edited elsewhere meanwhile.
-    tree: Option<(PathBuf, Vec<Entry>)>,
+    tree: Option<(Vec<ScriptFolder>, Vec<Entry>)>,
+    /// A script or folder just created, for the panel to select.
+    created: Option<PathBuf>,
     /// Whether the app had the focus at the last frame.
     focused: bool,
     /// The tool script the PaperCraft Tool button stands for: the last one run, until it fails.
@@ -215,13 +218,32 @@ impl Scripts {
         }
     }
 
-    /// The scripts in `folder`, listed again when `reload` or when the folder changed.
-    pub fn tree(&mut self, folder: &Path, reload: bool) -> &[Entry] {
-        if reload || self.tree.as_ref().is_none_or(|(listed, _)| listed != folder) {
+    /// The scripts in the shown `folders`, each one a root under its name, listed again when
+    /// `reload` or when the folders changed.
+    pub fn tree(&mut self, folders: &[ScriptFolder], reload: bool) -> &[Entry] {
+        if reload || self.tree.as_ref().is_none_or(|(listed, _)| listed != folders) {
             let mut count = 0;
-            self.tree = Some((folder.to_owned(), list(folder, 0, &mut count)));
+            let roots = folders
+                .iter()
+                .filter(|f| f.visible && Path::new(&f.path).is_dir())
+                .map(|f| {
+                    let path = PathBuf::from(&f.path);
+                    Entry { name: f.name.clone(), kind: EntryKind::Folder(list(&path, 1, &mut count)), path }
+                })
+                .collect();
+            self.tree = Some((folders.to_vec(), roots));
         }
         self.tree.as_ref().map_or(&[], |(_, entries)| entries)
+    }
+
+    /// Lists the scripts folders again when they show next.
+    pub(crate) fn forget_tree(&mut self) {
+        self.tree = None;
+    }
+
+    /// The script or folder just created, once.
+    pub(crate) fn take_created(&mut self) -> Option<PathBuf> {
+        self.created.take()
     }
 }
 
@@ -868,34 +890,73 @@ pub(crate) fn edit_script(app: &mut VectorcraftApp, p: &Value) -> Result<Value, 
     Ok(Value::Null)
 }
 
-/// `ui.newScriptFolder`: a new folder in the scripts folder (or `folder`), named New Folder or the
-/// first free New Folder N. Returns its path.
+/// `ui.newScriptFolder {folder?, name?}`: a new folder in `folder` (else the first shown scripts
+/// folder) named `name`; without one, a dialog asks for it, suggesting the first free Untitled N,
+/// as in Scriptographer. Returns its path, or `pending`.
 pub(crate) fn new_folder(app: &mut VectorcraftApp, p: &Value) -> Result<Value, String> {
-    let folder = match p.get("folder").and_then(Value::as_str) {
-        Some(folder) => PathBuf::from(folder),
-        None => app.ui.papercraft_folder.clone().map(PathBuf::from).ok_or("choose a scripts folder first")?,
+    let folder = target_folder(app, p)?;
+    let Some(name) = p.get("name").and_then(Value::as_str) else {
+        let name = free_name(&folder, tl!("Untitled"), "");
+        crate::dialogs::script_folders::new_folder(app, &folder, &name);
+        return Ok(json!({ "pending": crate::dialogs::script_folders::NEW_FOLDER }));
     };
-    let path = (1..1000)
-        .map(|n| folder.join(if n == 1 { "New Folder".to_owned() } else { format!("New Folder {n}") }))
-        .find(|path| !path.exists())
-        .ok_or("too many new folders")?;
+    let path = child(&folder, name)?;
     std::fs::create_dir(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-    app.scripts.tree = None;
-    Ok(json!({ "path": path.to_string_lossy() }))
+    created(app, path)
 }
 
-/// `ui.newScript`: a new, empty script in the scripts folder (or `folder`), named Untitled.js or
-/// the first free Untitled N.js. Returns its path.
+/// `ui.newScript {folder?, name?}`: a new, empty script in `folder` (else the first shown scripts
+/// folder) named `name`; without one, a save dialog asks for it, suggesting the first free
+/// Untitled N.js, as in Scriptographer. Returns its path.
 pub(crate) fn new_script(app: &mut VectorcraftApp, p: &Value) -> Result<Value, String> {
-    let folder = match p.get("folder").and_then(Value::as_str) {
-        Some(folder) => PathBuf::from(folder),
-        None => app.ui.papercraft_folder.clone().map(PathBuf::from).ok_or("choose a scripts folder first")?,
+    let folder = target_folder(app, p)?;
+    let path = match p.get("name").and_then(Value::as_str) {
+        Some(name) => child(&folder, name)?,
+        None => {
+            let name = free_name(&folder, tl!("Untitled"), ".js");
+            let pick = FilePick { name, folder: Some(folder.to_string_lossy().into_owned()), filters: vec![("Scripts", EXTS)] };
+            let path = PathBuf::from(crate::picks::save(app, &pick).ok_or("cancelled")?);
+            // The save dialog may have asked whether to replace a file: a new script never does.
+            if path.exists() {
+                return Err(format!("{} already exists", path.display()));
+            }
+            path
+        }
     };
-    let path = (1..1000)
-        .map(|n| folder.join(if n == 1 { "Untitled.js".to_owned() } else { format!("Untitled {n}.js") }))
-        .find(|path| !path.exists())
-        .ok_or("too many untitled scripts")?;
     std::fs::write(&path, "").map_err(|e| format!("{}: {e}", path.display()))?;
+    created(app, path)
+}
+
+/// `p`'s `folder`, else the first scripts folder the panel shows.
+fn target_folder(app: &VectorcraftApp, p: &Value) -> Result<PathBuf, String> {
+    match p.get("folder").and_then(Value::as_str) {
+        Some(folder) => Ok(PathBuf::from(folder)),
+        None => {
+            app.ui.papercraft_folders.iter().find(|f| f.visible).map(|f| PathBuf::from(&f.path)).ok_or_else(|| "choose a scripts folder first".into())
+        }
+    }
+}
+
+/// `name` in `folder`, when it is a plain file name not taken yet.
+fn child(folder: &Path, name: &str) -> Result<PathBuf, String> {
+    if name.is_empty() || Path::new(name).file_name().is_none_or(|n| n != name) {
+        return Err(format!("{name}: not a file name"));
+    }
+    let path = folder.join(name);
+    if path.exists() {
+        return Err(format!("{} already exists", path.display()));
+    }
+    Ok(path)
+}
+
+/// `{base} N{ext}` with the first N from 1 that is free in `folder`.
+fn free_name(folder: &Path, base: &str, ext: &str) -> String {
+    (1u64..).map(|n| format!("{base} {n}{ext}")).find(|name| !folder.join(name).exists()).unwrap_or_default()
+}
+
+/// A script or folder made in a scripts folder: the panel lists it and selects it.
+fn created(app: &mut VectorcraftApp, path: PathBuf) -> Result<Value, String> {
     app.scripts.tree = None;
+    app.scripts.created = Some(path.clone());
     Ok(json!({ "path": path.to_string_lossy() }))
 }

@@ -2913,6 +2913,10 @@ theme	Appearance	Tampilan
 	Edit Script…	Edit Skrip…
 	Create a New Script…	Buat Skrip Baru…
 	Create New Folder…	Buat Folder Baru…
+	Script Folders	Folder Skrip
+	Manage Script Folders…	Kelola Folder Skrip…
+	Add Folder…	Tambah Folder…
+	New Folder	Folder Baru
 	Show / Hide Console	Tampilkan / Sembunyikan Konsol
 	Run a tool script to assign it to this tool button	Jalankan skrip alat untuk menetapkannya ke tombol alat ini
 	PaperCraft	PaperCraft
@@ -3911,6 +3915,8 @@ imageTrace	Outline	Kontur
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Pratinjau di Peramban memerlukan aplikasi desktop (versi web mengunduh file sebagai gantinya)
 @msg	Running scripts needs the desktop app	Menjalankan skrip memerlukan aplikasi desktop
 @msg	choose a scripts folder first	pilih folder skrip terlebih dahulu
+@msg	{_1} already exists	{_1} sudah ada
+@msg	{name}: not a file name	{name}: bukan nama file
 @msg	missing code	kode tidak ada
 @msg	too many untitled scripts	terlalu banyak skrip tanpa judul
 @msg	missing path	jalur tidak ada

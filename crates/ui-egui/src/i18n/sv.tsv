@@ -1541,6 +1541,10 @@ font-technology	Variable	Variabla
 	Edit Script…	Redigera skript…
 	Create a New Script…	Skapa ett nytt skript…
 	Create New Folder…	Skapa ny mapp…
+	Script Folders	Skriptmappar
+	Manage Script Folders…	Hantera skriptmappar…
+	Add Folder…	Lägg till mapp…
+	New Folder	Ny mapp
 	Show / Hide Console	Visa / dölj konsol
 	Run a tool script to assign it to this tool button	Kör ett verktygsskript för att tilldela det till den här verktygsknappen
 	PaperCraft	PaperCraft
@@ -3794,6 +3798,8 @@ axis	Both	Båda
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Förhandsgranska i webbläsare kräver skrivbordsappen (webbversionen hämtar filer i stället)
 @msg	Running scripts needs the desktop app	Att köra skript kräver skrivbordsappen
 @msg	choose a scripts folder first	välj först en skriptmapp
+@msg	{_1} already exists	{_1} finns redan
+@msg	{name}: not a file name	{name}: inte ett filnamn
 @msg	missing code	kod saknas
 @msg	too many untitled scripts	för många namnlösa skript
 @msg	missing path	sökväg saknas

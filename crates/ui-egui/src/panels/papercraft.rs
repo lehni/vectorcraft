@@ -1,4 +1,5 @@
-//! The PaperCraft panel: the scripts folder as a tree, as Scriptographer's palette showed it.
+//! The PaperCraft panel: the scripts folders as a tree, each under its name, as Scriptographer's
+//! palette showed its repositories.
 //! Tool scripts (they define mouse or key handlers) have a pencil, the one the PaperCraft Tool
 //! stands for a coloured one, running scripts their name in the accent colour. Double-click opens a
 //! script in its editor. The bottom bar has Scriptographer's buttons in its groups: execute the
@@ -27,15 +28,16 @@ const INDENT: f32 = 14.0;
 const GAP: f32 = 8.0;
 
 pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
-    let Some(folder) = app.ui.papercraft_folder.clone().map(PathBuf::from) else {
+    if app.ui.papercraft_folders.is_empty() {
         ui.add_space(6.0);
         widgets::dim_label(ui, tl!("Choose the folder your scripts are in."));
         ui.add_space(4.0);
         if ui.button(tl!("Choose Scripts Folder…")).clicked() {
-            choose_folder(app);
+            add_folder(app);
         }
         return;
-    };
+    }
+    let folders = app.ui.papercraft_folders.clone();
     let mut selected: Option<PathBuf> = pstate(ui.ctx(), SELECTED);
     let mut open: BTreeSet<PathBuf> = pstate(ui.ctx(), OPEN);
     let (mut run, mut edit) = (None, None);
@@ -47,8 +49,8 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
         // and the console on the right.
         ui.horizontal(|ui| {
             let script = selected.clone().filter(|p| p.is_file());
-            let into =
-                selected.as_ref().map(|p| if p.is_dir() { p.clone() } else { p.parent().map(PathBuf::from).unwrap_or_else(|| folder.clone()) });
+            // New scripts and folders go in the selected folder, or the selected script's.
+            let into = selected.as_ref().and_then(|p| if p.is_dir() { Some(p.clone()) } else { p.parent().map(PathBuf::from) });
             let into = into.map_or(json!({}), |f| json!({ "folder": f.to_string_lossy() }));
             if widgets::icon_button_enabled(ui, "play", tl!("Execute Script"), false, script.is_some(), 24.0).clicked() {
                 run = script.clone();
@@ -63,15 +65,11 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
                 command(app, "ui.editScript", json!({ "path": path.to_string_lossy() }));
             }
             ui.add_space(GAP);
-            if widgets::icon_button(ui, "file-plus", tl!("Create a New Script…"), false, 24.0).clicked()
-                && let Some(r) = command(app, "ui.newScript", into.clone())
-            {
-                selected = r["path"].as_str().map(PathBuf::from);
+            if widgets::icon_button(ui, "file-plus", tl!("Create a New Script…"), false, 24.0).clicked() {
+                command(app, "ui.newScript", into.clone());
             }
-            if widgets::icon_button(ui, "folder-plus", tl!("Create New Folder…"), false, 24.0).clicked()
-                && let Some(r) = command(app, "ui.newScriptFolder", into)
-            {
-                selected = r["path"].as_str().map(PathBuf::from);
+            if widgets::icon_button(ui, "folder-plus", tl!("Create New Folder…"), false, 24.0).clicked() {
+                command(app, "ui.newScriptFolder", into);
             }
             // The console's button on the right.
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -83,7 +81,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
         widgets::divider(ui);
         ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
             egui::ScrollArea::vertical().id_salt("papercraft-tree").auto_shrink([false, false]).show(ui, |ui| {
-                let entries = app.scripts.tree(&folder, false);
+                let entries = app.scripts.tree(&folders, false);
                 let mut rows = Vec::new();
                 flatten(entries, 0, &open, &mut rows);
                 for (depth, entry) in rows {
@@ -108,6 +106,11 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
             });
         });
     });
+    // A script or folder just made is selected, its folders open.
+    if let Some(created) = app.scripts.take_created() {
+        open.extend(created.ancestors().skip(1).map(PathBuf::from));
+        selected = Some(created);
+    }
     set_pstate(ui.ctx(), SELECTED, selected);
     set_pstate(ui.ctx(), OPEN, open);
     if let Some(path) = run {
@@ -118,16 +121,13 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     }
 }
 
-/// The panel's (≡) menu: list the scripts folder again, or choose another one.
+/// The panel's (≡) menu: list the folders again, or manage them.
 pub fn menu(app: &mut VectorcraftApp, ui: &mut Ui) {
-    let folder = app.ui.papercraft_folder.clone().map(PathBuf::from);
-    if widgets::menu_item(ui, "Reload", folder.is_some(), false)
-        && let Some(folder) = folder
-    {
-        app.scripts.tree(&folder, true);
+    if widgets::menu_item(ui, "Reload", !app.ui.papercraft_folders.is_empty(), false) {
+        app.scripts.forget_tree();
     }
-    if widgets::menu_item(ui, "Choose Scripts Folder…", true, false) {
-        choose_folder(app);
+    if widgets::menu_item(ui, "Manage Script Folders…", true, false) {
+        command(app, "ui.scriptFolders", json!({}));
     }
 }
 
@@ -216,11 +216,12 @@ fn row(ui: &mut Ui, depth: usize, entry: &Entry, Row { selected, open, running, 
     action
 }
 
-/// Asks for the scripts folder and lists it.
-fn choose_folder(app: &mut VectorcraftApp) {
+/// Asks for a scripts folder and adds it, named after it.
+fn add_folder(app: &mut VectorcraftApp) {
     crate::picks::button(app, |app| {
-        if let Some(folder) = crate::picks::folder(app) {
-            app.ui.papercraft_folder = Some(folder);
+        if let Some(path) = crate::picks::folder(app) {
+            let name = std::path::Path::new(&path).file_name().map_or_else(|| path.clone(), |n| n.to_string_lossy().into_owned());
+            app.ui.papercraft_folders.push(crate::state::ScriptFolder { name, path, visible: true });
             app.prefs_changed = true;
         }
     });

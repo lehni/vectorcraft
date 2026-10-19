@@ -1525,6 +1525,10 @@ file-filter	Templates	模板
 	Edit Script…	编辑脚本…
 	Create a New Script…	新建脚本…
 	Create New Folder…	新建文件夹…
+	Script Folders	脚本文件夹
+	Manage Script Folders…	管理脚本文件夹…
+	Add Folder…	添加文件夹…
+	New Folder	新建文件夹
 	Show / Hide Console	显示 / 隐藏控制台
 	Run a tool script to assign it to this tool button	运行工具脚本即可将其指定给此工具按钮
 	PaperCraft	PaperCraft
@@ -4137,6 +4141,8 @@ imageTrace	Outline	轮廓
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	“在浏览器中预览”需要桌面应用 (网页版会改为下载文件)
 @msg	Running scripts needs the desktop app	运行脚本需要桌面应用
 @msg	choose a scripts folder first	请先选择脚本文件夹
+@msg	{_1} already exists	{_1} 已存在
+@msg	{name}: not a file name	{name}：不是文件名
 @msg	missing code	缺少代码
 @msg	too many untitled scripts	未命名的脚本太多
 @msg	missing path	缺少路径

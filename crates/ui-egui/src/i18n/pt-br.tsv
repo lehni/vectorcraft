@@ -1361,6 +1361,10 @@
 	Edit Script…	Editar script…
 	Create a New Script…	Criar um novo script…
 	Create New Folder…	Criar nova pasta…
+	Script Folders	Pastas de scripts
+	Manage Script Folders…	Gerenciar pastas de scripts…
+	Add Folder…	Adicionar pasta…
+	New Folder	Nova pasta
 	Show / Hide Console	Mostrar / ocultar console
 	Run a tool script to assign it to this tool button	Execute um script de ferramenta para atribuí-lo a este botão
 	PaperCraft	PaperCraft
@@ -3457,6 +3461,8 @@ axis	Both	Ambos
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Visualizar no navegador exige o aplicativo para desktop (na web, os arquivos são baixados)
 @msg	Running scripts needs the desktop app	Executar scripts exige o aplicativo para desktop
 @msg	choose a scripts folder first	escolha primeiro uma pasta de scripts
+@msg	{_1} already exists	{_1} já existe
+@msg	{name}: not a file name	{name}: não é um nome de arquivo
 @msg	missing code	código ausente
 @msg	too many untitled scripts	scripts sem título demais
 @msg	missing path	caminho ausente

@@ -1593,6 +1593,10 @@ file-filter	Templates	Шаблони
 	Edit Script…	Редагувати скрипт…
 	Create a New Script…	Створити новий скрипт…
 	Create New Folder…	Створити нову теку…
+	Script Folders	Теки скриптів
+	Manage Script Folders…	Керувати теками скриптів…
+	Add Folder…	Додати теку…
+	New Folder	Нова тека
 	Show / Hide Console	Показати / сховати консоль
 	Run a tool script to assign it to this tool button	Запустіть скрипт інструмента, щоб призначити його цій кнопці
 	PaperCraft	PaperCraft
@@ -3898,6 +3902,8 @@ axis	Both	Обидві
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Перегляд у браузері вимагає настільної програми (web-версія завантажує файли)
 @msg	Running scripts needs the desktop app	Для запуску скриптів потрібна настільна програма
 @msg	choose a scripts folder first	спочатку виберіть теку скриптів
+@msg	{_1} already exists	{_1} уже існує
+@msg	{name}: not a file name	{name}: це не назва файлу
 @msg	missing code	немає коду
 @msg	too many untitled scripts	забагато скриптів без назви
 @msg	missing path	немає шляху

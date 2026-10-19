@@ -1563,6 +1563,10 @@ file-filter	Templates	範本
 	Edit Script…	編輯指令碼…
 	Create a New Script…	建立新指令碼…
 	Create New Folder…	建立新資料夾…
+	Script Folders	指令碼資料夾
+	Manage Script Folders…	管理指令碼資料夾…
+	Add Folder…	加入資料夾…
+	New Folder	新增資料夾
 	Show / Hide Console	顯示 / 隱藏主控台
 	Run a tool script to assign it to this tool button	執行工具指令碼即可指定給此工具按鈕
 	PaperCraft	PaperCraft
@@ -2117,6 +2121,8 @@ file-filter	Templates	範本
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	「在瀏覽器中預覽」需要桌面應用程式 (網頁版會改為下載檔案)
 @msg	Running scripts needs the desktop app	執行指令碼需要桌面應用程式
 @msg	choose a scripts folder first	請先選擇指令碼資料夾
+@msg	{_1} already exists	{_1} 已存在
+@msg	{name}: not a file name	{name}：不是檔案名稱
 @msg	missing code	沒有程式碼
 @msg	too many untitled scripts	未命名的指令碼太多
 @msg	missing path	沒有路徑

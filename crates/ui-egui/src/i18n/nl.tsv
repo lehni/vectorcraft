@@ -2927,6 +2927,10 @@ theme	Appearance	Vormgeving
 	Edit Script…	Script bewerken…
 	Create a New Script…	Nieuw script maken…
 	Create New Folder…	Nieuwe map maken…
+	Script Folders	Scriptmappen
+	Manage Script Folders…	Scriptmappen beheren…
+	Add Folder…	Map toevoegen…
+	New Folder	Nieuwe map
 	Show / Hide Console	Console tonen / verbergen
 	Run a tool script to assign it to this tool button	Voer een toolscript uit om het aan deze toolknop toe te wijzen
 	PaperCraft	PaperCraft
@@ -3925,6 +3929,8 @@ imageTrace	Outline	Contour
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Voorvertoning in browser heeft de desktop-app nodig (het web downloadt in plaats daarvan bestanden)
 @msg	Running scripts needs the desktop app	Scripts uitvoeren heeft de desktop-app nodig
 @msg	choose a scripts folder first	kies eerst een scriptmap
+@msg	{_1} already exists	{_1} bestaat al
+@msg	{name}: not a file name	{name}: geen bestandsnaam
 @msg	missing code	code ontbreekt
 @msg	too many untitled scripts	te veel naamloze scripts
 @msg	missing path	pad ontbreekt
