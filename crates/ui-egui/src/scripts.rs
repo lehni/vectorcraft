@@ -458,9 +458,8 @@ pub(crate) fn pointer(app: &mut VectorcraftApp, ev: &vectorcraft_tools::PointerE
     };
     let event = match ev.kind {
         PointerKind::Down => MouseEvent::Down,
-        PointerKind::Drag => MouseEvent::Drag,
+        PointerKind::Drag | PointerKind::Move => MouseEvent::Move,
         PointerKind::Up => MouseEvent::Up,
-        PointerKind::Move => MouseEvent::Move,
         PointerKind::DoubleClick => return true,
     };
     // `cmd` is Command on macOS, Ctrl elsewhere, as Paper.js's `modifiers.command` is.

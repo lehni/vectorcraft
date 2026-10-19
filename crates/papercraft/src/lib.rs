@@ -40,7 +40,7 @@ pub type PlatformEngine = V8;
 pub type PlatformEngine = Boa;
 
 /// Paper.js with the PaperScript compiler and items backed by a host document: the vendored
-/// `paper-sourced.js` build of Paper.js `develop` at bfd1468b (MIT; no release has it yet), or the
+/// `paper-sourced.js` build of Paper.js `develop` at 429dbb64 (MIT; no release has it yet), or the
 /// build `PAPERCRAFT_PAPER_JS` names (see `build.rs`).
 const PAPER_JS: &str = include_str!(env!("PAPERCRAFT_PAPER_JS_PATH"));
 
@@ -83,8 +83,6 @@ pub struct Runtime<E: Engine> {
     engine: E,
     host: Rc<RefCell<Host<E::Handle>>>,
     paper: E::Handle,
-    /// A function that does nothing, for the browser events tools get.
-    nothing: E::Handle,
 }
 
 /// A `PaperScope` with its own project and view.
@@ -98,8 +96,7 @@ impl<E: Engine> Runtime<E> {
         engine.eval(PAPER_JS)?;
         let global = engine.global()?;
         let paper = engine.with_call(|call| object(call, &global, "paper"))?;
-        let nothing = engine.function("nothing", |_, _, _| Ok(Value::Undefined))?;
-        Ok(Self { engine, host, paper, nothing })
+        Ok(Self { engine, host, paper })
     }
 
     /// Creates a scope whose view has the given size.
@@ -195,9 +192,9 @@ impl<E: Engine> Runtime<E> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MouseEvent {
     Down,
-    Drag,
-    Up,
+    /// A move, which is a drag while the button is down.
     Move,
+    Up,
 }
 
 /// The keys held during a pointer event, as Paper.js's `Key.modifiers` has them.
@@ -215,40 +212,29 @@ impl<E: Engine> Runtime<E> {
         self.engine.with_call(|call| Ok(matches!(call.get(&scope.0, "tool")?, Value::Js(_))))
     }
 
-    /// Sends a pointer event at `point`, in document coordinates, to the tool of the script in
-    /// `scope`: its `onMouseDown`, `onMouseDrag`, `onMouseUp` and `onMouseMove` run, drags as
-    /// often as `tool.minDistance`, `maxDistance` and `fixedDistance` say. Returns whether a
-    /// handler ran; without a tool, nothing happens.
-    pub fn tool_event(&mut self, scope: &Scope<E::Handle>, event: MouseEvent, point: (f64, f64), modifiers: Modifiers) -> Result<bool, Error> {
-        let (paper, nothing) = (&self.paper, &self.nothing);
+    /// Sends a pointer event at `point`, in document coordinates, to the view of `scope`
+    /// (`view.dispatchMouseEvent()`): the tool's `onMouseDown`, `onMouseDrag`, `onMouseUp` and
+    /// `onMouseMove` run, drags as often as `tool.minDistance`, `maxDistance` and `fixedDistance`
+    /// say, and so do the handlers of the items and the view.
+    pub fn mouse_event(&mut self, scope: &Scope<E::Handle>, event: MouseEvent, point: (f64, f64), modifiers: Modifiers) -> Result<(), Error> {
+        let paper = &self.paper;
         self.engine.with_call(|call| {
-            let Value::Js(tool) = call.get(&scope.0, "tool")? else {
-                return Ok(false);
-            };
-            let key = object(call, paper, "Key")?;
-            let held = object(call, &key, "modifiers")?;
+            let held = call.new_object()?;
             for (name, down) in [("shift", modifiers.shift), ("control", modifiers.control), ("alt", modifiers.alt), ("meta", modifiers.meta)] {
                 call.set(&held, name, &Value::Bool(down))?;
             }
-            let (kind, flag) = match event {
-                MouseEvent::Down => ("mousedown", "down"),
-                MouseEvent::Drag => ("mousedrag", "drag"),
-                MouseEvent::Up => ("mouseup", "up"),
-                MouseEvent::Move => ("mousemove", "move"),
+            let options = call.new_object()?;
+            call.set(&options, "modifiers", &Value::Js(held))?;
+            let kind = match event {
+                MouseEvent::Down => "mousedown",
+                MouseEvent::Move => "mousemove",
+                MouseEvent::Up => "mouseup",
             };
-            // What Paper.js reads of a browser's event: its type, and that it can be stopped.
-            let dom_event = call.new_object()?;
-            call.set(&dom_event, "type", &Value::String(kind.into()))?;
-            call.set(&dom_event, "preventDefault", &Value::Js(nothing.clone()))?;
-            call.set(&dom_event, "stopPropagation", &Value::Js(nothing.clone()))?;
-            let mouse = call.new_object()?;
-            call.set(&mouse, flag, &Value::Bool(true))?;
             let constructor = object(call, paper, "Point")?;
             let point = call.construct(&constructor, &[Value::Number(point.0), Value::Number(point.1)])?;
-            // Until Paper.js has a public way to send pointer events without a DOM (CHANNEL.md
-            // S4), the tool's own dispatch, which `View` calls in browsers.
-            let handled = method(call, &tool, "_handleMouseEvent", &[Value::String(kind.into()), Value::Js(dom_event), point, Value::Js(mouse)])?;
-            Ok(matches!(handled, Value::Bool(true)))
+            let view = object(call, &scope.0, "view")?;
+            method(call, &view, "dispatchMouseEvent", &[Value::String(kind.into()), point, Value::Js(options)])?;
+            Ok(())
         })
     }
 }

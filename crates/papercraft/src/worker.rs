@@ -85,7 +85,7 @@ impl<E: Engine> Script<E> {
         let result = match work {
             Work::Execute(source) => self.runtime.execute(&self.scope, &source),
             Work::Frame(now) => self.runtime.run_timers(now),
-            Work::Mouse(event, point, modifiers) => self.runtime.tool_event(&self.scope, event, point, modifiers).map(|_| ()),
+            Work::Mouse(event, point, modifiers) => self.runtime.mouse_event(&self.scope, event, point, modifiers),
         };
         let mut replies = Vec::new();
         let changes = self.changes(before).map(|changes| replies.extend(changes));

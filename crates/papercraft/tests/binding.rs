@@ -215,11 +215,13 @@ fn tool_scripts_get_pointer_events<E: Engine>() {
         .unwrap();
     assert!(runtime.has_tool(&scope).unwrap());
     let shift = Modifiers { shift: true, ..Default::default() };
-    assert!(runtime.tool_event(&scope, MouseEvent::Down, (0.0, 0.0), shift).unwrap());
+    runtime.mouse_event(&scope, MouseEvent::Down, (0.0, 0.0), shift).unwrap();
     // Closer than minDistance: no drag event.
-    assert!(!runtime.tool_event(&scope, MouseEvent::Drag, (5.0, 0.0), Modifiers::default()).unwrap());
-    assert!(runtime.tool_event(&scope, MouseEvent::Drag, (20.0, 0.0), Modifiers::default()).unwrap());
-    assert!(runtime.tool_event(&scope, MouseEvent::Up, (20.0, 0.0), Modifiers::default()).unwrap());
+    runtime.mouse_event(&scope, MouseEvent::Move, (5.0, 0.0), Modifiers::default()).unwrap();
+    runtime.mouse_event(&scope, MouseEvent::Move, (20.0, 0.0), Modifiers::default()).unwrap();
+    runtime.mouse_event(&scope, MouseEvent::Up, (20.0, 0.0), Modifiers::default()).unwrap();
+    // A move after the button went up is no drag.
+    runtime.mouse_event(&scope, MouseEvent::Move, (40.0, 0.0), Modifiers::default()).unwrap();
     assert_eq!(runtime.take_output(), ["down 0 true", "up 20"]);
     let patch = runtime.take_patch(&scope).unwrap().unwrap();
     assert_eq!(patch.params["insert"].as_array().unwrap().len(), 1, "one drag event drew one circle");
@@ -287,7 +289,6 @@ macro_rules! engine_tests {
             }
 
             #[test]
-            #[ignore = "Paper.js: the requestAnimationFrame fallback never clears its interval (CHANNEL.md N19)"]
             fn scripts_without_on_frame_stop() {
                 super::scripts_without_on_frame_stop::<$engine>();
             }
