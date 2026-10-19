@@ -105,3 +105,48 @@ fn a_tool_script_draws_with_the_mouse_one_undo_step_per_drag() {
     app.scripts.select_tool();
     assert!(pointer(&mut app, Down, 0.0));
 }
+
+/// The user drags another object with the Selection tool while an animation runs, the way the
+/// canvas sends the drag: the animation goes on.
+#[test]
+fn an_animation_goes_on_while_the_user_moves_another_object() {
+    use vectorcraft_tools::PointerKind::{Down, Drag, Up};
+    let (mut app, id, _path) = running();
+    let other = app.run("shape.rectangle", json!({"x": 200, "y": 200, "width": 40, "height": 40})).unwrap()["id"].as_u64().unwrap();
+    app.select_tool("selection");
+    let ctx = egui::Context::default();
+    let view = app.view_info();
+    let mut now = 1.0;
+    for (kind, x) in [(Down, 220.0), (Drag, 230.0), (Drag, 240.0), (Drag, 250.0), (Up, 250.0)] {
+        let ev = vectorcraft_tools::PointerEvent { kind, pos: vectorcraft_geom::Point::new(x, 220.0), mods: Default::default(), pressure: 1.0 };
+        crate::canvas::dispatch(&mut app, &ev, view);
+        crate::scripts::frame(&mut app, &ctx, now);
+        now += 1.0;
+        assert!(app.scripts.is_running(), "after {kind:?}: {}", app.ui.status);
+    }
+    assert_eq!(left(&app, other), 230.0, "the user's drag moved the other object");
+    assert_eq!(left(&app, id), 60.0, "and five frames moved the animated one");
+}
+
+/// The user drags the animated object itself: their drag wins while it lasts, and the animation
+/// goes on from where they left it.
+#[test]
+fn an_animation_goes_on_after_the_user_moves_its_object() {
+    use vectorcraft_tools::PointerKind::{Down, Drag, Up};
+    let (mut app, id, _path) = running();
+    app.select_tool("selection");
+    let ctx = egui::Context::default();
+    let view = app.view_info();
+    let mut now = 1.0;
+    for (kind, x) in [(Down, 20.0), (Drag, 30.0), (Drag, 60.0), (Up, 60.0)] {
+        let ev = vectorcraft_tools::PointerEvent { kind, pos: vectorcraft_geom::Point::new(x, 20.0), mods: Default::default(), pressure: 1.0 };
+        crate::canvas::dispatch(&mut app, &ev, view);
+        crate::scripts::frame(&mut app, &ctx, now);
+        now += 1.0;
+        assert!(app.scripts.is_running(), "after {kind:?}: {}", app.ui.status);
+    }
+    let after_drag = left(&app, id);
+    crate::scripts::frame(&mut app, &ctx, now);
+    assert!(app.scripts.is_running(), "{}", app.ui.status);
+    assert_eq!(left(&app, id), after_drag + 10.0, "the animation goes on from where the drag left it");
+}
