@@ -530,3 +530,17 @@ fn init_scripts_run_by_themselves() {
     let names: Vec<&str> = children.iter().map(|c| c.name.as_str()).collect();
     assert_eq!(names, ["Tools", "a.js"], "and the Tools folder shows no __init__");
 }
+
+/// `script.preferences` keeps what a script puts there for its next run, as in Scriptographer.
+#[test]
+fn script_preferences_last_from_one_run_to_the_next() {
+    let (mut app, _) = app();
+    let path = tempfile_path::Path::new("console.log(script.preferences.count || 0)\nscript.preferences.count = (script.preferences.count || 0) + 1");
+    for _ in 0..2 {
+        app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
+    }
+    let counts: Vec<&str> = app.scripts.log().iter().map(|l| l.text.as_str()).collect();
+    assert_eq!(counts, ["0", "1"]);
+    assert_eq!(app.ui.papercraft_preferences[path.0.to_string_lossy().as_ref()], json!({"count": 2}));
+    assert!(app.prefs_changed, "kept with the app's settings");
+}

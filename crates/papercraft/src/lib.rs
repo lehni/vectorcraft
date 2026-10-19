@@ -74,6 +74,8 @@ pub struct Host<H> {
     /// The palettes the script made, open.
     palettes: Vec<palette::Palette<H>>,
     next_palette_id: u64,
+    /// `script.preferences` as last taken, as JSON.
+    preferences: String,
 }
 
 struct Interval<H> {
@@ -96,6 +98,7 @@ impl<H> Default for Host<H> {
             dialog_globals: None,
             palettes: Vec::new(),
             next_palette_id: 0,
+            preferences: String::new(),
         }
     }
 }
@@ -208,10 +211,13 @@ impl<E: Engine> Runtime<E> {
     }
 
     /// Sets the global `script`, as Scriptographer's: `script.file` and `script.directory`, the
-    /// script's file and its folder (`null` for code typed in the console), and
-    /// `script.keepAlive`, which the script sets to keep running when another script runs.
-    pub fn set_script(&mut self, file: Option<&str>) -> Result<(), Error> {
+    /// script's file and its folder (`null` for code typed in the console), `script.keepAlive`,
+    /// which the script sets to keep running when another script runs, and
+    /// `script.preferences`, `preferences` as the script last left them
+    /// ([`Runtime::take_preferences`]).
+    pub fn set_script(&mut self, file: Option<&str>, preferences: &serde_json::Value) -> Result<(), Error> {
         let global = self.engine.global()?;
+        self.host.borrow_mut().preferences = preferences.to_string();
         self.engine.with_call(|call| {
             let script = call.new_object()?;
             let path = |p: Option<&str>| p.map_or(Value::Null, |p| Value::String(p.to_owned()));
@@ -219,8 +225,35 @@ impl<E: Engine> Runtime<E> {
             call.set(&script, "file", &path(file))?;
             call.set(&script, "directory", &path(directory.as_deref()))?;
             call.set(&script, "keepAlive", &Value::Bool(false))?;
+            let preferences = match preferences {
+                serde_json::Value::Object(_) => preferences.clone(),
+                _ => serde_json::json!({}),
+            };
+            let globals = dialog::globals(call)?;
+            let preferences = dialog::from_json(call, &globals, &preferences)?;
+            call.set(&script, "preferences", &preferences)?;
             call.set(&global, "script", &Value::Js(script))
         })
+    }
+
+    /// `script.preferences` as JSON, when it changed since the last call (or [`Runtime::set_script`]).
+    pub fn take_preferences(&mut self) -> Result<Option<serde_json::Value>, Error> {
+        let global = self.engine.global()?;
+        let preferences = self.engine.with_call(|call| {
+            let Value::Js(script) = call.get(&global, "script")? else {
+                return Ok(serde_json::Value::Null);
+            };
+            let preferences = call.get(&script, "preferences")?;
+            let globals = dialog::globals(call)?;
+            dialog::to_json(call, &globals, &preferences)
+        })?;
+        let text = preferences.to_string();
+        let mut host = self.host.borrow_mut();
+        if host.preferences == text {
+            return Ok(None);
+        }
+        host.preferences = text;
+        Ok(Some(preferences))
     }
 
     /// Whether the script set `script.keepAlive`.

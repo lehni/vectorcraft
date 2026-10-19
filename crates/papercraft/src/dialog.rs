@@ -193,7 +193,7 @@ fn keys<H: Clone>(call: &mut dyn Call<H>, globals: &Globals<H>, object: &H) -> R
 }
 
 /// `value` as JSON, through `JSON.stringify()`: functions and what JSON can't hold drop out.
-fn to_json<H: Clone>(call: &mut dyn Call<H>, globals: &Globals<H>, value: &Value<H>) -> Result<Json, Error> {
+pub(crate) fn to_json<H: Clone>(call: &mut dyn Call<H>, globals: &Globals<H>, value: &Value<H>) -> Result<Json, Error> {
     Ok(match value {
         Value::Undefined | Value::Null => Json::Null,
         Value::Bool(b) => Json::Bool(*b),

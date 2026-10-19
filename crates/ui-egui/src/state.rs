@@ -444,6 +444,8 @@ pub struct UiState {
     /// The folders the PaperCraft panel lists scripts from, in order (Scriptographer's
     /// repositories).
     pub papercraft_folders: Vec<ScriptFolder>,
+    /// PaperCraft scripts' `script.preferences`, by script file.
+    pub papercraft_preferences: std::collections::BTreeMap<String, Value>,
     /// Where the user put PaperCraft scripts' palettes, by script and palette title
     /// ([`crate::scripts::palettes`]): a palette opens there again.
     pub papercraft_palettes: std::collections::BTreeMap<String, [f32; 2]>,
@@ -893,6 +895,7 @@ impl Default for UiState {
             action_set: None,
             papercraft_folders: Vec::new(),
             papercraft_palettes: Default::default(),
+            papercraft_preferences: Default::default(),
             recording: None,
             shortcut_overrides: Default::default(),
             shortcut_set: default_shortcut_set(),

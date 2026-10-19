@@ -54,9 +54,19 @@ pub enum Reply {
     Changes { patch: Option<Json>, base: Arc<Document>, before: BTreeSet<NodeId>, selected: BTreeSet<NodeId> },
     /// The work is done: what the script printed, its error if it threw, whether it has timers
     /// left, whether it made a tool, whether that tool handles keys, the palettes that are new or
-    /// changed (as [`crate::Runtime::take_palettes`] has them), whether it has palettes open, and
-    /// whether it set `script.keepAlive`.
-    Done { output: Vec<String>, error: Option<String>, running: bool, tool: bool, keys: bool, palettes: Vec<Json>, open: bool, keep_alive: bool },
+    /// changed (as [`crate::Runtime::take_palettes`] has them), whether it has palettes open,
+    /// whether it set `script.keepAlive`, and its `script.preferences` when they changed.
+    Done {
+        output: Vec<String>,
+        error: Option<String>,
+        running: bool,
+        tool: bool,
+        keys: bool,
+        palettes: Vec<Json>,
+        open: bool,
+        keep_alive: bool,
+        preferences: Option<Json>,
+    },
 }
 
 /// One script's runtime, and the patch waiting for its ids.
@@ -71,9 +81,9 @@ struct Script<E: Engine> {
 
 impl<E: Engine> Script<E> {
     /// A runtime whose view has the given size, bound to the document.
-    fn new(size: (f64, f64), file: Option<&str>, doc: Arc<Document>, selection: Selection) -> Result<Self, Error> {
+    fn new(size: (f64, f64), file: Option<&str>, preferences: &Json, doc: Arc<Document>, selection: Selection) -> Result<Self, Error> {
         let mut runtime = Runtime::<E>::new()?;
-        runtime.set_script(file)?;
+        runtime.set_script(file, preferences)?;
         let scope = runtime.create_scope(size.0, size.1)?;
         runtime.bind(&scope, doc, selection)?;
         Ok(Self { runtime, scope, pending: None, style: Json::Null })
@@ -142,7 +152,11 @@ impl<E: Engine> Script<E> {
         };
         let (running, open) = (self.runtime.is_running(), self.runtime.has_palettes());
         let keep_alive = self.runtime.keep_alive().unwrap_or(false);
-        Reply::Done { output: self.runtime.take_output(), error, running, tool, keys, palettes, open, keep_alive }
+        let (preferences, error) = match self.runtime.take_preferences() {
+            Ok(preferences) => (preferences, error),
+            Err(e) => (None, error.or(Some(e.to_string()))),
+        };
+        Reply::Done { output: self.runtime.take_output(), error, running, tool, keys, palettes, open, keep_alive, preferences }
     }
 }
 
@@ -159,8 +173,9 @@ pub struct Worker {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl Worker {
-    /// Starts a script's thread, with a runtime whose view has the given size, on the document.
-    pub fn spawn(size: (f64, f64), file: Option<String>, doc: Arc<Document>, selection: Selection) -> Result<Self, Error> {
+    /// Starts a script's thread, with a runtime whose view has the given size, for the script in
+    /// `file` with its `preferences`, on the document.
+    pub fn spawn(size: (f64, f64), file: Option<String>, preferences: Json, doc: Arc<Document>, selection: Selection) -> Result<Self, Error> {
         let (requests, inbox) = std::sync::mpsc::channel::<Request>();
         let (outbox, replies) = std::sync::mpsc::channel();
         let interrupt = Arc::new(std::sync::Mutex::new(None));
@@ -171,7 +186,7 @@ impl Worker {
             .name("papercraft script".into())
             .spawn(move || {
                 let inbox = std::rc::Rc::new(inbox);
-                let mut script = match Script::<PlatformEngine>::new(size, file.as_deref(), doc, selection) {
+                let mut script = match Script::<PlatformEngine>::new(size, file.as_deref(), &preferences, doc, selection) {
                     Ok(script) => script,
                     Err(e) => {
                         // The app may have stopped the script already; then nobody listens.
@@ -184,6 +199,7 @@ impl Worker {
                             palettes: Vec::new(),
                             open: false,
                             keep_alive: false,
+                            preferences: None,
                         });
                         return;
                     }
@@ -258,8 +274,8 @@ pub struct Worker {
 
 #[cfg(target_arch = "wasm32")]
 impl Worker {
-    pub fn spawn(size: (f64, f64), file: Option<String>, doc: Arc<Document>, selection: Selection) -> Result<Self, Error> {
-        let script = Script::<PlatformEngine>::new(size, file.as_deref(), doc, selection)?;
+    pub fn spawn(size: (f64, f64), file: Option<String>, preferences: Json, doc: Arc<Document>, selection: Selection) -> Result<Self, Error> {
+        let script = Script::<PlatformEngine>::new(size, file.as_deref(), &preferences, doc, selection)?;
         Ok(Self { script: std::cell::RefCell::new(script), replies: Default::default() })
     }
 

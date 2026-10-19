@@ -381,7 +381,8 @@ fn start(app: &VectorcraftApp, name: String, path: Option<PathBuf>, source: Stri
     let (doc, selection) = (state.doc.clone(), state.selection.clone());
     let size = doc.artboards.first().map_or((800.0, 600.0), |a| (a.rect.width(), a.rect.height()));
     let file = path.as_ref().map(|p| p.to_string_lossy().into_owned());
-    let worker = Worker::spawn(size, file, doc, selection).map_err(|e| e.to_string())?;
+    let preferences = file.as_ref().and_then(|f| app.ui.papercraft_preferences.get(f)).cloned().unwrap_or_else(|| json!({}));
+    let worker = Worker::spawn(size, file, preferences, doc, selection).map_err(|e| e.to_string())?;
     let queued = if source.is_empty() { VecDeque::new() } else { VecDeque::from([Work::Execute(source.clone())]) };
     static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -562,8 +563,13 @@ fn settle(app: &mut VectorcraftApp, script: &mut Running, wait: Duration) -> Opt
                 script.asking = Some(Asking { question, shown: false });
                 return None;
             }
-            Reply::Done { output, error, running, tool, keys, palettes, open, keep_alive } => {
+            Reply::Done { output, error, running, tool, keys, palettes, open, keep_alive, preferences } => {
                 show_output(app, output);
+                // Kept with the app's settings, for the script's next run.
+                if let (Some(preferences), Some(path)) = (preferences, &script.path) {
+                    app.ui.papercraft_preferences.insert(path.to_string_lossy().into_owned(), preferences);
+                    app.prefs_changed = true;
+                }
                 script.busy = None;
                 script.timers = running;
                 script.open = open;
