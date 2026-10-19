@@ -1,5 +1,5 @@
 /*!
- * Paper.js v0.13.0 - The Swiss Army Knife of Vector Graphics Scripting.
+ * Paper.js v0.13.0-HEAD - The Swiss Army Knife of Vector Graphics Scripting.
  * http://paperjs.org/
  *
  * Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey
@@ -9,7 +9,7 @@
  *
  * All rights reserved.
  *
- * Date: Mon Oct 19 15:31:53 2026 +0200
+ * Date: Mon Oct 19 19:08:43 2026 +0200
  *
  ***
  *
@@ -824,7 +824,7 @@ var PaperScope = Base.extend({
 		}
 	},
 
-	version: "0.13.0",
+	version: "0.13.0-HEAD",
 
 	getView: function() {
 		var project = this.project;
@@ -837,7 +837,8 @@ var PaperScope = Base.extend({
 
 	execute: function(code, options) {
 			var exports = paper.PaperScript.execute(code, this, options);
-			View.updateFocus();
+			if (window)
+				View.updateFocus();
 			return exports;
 	},
 
@@ -2934,6 +2935,48 @@ var Line = Base.extend({
 	}
 });
 
+var ChangeFlag = {
+	APPEARANCE: 0x1,
+
+	CHILDREN: 0x2,
+
+	INSERTION: 0x4,
+
+	GEOMETRY: 0x8,
+
+	MATRIX: 0x10,
+
+	SEGMENTS: 0x20,
+
+	STROKE: 0x40,
+
+	STYLE: 0x80,
+
+	ATTRIBUTE: 0x100,
+
+	CONTENT: 0x200,
+
+	PIXELS: 0x400,
+
+	CLIPPING: 0x800,
+
+	VIEW: 0x1000
+};
+
+var Change = {
+	CHILDREN: ChangeFlag.CHILDREN | ChangeFlag.GEOMETRY | ChangeFlag.APPEARANCE,
+	INSERTION: ChangeFlag.INSERTION | ChangeFlag.APPEARANCE,
+	GEOMETRY: ChangeFlag.GEOMETRY | ChangeFlag.APPEARANCE,
+	MATRIX: ChangeFlag.MATRIX | ChangeFlag.GEOMETRY | ChangeFlag.APPEARANCE,
+	SEGMENTS: ChangeFlag.SEGMENTS | ChangeFlag.GEOMETRY | ChangeFlag.APPEARANCE,
+	STROKE: ChangeFlag.STROKE | ChangeFlag.STYLE | ChangeFlag.APPEARANCE,
+	STYLE: ChangeFlag.STYLE | ChangeFlag.APPEARANCE,
+	ATTRIBUTE: ChangeFlag.ATTRIBUTE | ChangeFlag.APPEARANCE,
+	CONTENT: ChangeFlag.CONTENT | ChangeFlag.GEOMETRY | ChangeFlag.APPEARANCE,
+	PIXELS: ChangeFlag.PIXELS | ChangeFlag.APPEARANCE,
+	VIEW: ChangeFlag.VIEW | ChangeFlag.APPEARANCE
+};
+
 var Project = PaperScopeItem.extend({
 	_class: 'Project',
 	_list: 'projects',
@@ -2967,7 +3010,7 @@ var Project = PaperScopeItem.extend({
 			}
 		}
 		var changes = this._changes;
-		if (changes && item) {
+		if (changes && item && item.isInserted()) {
 			var changesById = this._changesById,
 				id = item._id,
 				entry = changesById[id];
@@ -2977,6 +3020,26 @@ var Project = PaperScopeItem.extend({
 				changes.push(changesById[id] = { item: item, flags: flags });
 			}
 		}
+	},
+
+	getTrackChanges: function() {
+		return !!this._changes;
+	},
+
+	setTrackChanges: function(trackChanges) {
+		if (!this._changes ^ !trackChanges) {
+			this._changes = trackChanges ? [] : null;
+			this._changesById = trackChanges ? {} : null;
+		}
+	},
+
+	takeChanges: function() {
+		var changes = this._changes;
+		if (changes) {
+			this._changes = [];
+			this._changesById = {};
+		}
+		return changes || null;
 	},
 
 	clear: function() {
@@ -4079,7 +4142,7 @@ new function() {
 
 	_hitTest: function(point, options, parentViewMatrix) {
 		if (this._locked || !this._visible || this._guide && !options.guides
-				|| this.isEmpty()) {
+				|| !this._shell && this.isEmpty()) {
 			return null;
 		}
 
@@ -4094,7 +4157,7 @@ new function() {
 						.prepended(this.getView()._matrix.inverted())
 						._shiftless().invert()));
 		point = pointMatrix._inverseTransform(point);
-		if (!point || !this._children &&
+		if (!point || (this._shell || !this._children) &&
 			!this.getBounds({ internal: true, stroke: true, handle: true })
 				.expand(tolerancePadding.multiply(2))._containsPoint(point)) {
 			return null;
@@ -4433,14 +4496,14 @@ new function() {
 			if (this._name)
 				this._removeNamed();
 			this._installEvents(false);
+			if (notifySelf && project._changes)
+				this._changed(5);
 			if (index != null) {
 				if (project._activeLayer === this)
 					project._activeLayer = this.getNextSibling()
 							|| this.getPreviousSibling();
 				Base.splice(owner._children, null, index, 1);
 			}
-			if (notifySelf && project._changes)
-				this._changed(5);
 			if (notifyParent)
 				owner._changed(11, this);
 			this._parent = null;
@@ -13163,7 +13226,8 @@ var View = Base.extend(Emitter, {
 				if (that._animate) {
 					that.requestUpdate();
 					var element = that._element;
-					if ((!DomElement.getPrefixed(document, 'hidden')
+					if (!element
+							|| (!DomElement.getPrefixed(document, 'hidden')
 							|| PaperScope.getAttribute(element, 'keepalive')
 								=== 'true') && DomElement.isInView(element)) {
 						that._handleFrame();
@@ -14935,6 +14999,378 @@ var BlendMode = new function() {
 			dstContext.putImageData(dstData, offset.x, offset.y);
 		}
 	};
+};
+
+var HostItem = Item.extend({
+	_class: 'HostItem',
+	_applyMatrix: false,
+	_canApplyMatrix: false,
+	_hasChildren: false,
+
+	initialize: function HostItem(props) {
+		this._values = {};
+		if (this._hasChildren) {
+			this._children = [];
+			this._namedChildren = {};
+		}
+		this._initialize(props);
+	},
+
+	_getBounds: function(matrix, options) {
+		var rect = this._getSourceBounds(options);
+		return matrix ? matrix._transformBounds(rect) : rect;
+	},
+
+	_hitTestSelf: function(point, options) {
+		var bounds = this._getSourceBounds({ stroke: true, handle: true });
+		if (options.fill && bounds._containsPoint(point)) {
+			return new HitResult('fill', this);
+		}
+	},
+
+	_draw: function() {
+	}
+});
+
+new function() {
+	var contentFields = [
+			[Item, ['_style', '_applyMatrix', '_opacity', '_blendMode',
+					'_pivot', '_data']],
+			[Path, ['_segments', '_closed', '_version', '_curves',
+					'_segmentSelection']],
+			[CompoundPath, ['_children', '_namedChildren']],
+			[HostItem, ['_values']]
+		],
+		childrenFields = ['_children', '_namedChildren'],
+		boxSize = 12,
+		shellPrototypes = {},
+		boundsFlags = 72,
+		isLoading = false;
+
+	function defineValue(item, name, value) {
+		Object.defineProperty(item, name, {
+			value: value,
+			writable: true,
+			enumerable: true,
+			configurable: true
+		});
+	}
+
+	function defineLoader(shell, name, load) {
+		Object.defineProperty(shell, name, {
+			get: function() {
+				this[load]();
+				return this[name];
+			},
+			set: function(value) {
+				defineValue(this, name, value);
+			},
+			configurable: true
+		});
+	}
+
+	function getShellPrototype(ctor) {
+		var proto = ctor && ctor.prototype,
+			name = proto && proto._class,
+			shell = shellPrototypes[name];
+		if (!shell) {
+			if (!(proto instanceof Item))
+				throw new Error('Unknown item type: \'' + name + '\'.');
+			shell = shellPrototypes[name] = Object.create(proto);
+			var fields = shell._contentFields = [];
+			contentFields.forEach(function(entry) {
+				if (shell instanceof entry[0])
+					Base.push(fields, entry[1]);
+			});
+			fields.forEach(function(field) {
+				defineLoader(shell, field, '_load');
+			});
+			if (shell instanceof Group || shell._hasChildren) {
+				childrenFields.forEach(function(field) {
+					defineLoader(shell, field, '_loadChildren');
+				});
+			}
+			shell._getCachedBounds = function(matrix, options, noInternal) {
+				if (this._sourceBounds) {
+					this._bounds = this._getSourceBoundsCache();
+					this._sourceBounds = false;
+				}
+				return proto._getCachedBounds.call(this, matrix, options,
+						noInternal);
+			};
+			shell._changed = function(flags) {
+				if (!isLoading) {
+					if (flags & boundsFlags) {
+						for (var item = this; item; item = item._parent)
+							item._sourceBounds = false;
+					}
+					proto._changed.call(this, flags);
+				}
+			};
+			shell.isEmpty = function(recursively) {
+				return this._shell && !this.hasOwnProperty('_children')
+						? this._empty
+						: proto.isEmpty.call(this, recursively);
+			};
+			shell.getStrokeScaling = function() {
+				return this._shell
+						? this._strokeScaling
+						: proto.getStrokeScaling.call(this);
+			};
+		}
+		return shell;
+	}
+
+	function setRecord(item, columns, i) {
+		var flags = columns.flags[i],
+			matrix = columns.matrices && columns.matrices[i];
+		item._visible = !!(flags & 2);
+		item._locked = !!(flags & 4);
+		item._strokeScaling = !!(flags & 8);
+		item._clipMask = !!(flags & 64);
+		item._guide = !!(flags & 128);
+		item._empty = !!(flags & 256);
+		item._selection = item._selection & ~1
+				| (flags & 1 ? 1 : 0);
+		item._matrix._set.apply(item._matrix,
+				(matrix || [1, 0, 0, 1, 0, 0]).concat([true]));
+		item._boxes = columns.boxes;
+		item._boxIndex = i * boxSize;
+		item._bounds = undefined;
+		item._sourceBounds = true;
+	}
+
+	function setChildren(owner, project, columns) {
+		var keys = columns.keys,
+			names = columns.names || {},
+			itemsByKey = project._itemsByKey,
+			parent = owner instanceof Item ? owner : null,
+			children = [],
+			namedChildren = {};
+		for (var i = 0, l = keys.length; i < l; i++) {
+			var key = keys[i],
+				ctor = Base.exports[columns.typeNames[columns.types[i]]],
+				item = itemsByKey[key],
+				name = names[i];
+			if (!item || item.constructor !== ctor) {
+				item = itemsByKey[key] = Object.create(getShellPrototype(ctor));
+				item._id = UID.get();
+				item._key = key;
+				item._project = project;
+				item._matrix = new Matrix();
+				item._matrix._owner = item;
+				item._shell = true;
+			}
+			setRecord(item, columns, i);
+			item._name = name || undefined;
+			item._parent = parent;
+			item._index = i;
+			children.push(item);
+			if (name) {
+				(namedChildren[name] = namedChildren[name] || []).push(item);
+				if (!(name in children))
+					children[name] = item;
+			}
+		}
+		owner._children = children;
+		owner._namedChildren = namedChildren;
+		for (var i = 0, l = children.length; i < l; i++) {
+			if (children[i]._selection)
+				project._updateSelection(children[i]);
+		}
+	}
+
+	function whileLoading(project, callback) {
+		var changes = project._changes;
+		project._changes = null;
+		isLoading = true;
+		try {
+			callback();
+		} finally {
+			project._changes = changes;
+			isLoading = false;
+		}
+	}
+
+	Item.inject({
+		_key: null,
+
+		getKey: function() {
+			return this._key;
+		},
+
+		setKey: function(key) {
+			var itemsByKey = this._project._itemsByKey;
+			if (this._key != null)
+				throw new Error('Unable to change the key of an item.');
+			if (!itemsByKey)
+				throw new Error('Unable to set a key in a project without a '
+						+ 'source.');
+			this._key = key;
+			itemsByKey[key] = this;
+		},
+
+		_getSourceBounds: function(options) {
+			var boxes = this._boxes,
+				i = this._boxIndex
+					+ (options.handle ? 8 : options.stroke ? 4 : 0);
+			return boxes
+					? new Rectangle(boxes[i], boxes[i + 1], boxes[i + 2],
+						boxes[i + 3])
+					: new Rectangle();
+		},
+
+		_getSourceBoundsCache: function() {
+			var bounds = {},
+				isIdentity = this._matrix.isIdentity(),
+				nonscaling = !this._strokeScaling;
+			[[0, 0], [1, 0], [1, 1]].forEach(function(entry) {
+				var stroke = entry[0],
+					handle = entry[1],
+					key = '' + stroke + handle,
+					rect = this._getSourceBounds({
+						stroke: stroke,
+						handle: handle
+					});
+				bounds[key + 1] = {
+					rect: rect,
+					nonscaling: nonscaling,
+					internal: true
+				};
+				if (isIdentity) {
+					bounds[key + 0] = {
+						rect: rect.clone(),
+						nonscaling: nonscaling,
+						internal: false
+					};
+				}
+			}, this);
+			return bounds;
+		},
+
+		_load: function() {
+			var project = this._project,
+				json = project._source.getItem(this._key),
+				ctor = this.constructor,
+				kept = ['_id', '_parent', '_index', '_matrix'],
+				values = {},
+				that = this;
+			if (this instanceof Group || this._hasChildren)
+				Base.push(kept, childrenFields);
+			whileLoading(project, function() {
+				that._contentFields.forEach(function(name) {
+					defineValue(that, name, ctor.prototype[name]);
+				});
+				kept.forEach(function(name) {
+					if (that.hasOwnProperty(name))
+						values[name] = that[name];
+				});
+				ctor.call(that, { insert: false, project: project });
+				kept.forEach(function(name) {
+					if (name in values) {
+						that[name] = values[name];
+					} else {
+						delete that[name];
+					}
+				});
+				Base.importJSON(json, that);
+				that._shell = false;
+			});
+		},
+
+		_loadChildren: function() {
+			var project = this._project,
+				columns = project._source.getChildren(this._key),
+				that = this;
+			whileLoading(project, function() {
+				setChildren(that, project, columns);
+			});
+		},
+
+		_unload: function() {
+			if (!this._shell) {
+				var that = this;
+				this._contentFields.forEach(function(name) {
+					delete that[name];
+				});
+				this._shell = true;
+			}
+		},
+
+		_unloadChildren: function() {
+			if (this.hasOwnProperty('_children')) {
+				var children = this._children;
+				for (var i = 0, l = children.length; i < l; i++) {
+					var child = children[i];
+					child._parent = child._index = null;
+					this._project._updateSelection(child, true);
+				}
+				delete this._children;
+				delete this._namedChildren;
+			}
+		}
+	});
+
+	Project.inject({
+		getSource: function() {
+			return this._source;
+		},
+
+		setSource: function(source) {
+			if (this._children.length)
+				throw new Error('Unable to set the source of a project with '
+						+ 'layers.');
+			var that = this;
+			this._source = source;
+			this._itemsByKey = {};
+			whileLoading(this, function() {
+				setChildren(that, that, source.getChildren(null));
+				that._activeLayer = that._children[0] || null;
+			});
+		},
+
+		getItemByKey: function(key) {
+			var itemsByKey = this._itemsByKey,
+				item = itemsByKey[key];
+			if (!item || !item.isInserted()) {
+				var keys = this._source.getAncestorKeys(key) || [];
+				for (var i = 0, l = keys.length; i < l; i++) {
+					var ancestor = itemsByKey[keys[i]];
+					if (ancestor)
+						ancestor.getChildren();
+				}
+				item = itemsByKey[key];
+			}
+			return item && item.isInserted() ? item : null;
+		},
+
+		invalidate: function(columns) {
+			var itemsByKey = this._itemsByKey,
+				keys = columns.keys,
+				names = columns.names || {},
+				that = this;
+			whileLoading(this, function() {
+				for (var i = 0, l = keys.length; i < l; i++) {
+					var item = itemsByKey[keys[i]],
+						flags = columns.flags[i];
+					if (item) {
+						if (flags & 16)
+							item._unload();
+						if (flags & 32)
+							item._unloadChildren();
+						if ((names[i] || undefined) !== item._name)
+							item.setName(names[i] || null);
+						if (item._parent)
+							Item._clearBoundsCache(item._parent);
+						Item._clearBoundsCache(item);
+						setRecord(item, columns, i);
+						item._globalMatrix = item._position = undefined;
+						that._updateSelection(item);
+					}
+				}
+			});
+		}
+	});
 };
 
 var SvgElement = new function() {
@@ -17918,6 +18354,7 @@ Base.exports.PaperScript = function() {
 var paper = new (PaperScope.inject(Base.exports, {
 	Base: Base,
 	Numerical: Numerical,
+	ChangeFlag: ChangeFlag,
 	Key: Key,
 	DomEvent: DomEvent,
 	DomElement: DomElement,

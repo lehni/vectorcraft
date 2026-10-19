@@ -3892,6 +3892,7 @@ axis	Both	Оба
 @msg	Packaged {n} file(s) in {folder} {note}	Упаковано файлов: {n} в {folder}{note}
 @msg	Packaged {n} file(s){note}	Упаковано файлов: {n}{note}
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Просмотр в браузере требует настольного приложения (web-версия скачивает файлы)
+@msg	Running scripts needs the desktop app	Для запуска скриптов нужно настольное приложение
 @msg	Release Guides: no guides	Освобождение направляющих: нет направляющих
 @msg	Release: no layer to put the rectangle in	Освобождение: нет слоя для помещения прямоугольника
 @msg	Replace Spine: select a blend and a path	Замена остова: выделите переход и контур

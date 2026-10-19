@@ -3780,6 +3780,7 @@ theme	Appearance	Erscheinungsbild
 @msg	Packaged {n} file(s) in {folder} {note}	{n} Datei(en) in {folder} verpackt{note}
 @msg	Packaged {n} file(s){note}	{n} Datei(en) verpackt{note}
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	„Vorschau im Browser“ erfordert die Desktop-App (im Web werden stattdessen Dateien heruntergeladen)
+@msg	Running scripts needs the desktop app	Skripte ausführen erfordert die Desktop-App
 @msg	Release Guides: no guides	Hilfslinien zurückwandeln: keine Hilfslinien
 @msg	Release: no layer to put the rectangle in	Zurückwandeln: keine Ebene, die das Rechteck aufnehmen könnte
 @msg	Replace Spine: select a blend and a path	Achse ersetzen: Wählen Sie eine Angleichung und einen Pfad aus

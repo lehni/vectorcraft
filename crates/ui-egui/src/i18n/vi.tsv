@@ -4544,6 +4544,7 @@ theme	Appearance	Giao diện
 @msg	plug-in parameters: {0}	tham số plug-in: {0}
 @msg	plug-in trapped: {0}	plug-in bị kẹt: {0}
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Xem trước trên trình duyệt cần ứng dụng máy tính (web sẽ tải xuống tệp thay thế)
+@msg	Running scripts needs the desktop app	Chạy tập lệnh cần ứng dụng máy tính
 @msg	print settings are not an object	cài đặt in không phải là đối tượng
 @msg	printing isn't available here	in không khả dụng ở đây
 @msg	range `{s}` is empty	phạm vi `{s}` trống

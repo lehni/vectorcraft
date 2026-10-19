@@ -3982,6 +3982,7 @@ imageTrace	Outline	Kontur
 @msg	Packaged {n} file(s) in {folder} {note}	Spakowane pliki: {n} w {folder}{note}
 @msg	Packaged {n} file(s){note}	Spakowane pliki: {n}{note}
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Podgląd w przeglądarce wymaga aplikacji desktopowej (wersja webowa zamiast tego pobiera pliki)
+@msg	Running scripts needs the desktop app	Uruchamianie skryptów wymaga aplikacji desktopowej
 @msg	Release Guides: no guides	Uwolnij linie pomocnicze: brak linii pomocniczych
 @msg	Release: no layer to put the rectangle in	Uwolnij: brak warstwy, na której można umieścić prostokąt
 @msg	Replace Spine: select a blend and a path	Zastąp grzbiet: zaznacz przejście i ścieżkę

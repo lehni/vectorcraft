@@ -2099,6 +2099,7 @@ file-filter	Templates	範本
 @msg	select artwork (or a colour group) to recolor	請選取要重新上色的圖稿 (或顏色群組)
 @msg	Downloaded {_1} file(s)	已下載 {_1} 個檔案
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	「在瀏覽器中預覽」需要桌面應用程式 (網頁版會改為下載檔案)
+@msg	Running scripts needs the desktop app	執行指令碼需要桌面應用程式
 @msg	no file system here	此處沒有檔案系統
 @msg	nothing to preview	沒有可預覽的內容
 @msg	Saved {n} files beside {path}	已在 {path} 旁儲存 {n} 個檔案

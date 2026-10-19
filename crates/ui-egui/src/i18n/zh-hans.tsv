@@ -4119,6 +4119,7 @@ imageTrace	Outline	轮廓
 @msg	select artwork (or a colour group) to recolor	请选择要重新着色的图稿 (或颜色组)
 @msg	Downloaded {_1} file(s)	已下载 {_1} 个文件
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	“在浏览器中预览”需要桌面应用 (网页版会改为下载文件)
+@msg	Running scripts needs the desktop app	运行脚本需要桌面应用
 @msg	no file system here	此处没有文件系统
 @msg	nothing to preview	没有可预览的内容
 @msg	Saved {n} files beside {path}	已在 {path} 旁保存 {n} 个文件

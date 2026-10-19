@@ -1,0 +1,281 @@
+//! The document as Paper.js sees it through its item source: one record per child of a container
+//! (as columns), and each item's own content as Paper.js JSON (`importJSON` form).
+//!
+//! Layers, groups, paths and compound paths have Paper.js classes. Every other kind of object is a
+//! `HostItem`: Paper.js knows its bounds and attributes, never its content. VectorCraft has no
+//! per-object matrix, so every record leaves its matrix out (identity), and boxes are in document
+//! coordinates.
+
+use std::collections::BTreeSet;
+
+use serde_json::{Map, Value, json};
+use vectorcraft_color::{BlendMode, Color, Paint};
+use vectorcraft_doc::{AnchorRef, Document, LineCap, LineJoin, Node, NodeId, NodeKind, Selection};
+use vectorcraft_geom::{PathData, Rect};
+
+/// The Paper.js classes of the records' `types`.
+pub const TYPE_NAMES: &[&str] = &["Layer", "Group", "Path", "CompoundPath", "HostItem"];
+
+const LAYER: u8 = 0;
+const GROUP: u8 = 1;
+const PATH: u8 = 2;
+const COMPOUND_PATH: u8 = 3;
+const HOST_ITEM: u8 = 4;
+
+/// Record flags, as Paper.js reads them.
+pub mod flags {
+    pub const SELECTED: u16 = 1;
+    pub const VISIBLE: u16 = 2;
+    pub const LOCKED: u16 = 4;
+    pub const STROKE_SCALING: u16 = 8;
+    /// For `project.invalidate()`: the item's own content changed.
+    pub const CONTENT_CHANGED: u16 = 16;
+    /// For `project.invalidate()`: the container's child list changed.
+    pub const CHILDREN_CHANGED: u16 = 32;
+    pub const CLIP_MASK: u16 = 64;
+    pub const GUIDE: u16 = 128;
+    pub const EMPTY: u16 = 256;
+}
+
+/// Records of a container's children, bottom first, as the columns Paper.js reads.
+#[derive(Debug, Default, PartialEq)]
+pub struct Columns {
+    pub keys: Vec<f64>,
+    pub types: Vec<u8>,
+    pub flags: Vec<u16>,
+    /// Twelve numbers per record: bounds, stroke bounds and rough bounds, each `x, y, width,
+    /// height`.
+    pub boxes: Vec<f64>,
+    /// Names by record index.
+    pub names: Vec<(usize, String)>,
+}
+
+impl Columns {
+    /// Adds the record of `node`.
+    pub fn push(&mut self, node: &Node, selection: &Selection) {
+        let (kind, mut flags) = match &node.kind {
+            NodeKind::Layer { .. } => (LAYER, 0),
+            NodeKind::Group { .. } => (GROUP, 0),
+            NodeKind::Path { clipping, guide, .. } => (PATH, if *clipping { flags::CLIP_MASK } else { 0 } | if *guide { flags::GUIDE } else { 0 }),
+            NodeKind::Compound { .. } => (COMPOUND_PATH, 0),
+            _ => (HOST_ITEM, 0),
+        };
+        flags |= flags::STROKE_SCALING;
+        if node.visible {
+            flags |= flags::VISIBLE;
+        }
+        if node.locked {
+            flags |= flags::LOCKED;
+        }
+        if selection.objects.contains(&node.id) {
+            flags |= flags::SELECTED;
+        }
+        let bounds = node.geometric_bounds();
+        if bounds.is_none() {
+            flags |= flags::EMPTY;
+        }
+        let stroke = node.visual_bounds().or(bounds);
+        let rough = rough_bounds(node).or(stroke);
+        for rect in [bounds, stroke, rough] {
+            let rect = rect.unwrap_or(Rect::ZERO);
+            self.boxes.extend([rect.x0, rect.y0, rect.width(), rect.height()]);
+        }
+        if let Some(name) = &node.name {
+            self.names.push((self.keys.len(), name.clone()));
+        }
+        // Keys are node ids: below 2^53 in every document VectorCraft makes (`MAX_NEXT_ID`).
+        self.keys.push(node.id.0 as f64);
+        self.types.push(kind);
+        self.flags.push(flags);
+    }
+
+    /// The records of the children of `parent` (`None`: the layers), or `None` when it holds none.
+    pub fn of_children(doc: &Document, parent: Option<NodeId>, selection: &Selection) -> Option<Self> {
+        let children = doc.children(parent)?;
+        let mut columns = Self::default();
+        for child in children {
+            columns.push(child, selection);
+        }
+        Some(columns)
+    }
+}
+
+/// The box Paper.js rejects hit tests with: the control points, grown by as far as strokes reach.
+fn rough_bounds(node: &Node) -> Option<Rect> {
+    let outset = node.appearance.outset();
+    let control = match &node.kind {
+        NodeKind::Path { path, .. } => path.control_bounds(),
+        NodeKind::Compound { children, .. } => children.iter().filter_map(|c| c.path_data()?.control_bounds()).reduce(|a, b| a.union(b)),
+        _ => return node.reach_bounds(),
+    };
+    control.map(|r| r.inflate(outset, outset))
+}
+
+/// The item's own content as Paper.js JSON: a container's children come from its records instead,
+/// and the record owns name, visibility, locking and selection.
+pub fn item_json(node: &Node, selection: &Selection) -> Value {
+    match &node.kind {
+        NodeKind::Layer { .. } => json!(["Layer", attributes(node)]),
+        NodeKind::Group { clip, .. } => {
+            let mut props = attributes(node);
+            if *clip {
+                props.insert("clipped".into(), json!(true));
+            }
+            json!(["Group", props])
+        }
+        NodeKind::Path { path, .. } => {
+            let mut props = attributes(node);
+            style(node, &mut props);
+            let anchors = selection.anchors.get(&node.id);
+            match path.subpaths.as_slice() {
+                [subpath] => {
+                    props.insert("segments".into(), segments(path, 0, anchors));
+                    props.insert("closed".into(), json!(subpath.closed));
+                    json!(["Path", props])
+                }
+                // A path of several subpaths is a compound path to Paper.js.
+                _ => {
+                    props.insert("children".into(), subpaths(path, anchors));
+                    json!(["CompoundPath", props])
+                }
+            }
+        }
+        NodeKind::Compound { children, .. } => {
+            let mut props = attributes(node);
+            style(node, &mut props);
+            let paths: Vec<Value> = children
+                .iter()
+                .filter_map(|c| {
+                    let path = c.path_data()?;
+                    Some(subpaths(path, selection.anchors.get(&c.id)))
+                })
+                .flat_map(|v| v.as_array().cloned().unwrap_or_default())
+                .collect();
+            props.insert("children".into(), Value::Array(paths));
+            json!(["CompoundPath", props])
+        }
+        _ => json!(["HostItem", attributes(node)]),
+    }
+}
+
+/// The attributes every item has in its JSON.
+fn attributes(node: &Node) -> Map<String, Value> {
+    let mut props = Map::new();
+    props.insert("applyMatrix".into(), json!(true));
+    if node.opacity < 1.0 {
+        props.insert("opacity".into(), json!(node.opacity));
+    }
+    if node.blend != BlendMode::Normal {
+        props.insert("blendMode".into(), json!(blend_mode(node.blend)));
+    }
+    props
+}
+
+/// The topmost fill and stroke, as Paper.js's single fill and stroke.
+fn style(node: &Node, props: &mut Map<String, Value>) {
+    let appearance = &node.appearance;
+    if let Some(color) = appearance.fill().and_then(|f| color(&f.paint)) {
+        props.insert("fillColor".into(), color);
+    }
+    if let Some(stroke) = appearance.stroke()
+        && let Some(color) = color(&stroke.paint)
+    {
+        props.insert("strokeColor".into(), color);
+        props.insert("strokeWidth".into(), json!(stroke.width));
+        props.insert(
+            "strokeCap".into(),
+            json!(match stroke.cap {
+                LineCap::Butt => "butt",
+                LineCap::Round => "round",
+                LineCap::Square => "square",
+            }),
+        );
+        props.insert(
+            "strokeJoin".into(),
+            json!(match stroke.join {
+                LineJoin::Miter => "miter",
+                LineJoin::Round => "round",
+                LineJoin::Bevel => "bevel",
+            }),
+        );
+        props.insert("miterLimit".into(), json!(stroke.miter_limit));
+        if let Some(dash) = &stroke.dash {
+            props.insert("dashArray".into(), json!(dash.pattern));
+            props.insert("dashOffset".into(), json!(dash.offset));
+        }
+    }
+}
+
+/// A solid paint as a Paper.js colour. Gradients and patterns have no Paper.js form yet.
+fn color(paint: &Paint) -> Option<Value> {
+    let Paint::Solid { color, .. } = paint else {
+        return None;
+    };
+    Some(match *color {
+        Color::Rgb { r, g, b } => json!([r, g, b]),
+        // VectorCraft's grey is ink (0 = white), Paper.js's is lightness (0 = black).
+        Color::Gray { k } => json!(["gray", 1.0 - k]),
+        // Paper.js has no CMYK or Lab: they show as their display colour.
+        _ => {
+            let [r, g, b] = color.to_rgb();
+            json!([r, g, b])
+        }
+    })
+}
+
+fn blend_mode(mode: BlendMode) -> &'static str {
+    match mode {
+        BlendMode::Normal => "normal",
+        BlendMode::Darken => "darken",
+        BlendMode::Multiply => "multiply",
+        BlendMode::ColorBurn => "color-burn",
+        BlendMode::Lighten => "lighten",
+        BlendMode::Screen => "screen",
+        BlendMode::ColorDodge => "color-dodge",
+        BlendMode::Overlay => "overlay",
+        BlendMode::SoftLight => "soft-light",
+        BlendMode::HardLight => "hard-light",
+        BlendMode::Difference => "difference",
+        BlendMode::Exclusion => "exclusion",
+        BlendMode::Hue => "hue",
+        BlendMode::Saturation => "saturation",
+        BlendMode::Color => "color",
+        BlendMode::Luminosity => "luminosity",
+    }
+}
+
+/// The subpaths of `path` as Paper.js `Path` JSON, for a compound path's children.
+fn subpaths(path: &PathData, anchors: Option<&BTreeSet<AnchorRef>>) -> Value {
+    let paths: Vec<Value> = (0..path.subpaths.len())
+        .map(|i| {
+            let closed = path.subpaths.get(i).is_some_and(|s| s.closed);
+            json!(["Path", { "applyMatrix": true, "segments": segments(path, i, anchors), "closed": closed }])
+        })
+        .collect();
+    Value::Array(paths)
+}
+
+/// Subpath `index` as Paper.js segments, `[point, handleIn, handleOut, selection?]` with handles
+/// relative to their point.
+fn segments(path: &PathData, index: usize, anchors: Option<&BTreeSet<AnchorRef>>) -> Value {
+    let Some(subpath) = path.subpaths.get(index) else {
+        return json!([]);
+    };
+    let segments: Vec<Value> = subpath
+        .anchors
+        .iter()
+        .enumerate()
+        .map(|(i, a)| {
+            let point = json!([a.p.x, a.p.y]);
+            let handle_in = json!([a.h_in.x - a.p.x, a.h_in.y - a.p.y]);
+            let handle_out = json!([a.h_out.x - a.p.x, a.h_out.y - a.p.y]);
+            // Segment selection: bit 1 is the point.
+            if anchors.is_some_and(|set| set.contains(&(index, i))) {
+                json!([point, handle_in, handle_out, 1])
+            } else {
+                json!([point, handle_in, handle_out])
+            }
+        })
+        .collect();
+    Value::Array(segments)
+}

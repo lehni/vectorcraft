@@ -4895,6 +4895,7 @@ imageTrace	Outline	Körvonal
 @msg	plug-in parameters: {0}	bővítmény paraméterei: {0}
 @msg	plug-in trapped: {0}	a bővítmény futása megszakadt: {0}
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Az Előnézet böngészőben az asztali alkalmazásban érhető el (a webes változat helyette letölti a fájlokat)
+@msg	Running scripts needs the desktop app	A szkriptek futtatása az asztali alkalmazásban érhető el
 @msg	print settings are not an object	a nyomtatási beállítások nem objektumot alkotnak
 @msg	printing isn't available here	itt nem lehet nyomtatni
 @msg	range `{s}` is empty	a tartomány üres: `{s}`

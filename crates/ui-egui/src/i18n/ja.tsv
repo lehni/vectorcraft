@@ -4394,6 +4394,7 @@ swatch	Bright Violet	ビビッドバイオレット
 @msg	select artwork (or a colour group) to recolor	再配色するアートワーク (またはカラーグループ) を選択してください
 @msg	Downloaded {_1} file(s)	{_1} 個のファイルをダウンロードしました
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	「ブラウザーでプレビュー」にはデスクトップアプリが必要です (Web 版では代わりにファイルをダウンロードします)
+@msg	Running scripts needs the desktop app	スクリプトの実行にはデスクトップアプリが必要です
 @msg	no file system here	この環境にはファイルシステムがありません
 @msg	nothing to preview	プレビューするものがありません
 @msg	Saved {n} files beside {path}	{path} と同じ場所にファイルを {n} 個保存しました

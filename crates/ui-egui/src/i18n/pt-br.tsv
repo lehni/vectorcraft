@@ -3439,6 +3439,7 @@ axis	Both	Ambos
 @msg	Packaged {n} file(s) in {folder} {note}	{n} arquivo(s) empacotado(s) em {folder}{note}
 @msg	Packaged {n} file(s){note}	{n} arquivo(s) empacotado(s){note}
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Visualizar no navegador exige o aplicativo para desktop (na web, os arquivos são baixados)
+@msg	Running scripts needs the desktop app	Executar scripts exige o aplicativo para desktop
 @msg	Release Guides: no guides	Liberar guias: não há guias
 @msg	Release: no layer to put the rectangle in	Liberar: não há camada para colocar o retângulo
 @msg	Replace Spine: select a blend and a path	Substituir coluna: selecione uma mesclagem e um traçado

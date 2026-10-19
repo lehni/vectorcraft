@@ -3907,6 +3907,7 @@ imageTrace	Outline	Contour
 @msg	Packaged {n} file(s) in {folder} {note}	{n} bestand(en) verpakt in {folder} {note}
 @msg	Packaged {n} file(s){note}	{n} bestand(en) verpakt{note}
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Voorvertoning in browser heeft de desktop-app nodig (het web downloadt in plaats daarvan bestanden)
+@msg	Running scripts needs the desktop app	Scripts uitvoeren heeft de desktop-app nodig
 @msg	Release Guides: no guides	Hulplijnen vrijgeven: geen hulplijnen
 @msg	Release: no layer to put the rectangle in	Vrijgeven: geen laag om de rechthoek in te plaatsen
 @msg	Replace Spine: select a blend and a path	Ruggengraat vervangen: selecteer een mengsel en een pad

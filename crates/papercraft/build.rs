@@ -1,6 +1,6 @@
-//! Picks the Paper.js build to embed: the vendored release (`vendor/paper-full.js`), or, with
-//! `PAPERCRAFT_PAPER_JS=<file>` set, that file, e.g. the latest prebuilt `dist/paper-full.js` of
-//! Paper.js's `prebuilt/module` branch while Paper.js changes are being developed. A relative path
+//! Picks the Paper.js build to embed: the vendored build (`vendor/paper-sourced.js`), or, with
+//! `PAPERCRAFT_PAPER_JS=<file>` set, that file, e.g. the latest `paper-sourced.js` built from
+//! Paper.js's `develop` while Paper.js changes are being developed. A relative path
 //! is relative to the workspace. Nothing is fetched: the build reads only local files.
 
 use std::path::PathBuf;
@@ -11,7 +11,7 @@ fn main() {
     let path = match std::env::var_os("PAPERCRAFT_PAPER_JS").filter(|path| !path.is_empty()).map(PathBuf::from) {
         Some(path) if path.is_absolute() => path,
         Some(path) => crate_dir.join("../..").join(path),
-        None => crate_dir.join("vendor/paper-full.js"),
+        None => crate_dir.join("vendor/paper-sourced.js"),
     };
     if !path.is_file() {
         println!("cargo::error=PAPERCRAFT_PAPER_JS={}: no such file", path.display());

@@ -5616,6 +5616,10 @@ dependencies = [
  "svgtypes 0.16.1",
  "thiserror 2.0.21",
  "v8",
+ "vectorcraft-color",
+ "vectorcraft-doc",
+ "vectorcraft-engine",
+ "vectorcraft-geom",
  "wasm-bindgen",
  "web-sys",
 ]
@@ -5835,6 +5839,7 @@ dependencies = [
  "vectorcraft-eps",
  "vectorcraft-format",
  "vectorcraft-geom",
+ "vectorcraft-papercraft",
  "vectorcraft-pdf",
  "vectorcraft-plugins",
  "vectorcraft-render",

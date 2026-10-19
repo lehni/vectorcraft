@@ -77,6 +77,8 @@ pub const INTRA_LAYER_ORDER: &[&[&str]] = &[
     &["pathops", "trace"],
     &["text", "effects"],
     &["render", "eps"],
+    // Scripts run from the app's menus.
+    &["papercraft", "ui-egui"],
     &["metafile", "eps"],
     // Non-native art in Illustrator editing data is a PDF, drawn by the PDF importer.
     &["pdf", "eps"],

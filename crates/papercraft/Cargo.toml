@@ -16,10 +16,17 @@ v8 = ["dep:v8"]
 boa = ["dep:boa_engine"]
 
 [dependencies]
+vectorcraft-color = { workspace = true }
+vectorcraft-doc = { workspace = true }
+vectorcraft-geom = { workspace = true }
 boa_engine = { workspace = true, optional = true }
+serde_json = { workspace = true }
 # CSS colours for the canvas shim, as the SVG importer parses them.
 svgtypes = "0.16"
 thiserror = { workspace = true }
+
+[dev-dependencies]
+vectorcraft-engine = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 v8 = { workspace = true, optional = true }
@@ -31,5 +38,3 @@ js-sys = "0.3"
 wasm-bindgen = "0.2"
 web-sys = { version = "0.3", features = ["Document", "Element", "HtmlElement", "HtmlIFrameElement", "Node", "Window"] }
 
-[dev-dependencies]
-serde_json = { workspace = true }

@@ -7,13 +7,17 @@
 
 #![forbid(unsafe_code)]
 
+mod binding;
 mod canvas;
 mod engine;
 mod engines;
+pub mod source;
+mod writeback;
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
+pub use binding::Patch;
 pub use engine::{Call, Engine, HostFunction, Value};
 #[cfg(feature = "boa")]
 pub use engines::boa::Boa;
@@ -22,8 +26,18 @@ pub use engines::browser::Browser;
 #[cfg(all(feature = "v8", not(target_arch = "wasm32")))]
 pub use engines::v8::V8;
 
-/// Paper.js with the PaperScript compiler: the vendored 0.13.0 release (`dist/paper-full.js` of the
-/// npm package, MIT), or the build `PAPERCRAFT_PAPER_JS` names (see `build.rs`).
+/// The engine scripts run in on this platform: the browser's on the web, V8 on desktop, Boa where
+/// V8 is left out.
+#[cfg(target_arch = "wasm32")]
+pub type PlatformEngine = Browser;
+#[cfg(all(feature = "v8", not(target_arch = "wasm32")))]
+pub type PlatformEngine = V8;
+#[cfg(all(feature = "boa", not(feature = "v8"), not(target_arch = "wasm32")))]
+pub type PlatformEngine = Boa;
+
+/// Paper.js with the PaperScript compiler and items backed by a host document: the vendored
+/// `paper-sourced.js` build of Paper.js `develop` at 1b261ff2 (MIT; no release has it yet), or the
+/// build `PAPERCRAFT_PAPER_JS` names (see `build.rs`).
 const PAPER_JS: &str = include_str!(env!("PAPERCRAFT_PAPER_JS_PATH"));
 
 #[derive(Debug, thiserror::Error)]
@@ -41,6 +55,8 @@ pub struct Host<H> {
     /// The time of the last [`Runtime::run_timers`], in milliseconds.
     now: f64,
     intervals: Vec<Interval<H>>,
+    /// The document the project reads from ([`Runtime::bind`]).
+    bound: Option<binding::Bound>,
     /// The methods of every `OffscreenCanvas`, by name.
     canvas_methods: Vec<(&'static str, H)>,
 }
@@ -54,7 +70,7 @@ struct Interval<H> {
 
 impl<H> Default for Host<H> {
     fn default() -> Self {
-        Self { output: Vec::new(), next_interval_id: 0, now: 0.0, intervals: Vec::new(), canvas_methods: Vec::new() }
+        Self { output: Vec::new(), next_interval_id: 0, now: 0.0, intervals: Vec::new(), bound: None, canvas_methods: Vec::new() }
     }
 }
 

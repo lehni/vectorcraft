@@ -30,7 +30,7 @@ fn time<T>(f: impl FnOnce() -> Result<T, Error>) -> Result<(T, Duration), Error>
 fn measure<E: Engine>(name: &str) -> Result<(), Error> {
     println!("{name}:");
     let (mut runtime, load) = time(Runtime::<E>::new)?;
-    println!("  create engine + load paper-full.js: {load:?}");
+    println!("  create engine + load Paper.js:      {load:?}");
 
     let (scope, setup) = time(|| runtime.create_scope(800.0, 600.0))?;
     println!("  first PaperScope + setup:           {setup:?}");

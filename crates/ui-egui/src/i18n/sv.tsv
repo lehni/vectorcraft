@@ -3776,6 +3776,7 @@ axis	Both	Båda
 @msg	Packaged {n} file(s) in {folder} {note}	Paketerade {n} fil(er) i {folder}{note}
 @msg	Packaged {n} file(s){note}	Paketerade {n} fil(er){note}
 @msg	Preview in Browser needs the desktop app (the web downloads files instead)	Förhandsgranska i webbläsare kräver skrivbordsappen (webbversionen hämtar filer i stället)
+@msg	Running scripts needs the desktop app	Att köra skript kräver skrivbordsappen
 @msg	Release Guides: no guides	Släpp stödlinjer: inga stödlinjer
 @msg	Release: no layer to put the rectangle in	Släpp: inget lager att placera rektangeln i
 @msg	Replace Spine: select a blend and a path	Ersätt ryggrad: markera en blandning och en bana
