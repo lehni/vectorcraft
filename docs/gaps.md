@@ -500,6 +500,7 @@ from G14 and the budget run of G15: **~170–270 h** one agent, ~50–80 h wall 
 
 ## G6 Automation and scripting
 
+- **Done (2026-10-20, feature/scripting):** PaperCraft, Paper.js scripting after Scriptographer: PaperScript on the document (threads of their own; V8, the browser's engine, Boa), one undo step per run through `document.patch`, animations that go on while the user edits, tool scripts with mouse and key events, `Dialog` and `Palette`, the PaperCraft panel and console. Not Illustrator's ExtendScript, so the scripting entry below stays open and the estimate is unchanged.
 - **Missing:** a scripting surface over the command registry (Illustrator: JavaScript, File › Scripts;
   #1183 is open). Actions, Batch, Variables (text, visibility, image and graph), data set CSV import and
   export, and full agent control over MCP are done.
@@ -681,6 +682,7 @@ trap, and the defaults (0.25 pt, 100%, 40%) are VectorCraft's own, the pages giv
 | 2026-10-19 | minor | Cached canvas reprojection preserves scale during resize, rotation and DPI changes. Contributor original-file acceptance confirmed; scores and estimates unchanged. |
 | 2026-10-19 | minor | Color Picker layout (#2008): compact controls, centered header, stacked actions and aligned inputs; screen-reader channel values, current shared button names and styling, screen sampler and model-by-model Tab order retained. Narrow windows scroll vertically. Documentation correction: #1692 was completed upstream before #2008; the Direct Selection alignment gap remains open. Scores and hours unchanged. |
 | 2026-10-18 | minor | G11: Shape Builder Gap Detection (#2523): Shape Builder Tool Options with a Gap Length of Small, Medium, Large or Custom bridges small gaps between open paths for the regions they bound; the other Shape Builder options stay missing. The stale gap line on deleting an interior anchor of an open path is removed (the behaviour was already implemented). Estimates unchanged |
+| 2026-10-20 | minor | G6: PaperCraft (Paper.js scripting) noted as done; ExtendScript stays open, estimate unchanged. |
 | 2026-10-19 | minor | G1: the tool cursors, drawn in code, noted as design debt: they belong in SVG files like the icons. About 4–6 h, outside the G1 estimate; scores and hours unchanged. |
 | 2026-10-18 | minor | Mirror Repeat shows its axis when selected (#2877): drag the line or center handle to move it, drag an end handle to rotate it (Shift: 45°), Escape cancels and each drag is one undo step. Engine and headless canvas gesture regressions passed; native move, rotation and Escape screenshots reviewed. Formatting, Clippy, WASM and repository checks passed; the undo label reuses translated Repeat Options. (#2877) Scores and hours unchanged. |
 | 2026-10-18 | minor | Bounding-box handles take priority where a selected Mirror Repeat axis crosses them; a Top-handle regression confirms scaling of the default repeat. Center and end handles retain their move and rotation behavior. G1 scope and estimate unchanged. |
