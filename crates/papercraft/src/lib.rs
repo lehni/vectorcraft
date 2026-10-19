@@ -207,6 +207,33 @@ impl<E: Engine> Runtime<E> {
         })
     }
 
+    /// Sets the global `script`, as Scriptographer's: `script.file` and `script.directory`, the
+    /// script's file and its folder (`null` for code typed in the console), and
+    /// `script.keepAlive`, which the script sets to keep running when another script runs.
+    pub fn set_script(&mut self, file: Option<&str>) -> Result<(), Error> {
+        let global = self.engine.global()?;
+        self.engine.with_call(|call| {
+            let script = call.new_object()?;
+            let path = |p: Option<&str>| p.map_or(Value::Null, |p| Value::String(p.to_owned()));
+            let directory = file.and_then(|f| std::path::Path::new(f).parent()).map(|d| d.to_string_lossy().into_owned());
+            call.set(&script, "file", &path(file))?;
+            call.set(&script, "directory", &path(directory.as_deref()))?;
+            call.set(&script, "keepAlive", &Value::Bool(false))?;
+            call.set(&global, "script", &Value::Js(script))
+        })
+    }
+
+    /// Whether the script set `script.keepAlive`.
+    pub fn keep_alive(&mut self) -> Result<bool, Error> {
+        let global = self.engine.global()?;
+        self.engine.with_call(|call| {
+            let Value::Js(script) = call.get(&global, "script")? else {
+                return Ok(false);
+            };
+            Ok(matches!(call.get(&script, "keepAlive")?, Value::Bool(true)))
+        })
+    }
+
     /// A way to stop the runtime's scripts from another thread, where the engine has one.
     pub fn interrupt(&mut self) -> Option<Interrupt> {
         self.engine.interrupt()

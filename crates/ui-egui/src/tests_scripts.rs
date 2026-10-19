@@ -494,3 +494,39 @@ fn new_items_take_the_apps_paint() {
     assert_eq!(circle.appearance.fill_paint(), vectorcraft_color::Paint::solid(vectorcraft_color::Color::rgb(1.0, 0.0, 0.0)));
     assert_eq!(circle.appearance.stroke().map(|s| s.width), Some(3.0));
 }
+
+/// As in Scriptographer, running a script stops the ones that run, unless they set
+/// `script.keepAlive`, and `script.file` is the script's file.
+#[test]
+fn a_script_stops_the_others_unless_they_keep_alive() {
+    let (mut app, _) = app();
+    let kept = tempfile_path::Path::new("script.keepAlive = true\nfunction onFrame() {}");
+    let other = tempfile_path::Path::new("function onFrame() {}");
+    let next = tempfile_path::Path::new("console.log(script.file == null, script.directory != null)");
+    for path in [&kept, &other, &next] {
+        app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
+    }
+    // The last one has run once its view updated.
+    crate::scripts::frame(&mut app, &egui::Context::default(), 0.5);
+    assert_eq!(app.scripts.running_paths(), std::collections::BTreeSet::from([kept.0.clone()]));
+    assert!(app.scripts.log().iter().any(|l| l.text == "false true"), "script.file and script.directory");
+}
+
+/// The `__init__` scripts of the scripts folders run by themselves once a document is open, and
+/// don't show in the panel.
+#[test]
+fn init_scripts_run_by_themselves() {
+    let (mut app, _) = app();
+    let folder = TempFolder::new("init");
+    std::fs::create_dir_all(folder.0.join("Tools")).unwrap();
+    std::fs::write(folder.0.join("Tools").join("__init__.js"), "script.keepAlive = true\nconsole.log('ready')").unwrap();
+    std::fs::write(folder.0.join("a.js"), "").unwrap();
+    app.ui.papercraft_folders = vec![folder.script_folder("Mine")];
+    crate::scripts::frame(&mut app, &egui::Context::default(), 0.0);
+    assert!(app.scripts.log().iter().any(|l| l.text == "ready"));
+    crate::scripts::frame(&mut app, &egui::Context::default(), 0.1);
+    assert_eq!(app.scripts.log().iter().filter(|l| l.text == "ready").count(), 1, "once");
+    let crate::scripts::EntryKind::Folder(children) = &app.scripts.tree(&app.ui.papercraft_folders.clone(), false)[0].kind else { panic!() };
+    let names: Vec<&str> = children.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names, ["Tools", "a.js"], "and the Tools folder shows no __init__");
+}

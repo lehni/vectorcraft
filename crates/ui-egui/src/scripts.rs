@@ -61,6 +61,8 @@ pub struct Scripts {
     created: Option<PathBuf>,
     /// Whether the app had the focus at the last frame.
     focused: bool,
+    /// The scripts folders whose `__init__` scripts ran.
+    initialized: Option<Vec<ScriptFolder>>,
     /// The tool script the PaperCraft Tool button stands for: the last one run, until it fails.
     tool: Option<ToolScript>,
     /// Whether the PaperCraft Tool is the active tool: the canvas then sends its pointer events to
@@ -132,6 +134,8 @@ struct Running {
     palettes: Vec<PaletteView>,
     /// Whether it has palettes open, as its last work said: it then keeps running.
     open: bool,
+    /// Whether it set `script.keepAlive`: it then goes on when another script runs.
+    keep_alive: bool,
 }
 
 /// A script's palette, as the panel shows it.
@@ -257,7 +261,8 @@ fn list(folder: &Path, depth: usize, count: &mut usize) -> Vec<Entry> {
         .filter_map(|e| {
             let path = e.path();
             let name = e.file_name().to_string_lossy().into_owned();
-            if name.starts_with('.') || *count >= MAX_ENTRIES {
+            // Hidden files, and the `__init__` scripts that run by themselves, don't show.
+            if name.starts_with('.') || name.starts_with("__") || *count >= MAX_ENTRIES {
                 return None;
             }
             *count += 1;
@@ -277,6 +282,25 @@ fn list(folder: &Path, depth: usize, count: &mut usize) -> Vec<Entry> {
         (folder(a), a.name.to_lowercase()).cmp(&(folder(b), b.name.to_lowercase()))
     });
     entries
+}
+
+/// The `__init__` scripts in `folder` and the folders in it, sorted by name.
+fn init_scripts(folder: &Path, depth: usize) -> Vec<PathBuf> {
+    let Ok(read) = std::fs::read_dir(folder) else {
+        return Vec::new();
+    };
+    let mut paths: Vec<PathBuf> = read.filter_map(Result::ok).map(|e| e.path()).collect();
+    paths.sort();
+    let mut found = Vec::new();
+    for path in paths {
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        if path.is_dir() && !name.starts_with('.') && depth < MAX_DEPTH {
+            found.extend(init_scripts(&path, depth + 1));
+        } else if name.starts_with("__init__") && path.extension().is_some_and(|e| EXTS.iter().any(|x| e.eq_ignore_ascii_case(x))) {
+            found.push(path);
+        }
+    }
+    found
 }
 
 /// Whether a script is a tool: it defines mouse or key handlers, or uses `tool`, the test
@@ -301,8 +325,9 @@ pub(crate) fn run(app: &mut VectorcraftApp, p: &Value) -> Result<Value, String> 
     };
     let source = std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
     let path = PathBuf::from(&path);
-    // Run again, a script replaces the one that runs from the same file.
-    app.scripts.running.retain(|s| s.path.as_deref() != Some(&path));
+    // As in Scriptographer, a script stops the ones that run, unless they set `script.keepAlive`,
+    // and the tool script; run again, it replaces the one that runs from the same file.
+    app.scripts.running.retain(|s| s.path.as_deref() != Some(&path) && (s.keep_alive || s.tool));
     let before = app.session.doc().map_err(|e| e.to_string())?.doc.clone();
     let mut script = start(app, file_name(&path), Some(path), source)?;
     let result = execute(app, &mut script, RUN_WAIT);
@@ -355,7 +380,8 @@ fn start(app: &VectorcraftApp, name: String, path: Option<PathBuf>, source: Stri
     let state = app.session.doc().map_err(|e| e.to_string())?;
     let (doc, selection) = (state.doc.clone(), state.selection.clone());
     let size = doc.artboards.first().map_or((800.0, 600.0), |a| (a.rect.width(), a.rect.height()));
-    let worker = Worker::spawn(size, doc, selection).map_err(|e| e.to_string())?;
+    let file = path.as_ref().map(|p| p.to_string_lossy().into_owned());
+    let worker = Worker::spawn(size, file, doc, selection).map_err(|e| e.to_string())?;
     let queued = if source.is_empty() { VecDeque::new() } else { VecDeque::from([Work::Execute(source.clone())]) };
     static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -375,6 +401,7 @@ fn start(app: &VectorcraftApp, name: String, path: Option<PathBuf>, source: Stri
         asking: None,
         palettes: Vec::new(),
         open: false,
+        keep_alive: false,
     })
 }
 
@@ -392,6 +419,16 @@ pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
         app.scripts.tree = None;
     }
     app.scripts.focused = focused;
+    // The folders' `__init__` scripts run once a document is open, and again when the folders
+    // change, as in Scriptographer.
+    if app.session.active().is_some() && app.scripts.initialized.as_ref() != Some(&app.ui.papercraft_folders) {
+        let folders = app.ui.papercraft_folders.clone();
+        app.scripts.initialized = Some(folders.clone());
+        for path in folders.iter().filter(|f| f.visible).flat_map(|f| init_scripts(Path::new(&f.path), 0)) {
+            // A failing script says so in the log.
+            let _ = run(app, &json!({ "path": path.to_string_lossy() }));
+        }
+    }
     if app.scripts.running.is_empty() && app.scripts.console.is_none() {
         return;
     }
@@ -525,11 +562,12 @@ fn settle(app: &mut VectorcraftApp, script: &mut Running, wait: Duration) -> Opt
                 script.asking = Some(Asking { question, shown: false });
                 return None;
             }
-            Reply::Done { output, error, running, tool, keys, palettes, open } => {
+            Reply::Done { output, error, running, tool, keys, palettes, open, keep_alive } => {
                 show_output(app, output);
                 script.busy = None;
                 script.timers = running;
                 script.open = open;
+                script.keep_alive = keep_alive;
                 show_palettes(script, palettes);
                 return Some(Done { error: error.or(failed), tool, keys });
             }

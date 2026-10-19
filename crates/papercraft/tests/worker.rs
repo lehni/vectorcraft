@@ -19,7 +19,7 @@ fn session() -> Session {
 
 fn spawn(s: &Session) -> Worker {
     let st = s.active().unwrap();
-    Worker::spawn((400.0, 300.0), st.doc.clone(), st.selection.clone()).unwrap()
+    Worker::spawn((400.0, 300.0), None, st.doc.clone(), st.selection.clone()).unwrap()
 }
 
 fn send(s: &Session, worker: &Worker, work: Work) {
