@@ -1096,8 +1096,8 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
     ),
     (
         "ui.runScript",
-        "Other Script…",
-        "Cmd+F12",
+        "Run Script…",
+        "",
         "{path?: a .js file} run a PaperScript file on the active document with PaperCraft, as one undo step (its console.log output shows in the status bar and returns as `output`); without a path pick one",
     ),
     (
@@ -2667,7 +2667,7 @@ pub fn menu_tree_named(english_names: bool) -> Vec<(&'static str, Vec<Item>)> {
                 c("Export Selection…", "file.exportSelection"),
                 Sep,
                 c("Package…", "ui.packageDialog"),
-                sub("Scripts", vec![c("Check Script…", "ui.checkScript"), c("Other Script…", "ui.runScript")]),
+                sub("Scripts", vec![c("Check Script…", "ui.checkScript"), todos("Other Script…", "Cmd+F12")]),
                 Sep,
                 c("Document Setup…", "file.documentSetup"),
                 sub(
@@ -3216,6 +3216,8 @@ pub fn menu_tree_named(english_names: bool) -> Vec<(&'static str, Vec<Item>)> {
                 c("Contextual Task Bar", "window.taskBar"),
                 c("Tools", "window.toolbar"),
                 sub("Toolbars", vec![c("Advanced", "window.toolbarAdvanced"), c("Double Column", "window.toolbarColumns")]),
+                Sep,
+                sub("PaperCraft", vec![c("Run Script…", "ui.runScript")]),
                 Sep,
                 panel("Actions", "actions"),
                 panel("Align", "align"),

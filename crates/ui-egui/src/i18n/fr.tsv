@@ -1560,6 +1560,8 @@ font-technology	Variable	Variables
 	Inspect Document	Inspecter le document
 	Inspect Object	Inspecter l’objet
 	Patch Document	Appliquer un correctif au document
+	Run Script…	Exécuter un script…
+	PaperCraft	PaperCraft
 	Install Plug-in	Installer un module externe
 	Install Plug-in…	Installer un module externe…
 	Open this setting's help page	Ouvrir la page d’aide de ce réglage

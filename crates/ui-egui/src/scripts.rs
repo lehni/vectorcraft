@@ -1,4 +1,4 @@
-//! File › Scripts › Other Script…: runs a PaperScript file (`.js`) on the active document with
+//! Window › PaperCraft › Run Script…: runs a PaperScript file (`.js`) on the active document with
 //! PaperCraft. The script sees the document as a Paper.js project, and what it changes comes back
 //! as one undo step. `ui.runScript {path?}`; without a path it asks for the file.
 //!
