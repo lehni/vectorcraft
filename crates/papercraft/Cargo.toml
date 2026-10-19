@@ -1,0 +1,35 @@
+[package]
+name = "vectorcraft-papercraft"
+description = "PaperCraft: PaperScript and the Paper.js API in VectorCraft, run by V8, the browser's engine or Boa"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["v8", "boa"]
+# V8 for desktop builds; on wasm32 scripts run in the browser's engine instead.
+v8 = ["dep:v8"]
+# Boa, pure Rust, for platforms V8 doesn't support.
+boa = ["dep:boa_engine"]
+
+[dependencies]
+boa_engine = { workspace = true, optional = true }
+# CSS colours for the canvas shim, as the SVG importer parses them.
+svgtypes = "0.16"
+thiserror = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+v8 = { workspace = true, optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# In browsers, Boa gets the clock and `Math.random()` from JavaScript.
+boa_engine = { workspace = true, optional = true, features = ["js"] }
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = ["Document", "Element", "HtmlElement", "HtmlIFrameElement", "Node", "Window"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }

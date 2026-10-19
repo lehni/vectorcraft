@@ -68,6 +68,11 @@ socket2 = "0.6"
 wasmi = { version = "2.0.0", default-features = false, features = ["std", "validate", "stable", "portable-dispatch"] }
 # Tests: WebAssembly text -> binary for the plug-in fixtures (Apache-2.0 WITH LLVM-exception).
 wat = "1.228"
+# Scripts: a pure-Rust JavaScript engine (Unlicense OR MIT) that builds for wasm32 too. Without
+# Temporal; with Annex B, which scripts written for browsers rely on.
+boa_engine = { version = "0.22", default-features = false, features = ["annex-b"] }
+# Scripts on desktop: V8 (MIT; V8 itself BSD-3-Clause), linked from prebuilt static libraries.
+v8 = "152.2"
 
 # rendering / formats
 # Without `text` (glyph runs, through glifo and a second skrifa): the renderer draws the outlines
