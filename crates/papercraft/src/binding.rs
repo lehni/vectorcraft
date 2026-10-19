@@ -116,7 +116,9 @@ impl<E: Engine> Runtime<E> {
     /// the project reads: what the script changed itself is never reloaded.
     ///
     /// The objects the patch left out (`skipped`: a drag in progress changed them, and wins) load
-    /// again from the document, so the script goes on from what the drag made of them.
+    /// again from the document, so the script goes on from what the drag made of them. When the
+    /// document changed in other ways too since the project last caught up with it (`behind`: the
+    /// patch was applied later), everything that changed loads again.
     pub fn apply_ids(
         &mut self,
         scope: &Scope<E::Handle>,
@@ -124,20 +126,26 @@ impl<E: Engine> Runtime<E> {
         result: &Json,
         doc: Arc<Document>,
         selection: Selection,
+        behind: bool,
     ) -> Result<(), Error> {
         let mut reload = Columns::default();
-        for id in result["skipped"].as_array().into_iter().flatten().filter_map(Json::as_u64) {
-            if let Some(node) = doc.node(NodeId(id)) {
-                reload.push(node, &selection);
-                let changed = if node.children().is_some() { flags::CHILDREN_CHANGED } else { flags::CONTENT_CHANGED };
-                if let Some(last) = reload.flags.last_mut() {
-                    *last |= changed;
+        let mut host = self.host.borrow_mut();
+        let bound = host.bound.as_mut().ok_or_else(|| Error::Script("no document is bound".into()))?;
+        if behind {
+            reload = Columns::of_changes(&bound.doc, &bound.selection, &doc, &selection);
+        } else {
+            for id in result["skipped"].as_array().into_iter().flatten().filter_map(Json::as_u64) {
+                if let Some(node) = doc.node(NodeId(id)) {
+                    reload.push(node, &selection);
+                    let changed = if node.children().is_some() { flags::CHILDREN_CHANGED } else { flags::CONTENT_CHANGED };
+                    if let Some(last) = reload.flags.last_mut() {
+                        *last |= changed;
+                    }
                 }
             }
         }
-        if let Some(bound) = self.host.borrow_mut().bound.as_mut() {
-            *bound = Bound { doc, selection };
-        }
+        *bound = Bound { doc, selection };
+        drop(host);
         let ids = result["ids"].as_array().cloned().unwrap_or_default();
         self.engine.with_call(|call| {
             for (item, id) in patch.inserted.iter().zip(ids) {

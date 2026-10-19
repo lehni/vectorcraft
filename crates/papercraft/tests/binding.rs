@@ -128,7 +128,7 @@ fn frame<E: Engine>(s: &mut Session, runtime: &mut Runtime<E>, scope: &vectorcra
     if let Some(patch) = runtime.take_patch(scope).unwrap() {
         let result = s.execute("document.patch", &patch.params).unwrap();
         let st = s.active().unwrap();
-        runtime.apply_ids(scope, patch, &result, st.doc.clone(), st.selection.clone()).unwrap();
+        runtime.apply_ids(scope, patch, &result, st.doc.clone(), st.selection.clone(), false).unwrap();
     }
 }
 
@@ -157,6 +157,31 @@ fn edits_made_while_a_script_runs_stay<E: Engine>() {
     assert!((bounds.width() - width).abs() < 1e-9, "the new size stays: {bounds:?}");
     assert!((bounds.x0 - (x + 10.0)).abs() < 1e-9, "and the script still moves it: {bounds:?}");
     assert_eq!(runtime.take_output().last().map(String::as_str), Some("1"), "the script sees b removed");
+}
+
+/// A patch applied after the user edited the document meanwhile (the app went on while the script
+/// worked): the user's edit stays, and the script sees it.
+fn a_late_patch_leaves_what_changed_meanwhile<E: Engine>() {
+    let (mut s, a, b) = document();
+    let st = s.active().unwrap();
+    let base = st.doc.clone();
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(400.0, 300.0).unwrap();
+    runtime.bind(&scope, base.clone(), st.selection.clone()).unwrap();
+    runtime.execute(&scope, "var a = project.activeLayer.firstChild\nconsole.log(a.nextSibling.segments[0].point.x)\na.position += [10, 0]").unwrap();
+    assert_eq!(runtime.take_output(), ["50"], "the script read b");
+    let patch = runtime.take_patch(&scope).unwrap().unwrap();
+    // Meanwhile, the user moves b.
+    s.execute("object.move", &json!({"ids": [b.0], "dx": 100, "dy": 0})).unwrap();
+    let mut params = patch.params.clone();
+    params["keep"] = vectorcraft_engine::cmd::patch::changes_between(&base, &s.active().unwrap().doc);
+    let result = s.execute("document.patch", &params).unwrap();
+    let st = s.active().unwrap();
+    runtime.apply_ids(&scope, patch, &result, st.doc.clone(), st.selection.clone(), true).unwrap();
+    assert_eq!(node(&s, a).geometric_bounds().unwrap().x0, 20.0, "the script's move of a applies");
+    assert_eq!(node(&s, b).geometric_bounds().unwrap().x0, 150.0, "the user's move of b stays");
+    runtime.execute(&scope, "console.log(project.activeLayer.lastChild.segments[0].point.x)").unwrap();
+    assert_eq!(runtime.take_output(), ["150"], "and the script sees it");
 }
 
 fn selection_goes_both_ways<E: Engine>() {
@@ -226,7 +251,7 @@ fn edits_to_objects_a_script_made_reach_it<E: Engine>() {
     let result = s.execute("document.patch", &patch.params).unwrap();
     let circle = result["ids"][0].as_u64().unwrap();
     let st = s.active().unwrap();
-    runtime.apply_ids(&scope, patch, &result, st.doc.clone(), st.selection.clone()).unwrap();
+    runtime.apply_ids(&scope, patch, &result, st.doc.clone(), st.selection.clone(), false).unwrap();
     // The user makes it twice as wide.
     s.execute("path.setAnchors", &json!({"id": circle, "subpaths": [{"anchors": [{"x": 180, "y": 150}, {"x": 200, "y": 140}, {"x": 220, "y": 150}, {"x": 200, "y": 160}], "closed": true}]})).unwrap();
     frame(&mut s, &mut runtime, &scope, 20.0);
@@ -254,6 +279,11 @@ macro_rules! engine_tests {
             #[test]
             fn on_frame_keeps_changing_the_document() {
                 super::on_frame_keeps_changing_the_document::<$engine>();
+            }
+
+            #[test]
+            fn a_late_patch_leaves_what_changed_meanwhile() {
+                super::a_late_patch_leaves_what_changed_meanwhile::<$engine>();
             }
 
             #[test]

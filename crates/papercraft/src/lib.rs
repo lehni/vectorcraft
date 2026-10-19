@@ -12,13 +12,17 @@ mod canvas;
 mod engine;
 mod engines;
 pub mod source;
+pub mod worker;
 mod writeback;
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
+
+use vectorcraft_doc::Document;
 
 pub use binding::Patch;
-pub use engine::{Call, Engine, HostFunction, Value};
+pub use engine::{Call, Engine, HostFunction, Interrupt, Value};
 #[cfg(feature = "boa")]
 pub use engines::boa::Boa;
 #[cfg(target_arch = "wasm32")]
@@ -169,6 +173,16 @@ impl<E: Engine> Runtime<E> {
     /// Whether the scripts have something left to run: an interval, which `onFrame` uses too.
     pub fn is_running(&self) -> bool {
         !self.host.borrow().intervals.is_empty()
+    }
+
+    /// A way to stop the runtime's scripts from another thread, where the engine has one.
+    pub fn interrupt(&mut self) -> Option<Interrupt> {
+        self.engine.interrupt()
+    }
+
+    /// The document the project reads from, as it was when the project last caught up with it.
+    pub fn document(&self) -> Option<Arc<Document>> {
+        self.host.borrow().bound.as_ref().map(|b| b.doc.clone())
     }
 
     /// Returns the lines printed with `console.log` since the last call.

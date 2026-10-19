@@ -11,7 +11,7 @@ use std::pin::pin;
 use std::rc::Rc;
 use std::sync::Once;
 
-use crate::{Call, Engine, Error, Host, HostFunction, Value};
+use crate::{Call, Engine, Error, Host, HostFunction, Interrupt, Value};
 
 type Handle = v8::Global<v8::Value>;
 type V8Host = Rc<RefCell<Host<Handle>>>;
@@ -109,6 +109,14 @@ impl Engine for V8 {
             enter!(isolate, &self.context, scope);
             f(&mut V8Call { scope })
         })
+    }
+
+    fn interrupt(&mut self) -> Option<Interrupt> {
+        let handle = with_isolate(|isolate| Ok(isolate.thread_safe_handle())).ok()?;
+        Some(Box::new(move || {
+            // False once the isolate is gone: then nothing runs that could be stopped.
+            let _ = handle.terminate_execution();
+        }))
     }
 }
 

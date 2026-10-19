@@ -2,8 +2,9 @@
 //! as a Paper.js project, and what it changes comes back as one undo step. A script with `onFrame`
 //! or an interval keeps running, driven by the app's frames, until it stops or Stop Running
 //! Scripts stops it; the whole run is one undo step while nothing else edits the document in
-//! between. Before each frame the script's project catches up with edits made outside it. A
-//! script runs on the document it started on: it waits while another one is active, and stops
+//! between. Each script runs on a thread of its own (`vectorcraft_papercraft::worker`): the app
+//! sends it its work with the document as it is, waits a moment for what it changed, and goes on
+//! when it takes longer. Edits made in the meantime win over the script's. A script runs on the document it started on: it waits while another one is active, and stops
 //! when its document closes. One tool script at a time is the PaperCraft Tool, which works in
 //! every document.
 //!
@@ -14,18 +15,27 @@
 //! The scripts folder (`UiState::papercraft_folder`) is what the PaperCraft panel lists. A
 //! script's view is the first artboard, so `view.bounds` is its size.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use serde_json::{Value, json};
 use vectorcraft_doc::{Document, NodeId};
-use vectorcraft_papercraft::{Engine, PlatformEngine, Runtime, Scope};
+use vectorcraft_papercraft::worker::{Reply, Request, Work, Worker};
+use vectorcraft_papercraft::{Modifiers, MouseEvent};
 
 use crate::{FilePick, VectorcraftApp};
 
 /// Script files.
 const EXTS: &[&str] = &["js"];
+
+/// How long the app waits for a script it runs before it goes on, and the script with it.
+const RUN_WAIT: Duration = Duration::from_secs(2);
+
+/// How long a frame waits for each of a script's replies: an animation's changes show in the
+/// frame that asked for them, unless the script takes longer, when they show in a later one.
+const FRAME_WAIT: Duration = Duration::from_millis(100);
 
 /// How many log lines are kept.
 const LOG_LINES: usize = 1000;
@@ -73,21 +83,24 @@ pub enum EntryKind {
 
 /// The tool script, global as the PaperCraft Tool is: as PaperScript fixes a script's `project`
 /// when it runs, it runs once in each document, the first time the tool is used there.
+#[derive(Clone)]
 struct ToolScript {
     path: PathBuf,
     source: String,
 }
 
+/// A script that runs, on its thread.
 struct Running {
     /// The file name, for messages.
     name: String,
     /// The file it runs, if any (not for the console).
     path: Option<PathBuf>,
-    runtime: Runtime<PlatformEngine>,
+    /// What it runs (empty for the console).
+    source: String,
+    worker: Worker,
     /// The document it runs on (`DocState::uid`). It waits while another document is active, and
     /// stops when its document closes.
     doc: u64,
-    scope: Scope<<PlatformEngine as Engine>::Handle>,
     /// The app's clock when it started, in seconds.
     started: f64,
     /// The document after the script's last change: while it is still the document, the next
@@ -95,11 +108,26 @@ struct Running {
     last: Option<Arc<Document>>,
     /// Whether the script made a tool: it then stays loaded, to be the active tool in its document.
     tool: bool,
+    /// Whether it has timers left (`onFrame`, intervals), as its last work said.
+    timers: bool,
+    /// The work it was sent and hasn't finished.
+    busy: Option<Kind>,
+    /// The work waiting to be sent: pointer events while it works.
+    queued: VecDeque<Work>,
+}
+
+/// What a script's work is, while it does it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Execute,
+    Frame,
+    Mouse,
 }
 
 impl Scripts {
+    /// Whether a script has timers left or is working.
     pub fn is_running(&self) -> bool {
-        self.running.iter().any(|s| s.runtime.is_running()) || self.console.as_ref().is_some_and(|c| c.runtime.is_running())
+        self.running.iter().chain(&self.console).any(|s| s.timers || s.busy.is_some())
     }
 
     /// The tool script the PaperCraft Tool button stands for.
@@ -117,11 +145,13 @@ impl Scripts {
         self.tool_active = self.tool.is_some();
     }
 
-    /// Takes the tool script off the PaperCraft Tool, and unloads it from every document.
-    fn unassign_tool(&mut self) {
-        self.tool = None;
-        self.tool_active = false;
-        self.running.retain(|s| !s.tool);
+    /// Unloads the tool scripts the PaperCraft Tool no longer stands for, from every document.
+    fn tidy(&mut self) {
+        if self.tool.is_none() {
+            self.tool_active = false;
+        }
+        let tool = self.tool.as_ref().map(|t| t.path.clone());
+        self.running.retain(|s| !s.tool || s.path == tool);
     }
 
     /// Makes the app's own tools active again: the canvas no longer sends pointer events to the
@@ -199,7 +229,8 @@ pub fn is_tool(source: &str) -> bool {
     source.contains("tool.") || HANDLERS.iter().any(|h| source.contains(h))
 }
 
-/// `ui.runScript`: run the script at `path`, or the file the user picks.
+/// `ui.runScript`: run the script at `path`, or the file the user picks. A script that is still
+/// working after a moment goes on on its own: `started` instead of its result.
 pub(crate) fn run(app: &mut VectorcraftApp, p: &Value) -> Result<Value, String> {
     if app.services.open_async.is_some() {
         return Err("Running scripts needs the desktop app".into());
@@ -213,27 +244,20 @@ pub(crate) fn run(app: &mut VectorcraftApp, p: &Value) -> Result<Value, String> 
     };
     let source = std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
     let path = PathBuf::from(&path);
-    let name = file_name(&path);
-    let mut script = start(app, name, Some(path.clone()))?;
-    let result = execute(app, &mut script, &source);
-    let running = result.is_ok() && script.runtime.is_running();
-    script.tool = result.is_ok() && script.runtime.has_tool(&script.scope).map_err(|e| e.to_string())?;
-    let tool = script.tool;
-    if running || tool {
-        // Run again, a script replaces the one that runs from the same file; a tool script
-        // replaces the one the PaperCraft Tool stood for, as there is one tool button.
-        if tool {
-            app.scripts.unassign_tool();
-        }
-        app.scripts.running.retain(|s| s.path.as_deref() != Some(&path));
+    // Run again, a script replaces the one that runs from the same file.
+    app.scripts.running.retain(|s| s.path.as_deref() != Some(&path));
+    let before = app.session.doc().map_err(|e| e.to_string())?.doc.clone();
+    let mut script = start(app, file_name(&path), Some(path), source)?;
+    let result = execute(app, &mut script, RUN_WAIT);
+    let changed = !Arc::ptr_eq(&before, &app.session.doc().map_err(|e| e.to_string())?.doc);
+    let (working, running, tool) = (script.busy.is_some(), script.timers, script.tool);
+    if result? {
         app.scripts.running.push(script);
     }
-    if tool {
-        // As Scriptographer's tool button: the tool script runs, and its tool is the active tool.
-        app.scripts.tool = Some(ToolScript { path, source });
-        app.scripts.tool_active = true;
+    app.scripts.tidy();
+    if working {
+        return Ok(json!({ "started": true }));
     }
-    let changed = result?;
     Ok(json!({ "changed": changed, "running": running, "tool": tool }))
 }
 
@@ -244,12 +268,16 @@ pub(crate) fn evaluate(app: &mut VectorcraftApp, p: &Value) -> Result<Value, Str
     let active = app.session.doc().map_err(|e| e.to_string())?.uid;
     let mut console = match app.scripts.console.take().filter(|c| c.doc == active) {
         Some(console) => console,
-        None => start(app, "Console".into(), None)?,
+        None => start(app, "Console".into(), None, String::new())?,
     };
     app.scripts.push_log(format!("> {code}"), false);
-    let result = catch_up(app, &mut console).and_then(|_| execute(app, &mut console, &code));
+    let before = app.session.doc().map_err(|e| e.to_string())?.doc.clone();
+    console.queued.push_back(Work::Execute(code));
+    let result = execute(app, &mut console, RUN_WAIT);
+    let changed = !Arc::ptr_eq(&before, &app.session.doc().map_err(|e| e.to_string())?.doc);
     app.scripts.console = Some(console);
-    Ok(json!({ "changed": result? }))
+    result?;
+    Ok(json!({ "changed": changed }))
 }
 
 /// `ui.stopScripts`: stop every running script, and the console's `onFrame` and intervals.
@@ -262,33 +290,24 @@ pub(crate) fn stop(app: &mut VectorcraftApp) -> Result<Value, String> {
     Ok(json!({ "stopped": stopped }))
 }
 
-/// A runtime bound to the active document, for the script `name`.
-fn start(app: &VectorcraftApp, name: String, path: Option<PathBuf>) -> Result<Running, String> {
+/// A script's thread, on the active document, to run `source` (queued, as the first work).
+fn start(app: &VectorcraftApp, name: String, path: Option<PathBuf>, source: String) -> Result<Running, String> {
     let state = app.session.doc().map_err(|e| e.to_string())?;
     let (doc, selection) = (state.doc.clone(), state.selection.clone());
     let size = doc.artboards.first().map_or((800.0, 600.0), |a| (a.rect.width(), a.rect.height()));
-    let mut runtime = Runtime::<PlatformEngine>::new().map_err(|e| e.to_string())?;
-    let scope = runtime.create_scope(size.0, size.1).map_err(|e| e.to_string())?;
-    runtime.bind(&scope, doc, selection).map_err(|e| e.to_string())?;
-    Ok(Running { name, path, runtime, doc: state.uid, scope, started: app.last_time, last: None, tool: false })
+    let worker = Worker::spawn(size, doc, selection).map_err(|e| e.to_string())?;
+    let queued = if source.is_empty() { VecDeque::new() } else { VecDeque::from([Work::Execute(source.clone())]) };
+    Ok(Running { name, path, source, worker, doc: state.uid, started: app.last_time, last: None, tool: false, timers: false, busy: None, queued })
 }
 
-/// Runs `source` in the script's project and writes back what it changed, even when it threw, as
-/// a browser keeps what a script did before an error. Returns whether the document changed.
-fn execute(app: &mut VectorcraftApp, script: &mut Running, source: &str) -> Result<bool, String> {
-    let selected = script.runtime.selected_ids(&script.scope).map_err(|e| e.to_string())?;
-    let result = script.runtime.execute(&script.scope, source).map_err(|e| e.to_string());
-    let changed = write_back(app, script, &selected);
-    show_output(app, script);
-    let result = result.and(changed);
-    if let Err(e) = &result {
-        report(app, script, e);
-    }
-    result
+/// Runs the script's queued work, waiting at most `wait` for each. Returns whether it keeps
+/// running, or reports its error.
+fn execute(app: &mut VectorcraftApp, script: &mut Running, wait: Duration) -> Result<bool, String> {
+    pump(app, script, None, wait).inspect_err(|e| report(app, &script.name, e))
 }
 
-/// Drives the running scripts, once per frame: their timers and `onFrame` handlers run, and what
-/// they changed goes back to the document.
+/// Drives the running scripts, once per frame: their queued work, timers and `onFrame` handlers
+/// run, and what they changed goes back to the document.
 pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
     if app.scripts.running.is_empty() && app.scripts.console.is_none() {
         return;
@@ -306,7 +325,10 @@ pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
         if active != Some(script.doc) {
             return true;
         }
-        let keeps = if script.runtime.is_running() { tick(app, script, now) || script.tool } else { script.tool };
+        let keeps = pump(app, script, Some((now - script.started) * 1000.0), FRAME_WAIT).unwrap_or_else(|e| {
+            report(app, &script.name, &e);
+            false
+        });
         if !keeps {
             app.scripts.push_log(format!("{} stopped", script.name), false);
         }
@@ -315,15 +337,106 @@ pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
     // Scripts started by a script's frame join the list.
     scripts.append(&mut app.scripts.running);
     app.scripts.running = scripts;
+    app.scripts.tidy();
     if let Some(mut console) = app.scripts.console.take() {
-        if active == Some(console.doc) && console.runtime.is_running() {
-            tick(app, &mut console, now);
+        let ms = (now - console.started) * 1000.0;
+        if active == Some(console.doc)
+            && let Err(e) = pump(app, &mut console, Some(ms), FRAME_WAIT)
+        {
+            report(app, &console.name, &e);
         }
         app.scripts.console = Some(console).filter(|c| is_open(app, c.doc));
     }
     if app.scripts.is_running() {
         ctx.request_repaint();
     }
+}
+
+/// Sends the script its queued work, then its frame at `frame` (milliseconds since it started)
+/// when it has timers, one at a time, each with the document as it is, and applies what each one
+/// changed. Waits at most `wait` for each: a script still working then goes on in a later frame.
+/// Returns whether the script keeps running, or the error of the work that failed.
+fn pump(app: &mut VectorcraftApp, script: &mut Running, mut frame: Option<f64>, wait: Duration) -> Result<bool, String> {
+    loop {
+        if script.busy.is_none() {
+            let work = match script.queued.pop_front() {
+                Some(work) => work,
+                None => match frame.take() {
+                    Some(now) if script.timers => Work::Frame(now),
+                    _ => return Ok(script.timers || script.tool),
+                },
+            };
+            send(app, script, work)?;
+        }
+        let Some(kind) = script.busy else {
+            return Ok(true);
+        };
+        let Some(Done { error, tool }) = settle(app, script, wait) else {
+            return Ok(true);
+        };
+        if let Some(error) = error {
+            return Err(error);
+        }
+        if kind == Kind::Execute
+            && tool
+            && let Some(path) = script.path.clone()
+        {
+            // As Scriptographer's tool button: the tool script runs, and its tool is the active
+            // tool.
+            script.tool = true;
+            if app.scripts.tool().is_none_or(|t| t != path) {
+                app.scripts.tool = Some(ToolScript { path, source: script.source.clone() });
+                app.scripts.tool_active = true;
+            }
+        }
+    }
+}
+
+/// Sends `work` to the script with the active document.
+fn send(app: &mut VectorcraftApp, script: &mut Running, work: Work) -> Result<(), String> {
+    let state = app.session.doc().map_err(|e| e.to_string())?;
+    let (doc, selection) = (state.doc.clone(), state.selection.clone());
+    script.busy = Some(match work {
+        Work::Execute(_) => Kind::Execute,
+        Work::Frame(_) => Kind::Frame,
+        Work::Mouse(event, ..) => {
+            if event == MouseEvent::Down {
+                // A drag starts its own undo step.
+                script.last = None;
+            }
+            Kind::Mouse
+        }
+    });
+    script.worker.send(Request::Run { doc, selection, work });
+    Ok(())
+}
+
+/// How a script's work ended: its error, and whether it made a tool.
+struct Done {
+    error: Option<String>,
+    tool: bool,
+}
+
+/// Applies what the script's work changed as its replies come, until the work is done, or a reply
+/// takes longer than `wait`.
+fn settle(app: &mut VectorcraftApp, script: &mut Running, wait: Duration) -> Option<Done> {
+    let mut failed = None;
+    while let Some(reply) = script.worker.recv(wait) {
+        match reply {
+            Reply::Changes { patch, base, before, selected } => {
+                if let Err(e) = write_back(app, script, patch, base, &before, &selected) {
+                    failed.get_or_insert(e);
+                }
+            }
+            Reply::Done { output, error, running, tool } => {
+                show_output(app, output);
+                script.busy = None;
+                script.timers = running;
+                return Some(Done { error: error.or(failed), tool });
+            }
+        }
+    }
+    None
 }
 
 /// A script's file name, for messages.
@@ -339,7 +452,6 @@ fn is_open(app: &VectorcraftApp, uid: u64) -> bool {
 /// Sends a pointer event on the canvas to the active tool script. Returns whether there is one,
 /// which then has the event instead of the app's tool. Each drag is one undo step.
 pub(crate) fn pointer(app: &mut VectorcraftApp, ev: &vectorcraft_tools::PointerEvent) -> bool {
-    use vectorcraft_papercraft::{Modifiers, MouseEvent};
     use vectorcraft_tools::PointerKind;
     let Some(active) = app.session.active().map(|d| d.uid).filter(|_| app.scripts.active_tool().is_some()) else {
         return false;
@@ -354,49 +466,38 @@ pub(crate) fn pointer(app: &mut VectorcraftApp, ev: &vectorcraft_tools::PointerE
     // `cmd` is Command on macOS, Ctrl elsewhere, as Paper.js's `modifiers.command` is.
     let mac = cfg!(target_os = "macos");
     let modifiers = Modifiers { shift: ev.mods.shift, control: ev.mods.ctrl || (ev.mods.cmd && !mac), alt: ev.mods.alt, meta: ev.mods.cmd && mac };
-    let mut script = match app.scripts.running.iter().position(|s| s.tool && s.doc == active) {
-        Some(index) => app.scripts.running.remove(index),
-        None => match load_tool(app) {
-            Some(script) => script,
-            None => return true,
+    let script = match app.scripts.running.iter().position(|s| s.tool && s.doc == active) {
+        Some(index) => Ok(app.scripts.running.remove(index)),
+        None => match app.scripts.tool.clone() {
+            Some(tool) => load_tool(app, tool),
+            None => return false,
         },
     };
-    if event == MouseEvent::Down {
-        // A drag starts its own undo step.
-        script.last = None;
-    }
-    let result = catch_up(app, &mut script).and_then(|selected| {
-        script.runtime.tool_event(&script.scope, event, (ev.pos.x, ev.pos.y), modifiers).map_err(|e| e.to_string())?;
-        write_back(app, &mut script, &selected)
-    });
-    show_output(app, &mut script);
-    match result {
-        Ok(_) => app.scripts.running.push(script),
-        Err(e) => {
-            report(app, &script, &e);
-            app.scripts.unassign_tool();
-        }
-    }
-    true
-}
-
-/// The tool script, run in the active document for the tool's first use there. When it fails, it
-/// is reported and the PaperCraft Tool no longer stands for it.
-fn load_tool(app: &mut VectorcraftApp) -> Option<Running> {
-    let (path, source) = app.scripts.tool.as_ref().map(|t| (t.path.clone(), t.source.clone()))?;
-    let mut script = match start(app, file_name(&path), Some(path)) {
+    let mut script = match script {
         Ok(script) => script,
         Err(e) => {
             app.status(e);
-            return None;
+            app.scripts.tool = None;
+            return true;
         }
     };
-    if execute(app, &mut script, &source).is_err() {
-        app.scripts.unassign_tool();
-        return None;
+    script.queued.push_back(Work::Mouse(event, (ev.pos.x, ev.pos.y), modifiers));
+    match pump(app, &mut script, None, FRAME_WAIT) {
+        Ok(_) => app.scripts.running.push(script),
+        Err(e) => {
+            report(app, &script.name, &e);
+            app.scripts.tool = None;
+        }
     }
+    app.scripts.tidy();
+    true
+}
+
+/// The tool script, to run in the active document for the tool's first use there.
+fn load_tool(app: &mut VectorcraftApp, ToolScript { path, source }: ToolScript) -> Result<Running, String> {
+    let mut script = start(app, file_name(&path), Some(path), source)?;
     script.tool = true;
-    Some(script)
+    Ok(script)
 }
 
 /// The PaperCraft Tool's button in the toolbox, under the app's tools, as Scriptographer's tool
@@ -429,75 +530,57 @@ pub(crate) fn tool_button(app: &mut VectorcraftApp, ui: &mut egui::Ui, center_x:
     });
 }
 
-/// One frame of a running script. Returns whether it keeps running.
-fn tick(app: &mut VectorcraftApp, script: &mut Running, now: f64) -> bool {
-    let result = catch_up(app, script).and_then(|selected| {
-        script.runtime.run_timers((now - script.started) * 1000.0).map_err(|e| e.to_string())?;
-        write_back(app, script, &selected)
-    });
-    show_output(app, script);
-    match result {
-        Ok(_) => script.runtime.is_running(),
-        Err(e) => {
-            report(app, script, &e);
-            false
-        }
-    }
-}
-
 /// An error from a script: in the log and the status bar.
-fn report(app: &mut VectorcraftApp, script: &Running, error: &str) {
-    let message = format!("{}: {error}", script.name);
+fn report(app: &mut VectorcraftApp, name: &str, error: &str) {
+    let message = format!("{name}: {error}");
     app.scripts.push_log(message.clone(), true);
     app.status(message);
 }
 
-/// Brings the script's project up to the document, after edits made outside it, and returns the
-/// objects selected in it.
-fn catch_up(app: &VectorcraftApp, script: &mut Running) -> Result<BTreeSet<NodeId>, String> {
-    let state = app.session.doc().map_err(|e| e.to_string())?;
-    script.runtime.update(&script.scope, state.doc.clone(), state.selection.clone()).map_err(|e| e.to_string())?;
-    script.runtime.selected_ids(&script.scope).map_err(|e| e.to_string())
-}
-
-/// Applies what the script changed since the last call, adding to its undo step while nothing else
-/// changed the document since, and the objects it selected or deselected since `selected`.
-/// Returns whether the document changed.
-fn write_back(app: &mut VectorcraftApp, script: &mut Running, selected: &BTreeSet<NodeId>) -> Result<bool, String> {
-    let changed = write_patch(app, script)?;
-    let now = script.runtime.selected_ids(&script.scope).map_err(|e| e.to_string())?;
-    if &now != selected {
+/// Applies a script's `patch` of `base`, adding to its undo step while nothing else changed the
+/// document since its last change, and leaving out what changed since `base` when it is behind;
+/// then the objects it selected or deselected since `before`. The worker gets the patch's result.
+fn write_back(
+    app: &mut VectorcraftApp,
+    script: &mut Running,
+    patch: Option<Value>,
+    base: Arc<Document>,
+    before: &BTreeSet<NodeId>,
+    selected: &BTreeSet<NodeId>,
+) -> Result<(), String> {
+    if let Some(mut params) = patch {
+        let current = app.session.doc().map_err(|e| e.to_string())?.doc.clone();
+        let behind = !Arc::ptr_eq(&base, &current);
+        if let Some(params) = params.as_object_mut() {
+            if behind {
+                params.insert("keep".into(), vectorcraft_engine::cmd::patch::changes_between(&base, &current));
+            } else if script.last.as_ref().is_some_and(|last| Arc::ptr_eq(last, &current)) {
+                params.insert("extend".into(), json!(true));
+            }
+        }
+        let applied = app.run("document.patch", params);
         let state = app.session.doc().map_err(|e| e.to_string())?;
-        let mut ids: Vec<NodeId> = state.selection.objects.iter().copied().filter(|id| !selected.contains(id) || now.contains(id)).collect();
-        ids.extend(now.iter().filter(|id| !selected.contains(id)));
+        let (doc, selection) = (state.doc.clone(), state.selection.clone());
+        script.last = Some(doc.clone());
+        // A patch that failed changed nothing: the script reloads all that changed since `base`.
+        let (result, behind) = match &applied {
+            Ok(result) => (result.clone(), behind),
+            Err(_) => (json!({}), true),
+        };
+        script.worker.send(Request::Applied { result, doc, selection, behind });
+        applied?;
+    }
+    if selected != before {
+        let state = app.session.doc().map_err(|e| e.to_string())?;
+        let mut ids: Vec<NodeId> = state.selection.objects.iter().copied().filter(|id| !before.contains(id) || selected.contains(id)).collect();
+        ids.extend(selected.iter().filter(|id| !before.contains(id)));
         app.run("select.set", json!({ "ids": ids.iter().map(|id| id.0).collect::<Vec<_>>() }))?;
     }
-    Ok(changed)
+    Ok(())
 }
 
-/// Applies the patch of what the script changed since the last call. Returns whether there was one.
-fn write_patch(app: &mut VectorcraftApp, script: &mut Running) -> Result<bool, String> {
-    let Some(patch) = script.runtime.take_patch(&script.scope).map_err(|e| e.to_string())? else {
-        return Ok(false);
-    };
-    let mut params = patch.params.clone();
-    let current = app.session.doc().map_err(|e| e.to_string())?.doc.clone();
-    if script.last.as_ref().is_some_and(|last| Arc::ptr_eq(last, &current))
-        && let Some(params) = params.as_object_mut()
-    {
-        params.insert("extend".into(), json!(true));
-    }
-    let result = app.run("document.patch", params)?;
-    let state = app.session.doc().map_err(|e| e.to_string())?;
-    let (doc, selection) = (state.doc.clone(), state.selection.clone());
-    script.last = Some(doc.clone());
-    script.runtime.apply_ids(&script.scope, patch, &result, doc, selection).map_err(|e| e.to_string())?;
-    Ok(true)
-}
-
-/// Puts what the script printed in the log, and its last line in the status bar.
-fn show_output(app: &mut VectorcraftApp, script: &mut Running) {
-    let output = script.runtime.take_output();
+/// Puts what a script printed in the log, and its last line in the status bar.
+fn show_output(app: &mut VectorcraftApp, output: Vec<String>) {
     if let Some(last) = output.last() {
         app.status(last.clone());
     }

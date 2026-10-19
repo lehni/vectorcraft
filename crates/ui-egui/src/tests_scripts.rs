@@ -210,3 +210,17 @@ fn the_tool_works_in_every_document() {
     assert_eq!(children(&app), 2, "and draws in the first document");
     assert!(app.scripts.log().iter().all(|l| !l.error));
 }
+
+/// A script that loops forever doesn't hold up the app: it goes on on its thread, and Stop
+/// Running Scripts ends it.
+#[test]
+fn an_endless_script_goes_on_alone_until_stopped() {
+    let (mut app, _) = app();
+    let path = tempfile_path::Path::new("while (true) {}");
+    let result = app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
+    assert_eq!(result["started"], true, "the app went on");
+    crate::scripts::frame(&mut app, &egui::Context::default(), 1.0);
+    assert!(app.scripts.is_running(), "the script still works");
+    app.run("ui.stopScripts", json!({})).unwrap();
+    assert!(!app.scripts.is_running());
+}

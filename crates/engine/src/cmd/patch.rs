@@ -19,7 +19,7 @@ pub fn specs() -> Vec<CommandSpec> {
         "Patch Document",
         [],
         None,
-        "{label?: undo step name (default \"Edit\"), extend?: true adds to the newest undo step instead of recording one (for a caller whose last edit that step is), remove?: [ids], insert?: [{parent: id|null (null: the layer list), index?: position among the parent's children (bottom first; default: on top), node: object JSON as document.node returns it (its ids are replaced with new ones)}], replace?: [object JSON with its id (a container sent without its children keeps them)], order?: [{parent: id|null, children: [id|{new: k}]}] (the parent's children become exactly these, bottom first; listed objects from elsewhere move here; {new: k} places the k-th insert)} applied in that order, as one undo step; during an interaction (a drag) it applies beneath it, leaving out the objects the interaction changed → {ids: [the new id of each insert], skipped?: [the objects left out]}",
+        "{label?: undo step name (default \"Edit\"), extend?: true adds to the newest undo step instead of recording one (for a caller whose last edit that step is), remove?: [ids], insert?: [{parent: id|null (null: the layer list), index?: position among the parent's children (bottom first; default: on top), node: object JSON as document.node returns it (its ids are replaced with new ones)}], replace?: [object JSON with its id (a container sent without its children keeps them)], order?: [{parent: id|null, children: [id|{new: k}]}] (the parent's children become exactly these, bottom first; listed objects from elsewhere move here; {new: k} places the k-th insert), keep?: {objects: [ids], lists: [parent id|null]} (what changed since the caller's copy of the document, which the patch leaves out)} applied in that order, as one undo step; during an interaction (a drag) it applies beneath it, leaving out the objects the interaction changed too → {ids: [the new id of each insert], skipped?: [the objects left out]}",
         has_doc,
         patch
     )]
@@ -43,15 +43,20 @@ struct Ops {
 fn patch(s: &mut Session, p: &Value) -> Result<Value> {
     let label = p.get("label").and_then(Value::as_str).unwrap_or("Edit").to_owned();
     let mut ops = parse(p)?;
+    let keep = p.get("keep").map(Touched::parse).transpose()?;
     if s.in_interaction() {
-        return beneath_interaction(s, &mut ops).map(|(ids, skipped)| json!({ "ids": ids, "skipped": skipped }));
+        return beneath_interaction(s, &mut ops, keep.unwrap_or_default()).map(|(ids, skipped)| json!({ "ids": ids, "skipped": skipped }));
     }
+    let skipped = keep.map(|keep| leave_out(&mut ops, &keep));
     let extending = p.get("extend").and_then(Value::as_bool).unwrap_or(false) && s.extend_newest_undo_step();
     let ids = s.edit(&label, |doc, _| apply(doc, &ops));
     if extending {
         s.end_undo_group(false);
     }
-    Ok(json!({ "ids": ids? }))
+    Ok(match skipped {
+        Some(skipped) => json!({ "ids": ids?, "skipped": skipped }),
+        None => json!({ "ids": ids? }),
+    })
 }
 
 fn parse(p: &Value) -> Result<Ops> {
@@ -140,28 +145,14 @@ fn apply(doc: &mut Document, ops: &Ops) -> Result<Vec<u64>> {
 /// preview shown now. What the interaction changed wins: the patch leaves out the objects whose
 /// node it changed and the parents whose children it changed. It records no undo step of its own:
 /// undoing the interaction goes back to the document with the patch.
-/// Returns the new ids, and the objects whose changes it left out.
-fn beneath_interaction(s: &mut Session, ops: &mut Ops) -> Result<(Vec<u64>, Vec<u64>)> {
+/// Returns the new ids, and the objects whose changes it left out, with those in `keep`.
+fn beneath_interaction(s: &mut Session, ops: &mut Ops, mut keep: Touched) -> Result<(Vec<u64>, Vec<u64>)> {
     let st = s.doc_mut()?;
     let Some(it) = st.interaction.as_mut() else {
         return Err(bad(CMD, "no interaction in progress"));
     };
-    let touched = Touched::between(&it.doc, &st.doc);
-    let mut skipped: Vec<u64> =
-        ops.remove.iter().chain(ops.replaces.iter().map(|(n, _)| &n.id)).filter(|id| touched.nodes.contains(id)).map(|id| id.0).collect();
-    ops.remove.retain(|id| !touched.nodes.contains(id));
-    ops.replaces.retain(|(node, _)| !touched.nodes.contains(&node.id));
-    // A parent whose children the interaction changed keeps them; the new objects the patch
-    // placed there go on top instead.
-    let unordered: Vec<(Option<NodeId>, Vec<Slot>)> = ops.orders.extract_if(.., |(parent, _)| touched.lists.contains(parent)).collect();
-    skipped.extend(unordered.iter().filter_map(|(parent, _)| parent.map(|p| p.0)));
-    for slot in unordered.iter().flat_map(|(_, slots)| slots) {
-        if let Slot::New(k) = slot
-            && let Some(insert) = ops.inserts.get_mut(*k)
-        {
-            insert.1 = None;
-        }
-    }
+    keep.children(None, &it.doc.layers, &st.doc.layers);
+    let skipped = leave_out(ops, &keep);
     // The same new ids in both documents: both count on from the higher of their counters. Both
     // change, or neither.
     let next = it.doc.peek_next_id().max(st.doc.peek_next_id());
@@ -179,19 +170,55 @@ fn beneath_interaction(s: &mut Session, ops: &mut Ops) -> Result<(Vec<u64>, Vec<
     Ok((ids, skipped))
 }
 
-/// What an interaction changed between the document it started from and its preview: the nodes
-/// whose node is not the same (leaves; containers count only for their child lists), and the
-/// parents (`None`: the layer list) whose children are not the same.
+/// Leaves the objects and child lists in `touched` out of `ops`. Returns the objects left out.
+fn leave_out(ops: &mut Ops, touched: &Touched) -> Vec<u64> {
+    let mut skipped: Vec<u64> =
+        ops.remove.iter().chain(ops.replaces.iter().map(|(n, _)| &n.id)).filter(|id| touched.nodes.contains(id)).map(|id| id.0).collect();
+    ops.remove.retain(|id| !touched.nodes.contains(id));
+    ops.replaces.retain(|(node, _)| !touched.nodes.contains(&node.id));
+    // A parent whose children the interaction changed keeps them; the new objects the patch
+    // placed there go on top instead.
+    let unordered: Vec<(Option<NodeId>, Vec<Slot>)> = ops.orders.extract_if(.., |(parent, _)| touched.lists.contains(parent)).collect();
+    skipped.extend(unordered.iter().filter_map(|(parent, _)| parent.map(|p| p.0)));
+    for slot in unordered.iter().flat_map(|(_, slots)| slots) {
+        if let Slot::New(k) = slot
+            && let Some(insert) = ops.inserts.get_mut(*k)
+        {
+            insert.1 = None;
+        }
+    }
+    skipped
+}
+
+/// What changed between two versions of a document, as `document.patch`'s `keep` takes it: for a
+/// caller whose copy of the document is `before`, to leave out of its patch what others changed
+/// since.
+pub fn changes_between(before: &Document, now: &Document) -> Value {
+    let mut touched = Touched::default();
+    touched.children(None, &before.layers, &now.layers);
+    let mut objects: Vec<u64> = touched.nodes.iter().map(|id| id.0).collect();
+    let mut lists: Vec<Option<u64>> = touched.lists.iter().map(|id| id.map(|id| id.0)).collect();
+    objects.sort_unstable();
+    lists.sort_unstable();
+    json!({ "objects": objects, "lists": lists })
+}
+
+/// What changed between two versions of a document: the nodes whose node is not the same
+/// (leaves; containers count only for their child lists), and the parents (`None`: the layer
+/// list) whose children are not the same.
+#[derive(Default)]
 struct Touched {
     nodes: HashSet<NodeId>,
     lists: HashSet<Option<NodeId>>,
 }
 
 impl Touched {
-    fn between(before: &Document, now: &Document) -> Self {
-        let mut touched = Self { nodes: HashSet::new(), lists: HashSet::new() };
-        touched.children(None, &before.layers, &now.layers);
-        touched
+    /// `keep`'s `{objects, lists}`.
+    fn parse(keep: &Value) -> Result<Self> {
+        let nodes = list(keep, "objects")?.iter().map(|v| node_id(v, "keep objects")).collect::<Result<_>>()?;
+        let lists =
+            list(keep, "lists")?.iter().map(|v| if v.is_null() { Ok(None) } else { node_id(v, "keep lists").map(Some) }).collect::<Result<_>>()?;
+        Ok(Self { nodes, lists })
     }
 
     fn children(&mut self, parent: Option<NodeId>, before: &[Arc<Node>], now: &[Arc<Node>]) {

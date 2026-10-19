@@ -55,7 +55,7 @@ pub mod package;
 mod paint;
 mod panelcmds;
 pub mod params;
-mod patch;
+pub mod patch;
 mod path;
 pub(crate) mod pathops;
 mod patterncmds;

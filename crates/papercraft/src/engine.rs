@@ -19,6 +19,10 @@ pub enum Value<H> {
     Js(H),
 }
 
+/// Stops the script an engine runs, from another thread: the script throws an error that it can't
+/// catch.
+pub type Interrupt = Box<dyn Fn() + Send + Sync>;
+
 /// A Rust function that scripts can call, with `this` and the arguments. Errors are thrown in the
 /// script as `Error`s.
 pub type HostFunction<H> = fn(&mut dyn Call<H>, &Value<H>, &[Value<H>]) -> Result<Value<H>, Error>;
@@ -78,4 +82,9 @@ pub trait Engine: Sized {
 
     /// Runs `f` with the engine's values, as a [`HostFunction`] has them.
     fn with_call<R>(&mut self, f: impl FnOnce(&mut dyn Call<Self::Handle>) -> Result<R, Error>) -> Result<R, Error>;
+
+    /// A way to stop scripts from another thread, for engines that have one (V8).
+    fn interrupt(&mut self) -> Option<Interrupt> {
+        None
+    }
 }

@@ -163,3 +163,23 @@ fn a_patch_during_an_interaction_applies_beneath_it() {
     s.execute("edit.undo", &json!({})).unwrap();
     assert_eq!((x0(&s, a), x0(&s, b)), (10.0, 150.0), "undoing the drag keeps the script's changes");
 }
+
+/// A caller whose copy of the document is older says what changed since (`keep`): its patch
+/// leaves those objects out, so the newer change stays.
+#[test]
+fn keep_leaves_out_what_changed_since_the_callers_copy() {
+    let (mut s, layer, [a, b, _]) = three_rectangles();
+    let copy = s.active().unwrap().doc.clone();
+    s.execute("object.move", &json!({"ids": [a], "dx": 100, "dy": 0})).unwrap();
+    let keep = vectorcraft_engine::cmd::patch::changes_between(&copy, &s.active().unwrap().doc);
+    assert_eq!(keep, json!({"objects": [a], "lists": []}));
+    let mut old_a = serde_json::to_value(copy.node(NodeId(a)).unwrap()).unwrap();
+    old_a["name"] = json!("script");
+    let mut old_b = serde_json::to_value(copy.node(NodeId(b)).unwrap()).unwrap();
+    old_b["name"] = json!("script");
+    let result = s.execute("document.patch", &json!({"replace": [old_a, old_b], "keep": keep})).unwrap();
+    assert_eq!(result["skipped"], json!([a]));
+    assert_eq!(node(&mut s, b)["name"], "script", "the rest applies");
+    assert_ne!(node(&mut s, a)["name"], "script", "the newer move stays");
+    assert_eq!(children(&s, layer).len(), 3);
+}
