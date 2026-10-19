@@ -10,10 +10,11 @@
 //! `view.bounds` is its size. The last line a script prints with `console.log` shows in the
 //! status bar.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use serde_json::{Value, json};
-use vectorcraft_doc::Document;
+use vectorcraft_doc::{Document, NodeId};
 use vectorcraft_papercraft::{Engine, PlatformEngine, Runtime, Scope};
 
 use crate::{FilePick, VectorcraftApp};
@@ -64,10 +65,11 @@ pub(crate) fn run(app: &mut VectorcraftApp, p: &Value) -> Result<Value, String> 
     let mut runtime = Runtime::<PlatformEngine>::new().map_err(|e| e.to_string())?;
     let scope = runtime.create_scope(size.0, size.1).map_err(|e| e.to_string())?;
     runtime.bind(&scope, doc, selection).map_err(|e| e.to_string())?;
+    let selected = runtime.selected_ids(&scope).map_err(|e| e.to_string())?;
     let result = runtime.execute(&scope, &source);
     let mut script = Running { name, runtime, scope, started: app.last_time, last: None };
     // What the script changed before an error still goes back, as in a browser.
-    let changed = write_back(app, &mut script)?;
+    let changed = write_back(app, &mut script, &selected)?;
     if let Err(e) = result {
         return Err(format!("{}: {e}", script.name));
     }
@@ -94,9 +96,10 @@ pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
     }
     let mut scripts = std::mem::take(&mut app.scripts.0);
     scripts.retain_mut(|script| {
-        let result = catch_up(app, script)
-            .and_then(|()| script.runtime.run_timers((now - script.started) * 1000.0).map_err(|e| e.to_string()))
-            .and_then(|()| write_back(app, script));
+        let result = catch_up(app, script).and_then(|selected| {
+            script.runtime.run_timers((now - script.started) * 1000.0).map_err(|e| e.to_string())?;
+            write_back(app, script, &selected)
+        });
         show_output(app, script);
         match result {
             Ok(_) => script.runtime.is_running(),
@@ -114,15 +117,31 @@ pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
     }
 }
 
-/// Brings the script's project up to the document, after edits made outside it.
-fn catch_up(app: &VectorcraftApp, script: &mut Running) -> Result<(), String> {
+/// Brings the script's project up to the document, after edits made outside it, and returns the
+/// objects selected in it.
+fn catch_up(app: &VectorcraftApp, script: &mut Running) -> Result<BTreeSet<NodeId>, String> {
     let state = app.session.doc().map_err(|e| e.to_string())?;
-    script.runtime.update(&script.scope, state.doc.clone(), state.selection.clone()).map_err(|e| e.to_string())
+    script.runtime.update(&script.scope, state.doc.clone(), state.selection.clone()).map_err(|e| e.to_string())?;
+    script.runtime.selected_ids(&script.scope).map_err(|e| e.to_string())
 }
 
 /// Applies what the script changed since the last call, adding to its undo step while nothing else
-/// changed the document since. Returns whether anything changed.
-fn write_back(app: &mut VectorcraftApp, script: &mut Running) -> Result<bool, String> {
+/// changed the document since, and the objects it selected or deselected since `selected`.
+/// Returns whether the document changed.
+fn write_back(app: &mut VectorcraftApp, script: &mut Running, selected: &BTreeSet<NodeId>) -> Result<bool, String> {
+    let changed = write_patch(app, script)?;
+    let now = script.runtime.selected_ids(&script.scope).map_err(|e| e.to_string())?;
+    if &now != selected {
+        let state = app.session.doc().map_err(|e| e.to_string())?;
+        let mut ids: Vec<NodeId> = state.selection.objects.iter().copied().filter(|id| !selected.contains(id) || now.contains(id)).collect();
+        ids.extend(now.iter().filter(|id| !selected.contains(id)));
+        app.run("select.set", json!({ "ids": ids.iter().map(|id| id.0).collect::<Vec<_>>() }))?;
+    }
+    Ok(changed)
+}
+
+/// Applies the patch of what the script changed since the last call. Returns whether there was one.
+fn write_patch(app: &mut VectorcraftApp, script: &mut Running) -> Result<bool, String> {
     let Some(patch) = script.runtime.take_patch(&script.scope).map_err(|e| e.to_string())? else {
         return Ok(false);
     };

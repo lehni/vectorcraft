@@ -148,6 +148,19 @@ fn edits_made_while_a_script_runs_stay<E: Engine>() {
     assert_eq!(runtime.take_output().last().map(String::as_str), Some("1"), "the script sees b removed");
 }
 
+fn selection_goes_both_ways<E: Engine>() {
+    let (mut s, a, b) = document();
+    s.execute("select.set", &json!({"ids": [a.0]})).unwrap();
+    let st = s.active().unwrap();
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(400.0, 300.0).unwrap();
+    runtime.bind(&scope, st.doc.clone(), st.selection.clone()).unwrap();
+    runtime.execute(&scope, "console.log(project.selectedItems.length, project.selectedItems[0].key)").unwrap();
+    assert_eq!(runtime.take_output(), [format!("1 {}", a.0)]);
+    runtime.execute(&scope, "var layer = project.activeLayer\nlayer.firstChild.selected = false\nlayer.lastChild.selected = true").unwrap();
+    assert_eq!(runtime.selected_ids(&scope).unwrap().into_iter().collect::<Vec<_>>(), [b]);
+}
+
 macro_rules! engine_tests {
     ($module:ident, $engine:ty $(, live_sync: $live_sync:meta)?) => {
         mod $module {
@@ -175,6 +188,11 @@ macro_rules! engine_tests {
             $(#[$live_sync])?
             fn edits_made_while_a_script_runs_stay() {
                 super::edits_made_while_a_script_runs_stay::<$engine>();
+            }
+
+            #[test]
+            fn selection_goes_both_ways() {
+                super::selection_goes_both_ways::<$engine>();
             }
 
             #[test]

@@ -1,6 +1,7 @@
 //! The document binding: a scope's project reads the document through Paper.js's item source,
 //! loading only what scripts touch, and its changes go back as one `document.patch`.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use serde_json::Value as Json;
@@ -26,6 +27,7 @@ pub struct Patch<H> {
 impl<E: Engine> Runtime<E> {
     /// Makes the document the item source of `scope`'s project, and tracks the project's changes.
     pub fn bind(&mut self, scope: &Scope<E::Handle>, doc: Arc<Document>, selection: Selection) -> Result<(), Error> {
+        let selected = selection.objects.clone();
         self.host.borrow_mut().bound = Some(Bound { doc, selection });
         let get_children = self.engine.function("getChildren", get_children)?;
         let get_item = self.engine.function("getItem", get_item)?;
@@ -37,7 +39,25 @@ impl<E: Engine> Runtime<E> {
             call.set(&source, "getAncestorKeys", &Value::Js(get_ancestor_keys))?;
             let project = object(call, &scope.0, "project")?;
             method(call, &project, "setSource", &[Value::Js(source)])?;
-            call.set(&project, "trackChanges", &Value::Bool(true))
+            call.set(&project, "trackChanges", &Value::Bool(true))?;
+            register(call, &project, &selected)
+        })
+    }
+
+    /// The objects selected in `scope`'s project, as the script left them.
+    pub fn selected_ids(&mut self, scope: &Scope<E::Handle>) -> Result<BTreeSet<NodeId>, Error> {
+        self.engine.with_call(|call| {
+            let project = object(call, &scope.0, "project")?;
+            let items = object(call, &project, "selectedItems")?;
+            let count = number(call.get(&items, "length")?) as usize;
+            let mut ids = BTreeSet::new();
+            for i in 0..count {
+                let item = object(call, &items, &i.to_string())?;
+                if let Value::Number(key) = call.get(&item, "key")? {
+                    ids.insert(NodeId(key as u64));
+                }
+            }
+            Ok(ids)
         })
     }
 
@@ -67,6 +87,7 @@ impl<E: Engine> Runtime<E> {
     /// the script touches them. Objects that didn't change keep their items, and so does
     /// everything when the document is the one the project already reads.
     pub fn update(&mut self, scope: &Scope<E::Handle>, doc: Arc<Document>, selection: Selection) -> Result<(), Error> {
+        let selected = selection.objects.clone();
         let changes = {
             let mut host = self.host.borrow_mut();
             let Some(bound) = host.bound.as_mut() else {
@@ -97,7 +118,7 @@ impl<E: Engine> Runtime<E> {
                     call.get(&item, "children")?;
                 }
             }
-            Ok(())
+            register(call, &project, &selected)
         })
     }
 
@@ -124,6 +145,15 @@ impl<H> Patch<H> {
     pub(crate) fn new(params: Json, inserted: Vec<H>) -> Self {
         Self { params, inserted }
     }
+}
+
+/// Loads the selected objects' items, so the project's selection is complete even inside
+/// containers the script hasn't touched.
+fn register<H: Clone>(call: &mut dyn Call<H>, project: &H, selected: &[NodeId]) -> Result<(), Error> {
+    for id in selected {
+        method(call, project, "getItemByKey", &[Value::Number(id.0 as f64)])?;
+    }
+    Ok(())
 }
 
 /// A number, or 0.
