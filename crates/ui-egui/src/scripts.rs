@@ -227,6 +227,11 @@ pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
     if !app.scripts.is_running() {
         return;
     }
+    // While the user drags or types, the document is theirs: frames wait until they are done.
+    if app.session.in_interaction() {
+        ctx.request_repaint();
+        return;
+    }
     let mut scripts = std::mem::take(&mut app.scripts.running);
     scripts.retain_mut(|script| tick(app, script, now));
     // Scripts started by a script's frame join the list.
