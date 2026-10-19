@@ -103,6 +103,15 @@ impl<E: Engine> Runtime<E> {
         Ok(())
     }
 
+    /// Adds the items in `json`, Paper.js JSON, to the scope's project (`project.importJSON()`).
+    pub fn import_json(&mut self, scope: &Scope<E::Handle>, json: &str) -> Result<(), Error> {
+        let engine = &mut self.engine;
+        let project = handle(engine.get(&scope.0, "project")?, "project")?;
+        let import = handle(engine.get(&project, "importJSON")?, "importJSON")?;
+        engine.call(&import, &Value::Js(project), &[Value::String(json.to_owned())])?;
+        Ok(())
+    }
+
     /// The scope's project as Paper.js JSON (`project.exportJSON()`).
     pub fn export_json(&mut self, scope: &Scope<E::Handle>) -> Result<String, Error> {
         let engine = &mut self.engine;
