@@ -108,6 +108,24 @@ fn what_the_script_changes_shows_in_the_palette<E: Engine>() {
     assert_eq!(runtime.take_palettes().unwrap()[0]["components"][0]["value"], 2);
 }
 
+fn what_the_script_changes_in_a_component_shows_too<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(400.0, 300.0).unwrap();
+    let script = "var palette = new Palette('P', {\n\
+            mode: { options: ['a', 'b'], value: 'a' },\n\
+            lock: { type: 'button', value: 'Lock', onClick: function() {\n\
+                palette.components.mode.enabled = false\n\
+                palette.components.mode.options = ['a', 'b', 'c']\n\
+            } }\n\
+        })";
+    runtime.execute(&scope, script).unwrap();
+    runtime.take_palettes().unwrap();
+    runtime.palette_event(1, PaletteEvent::Click("lock".into())).unwrap();
+    let mode = &runtime.take_palettes().unwrap()[0]["components"][0];
+    assert_eq!(mode["enabled"], false);
+    assert_eq!(mode["options"], json!(["a", "b", "c"]));
+}
+
 macro_rules! engine_tests {
     ($module:ident, $engine:ty) => {
         mod $module {
@@ -134,6 +152,11 @@ macro_rules! engine_tests {
             #[test]
             fn what_the_script_changes_shows_in_the_palette() {
                 super::what_the_script_changes_shows_in_the_palette::<$engine>();
+            }
+
+            #[test]
+            fn what_the_script_changes_in_a_component_shows_too() {
+                super::what_the_script_changes_in_a_component_shows_too::<$engine>();
             }
 
             #[test]

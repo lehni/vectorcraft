@@ -434,6 +434,9 @@ pub struct UiState {
     pub action_set: Option<usize>,
     /// The folder the PaperCraft panel lists scripts from.
     pub papercraft_folder: Option<String>,
+    /// Where the user put PaperCraft scripts' palettes, by script and palette title
+    /// ([`crate::scripts::palettes`]): a palette opens there again.
+    pub papercraft_palettes: std::collections::BTreeMap<String, [f32; 2]>,
     /// Recording in progress: (set index, action name, journal length when recording started).
     #[serde(skip)]
     pub recording: Option<(usize, String, usize)>,
@@ -879,6 +882,7 @@ impl Default for UiState {
             action_sets: crate::panels::actions::default_sets(),
             action_set: None,
             papercraft_folder: None,
+            papercraft_palettes: Default::default(),
             recording: None,
             shortcut_overrides: Default::default(),
             shortcut_set: default_shortcut_set(),

@@ -18,6 +18,8 @@ pub const KIND: &str = "scriptDialog";
 const LABEL_W: f32 = 110.0;
 /// Width of a prompt's fields.
 const FIELD_W: f32 = 180.0;
+/// Width of the number field beside a slider.
+const NUMBER_W: f32 = 52.0;
 /// Width of a prompt's or palette's rows.
 pub(crate) const WIDTH: f32 = LABEL_W + FIELD_W + 8.0;
 
@@ -130,9 +132,14 @@ fn field(ui: &mut egui::Ui, name: &str, kind: &str, c: &Value, value: &Value) ->
             widgets::range_field(ui, id, value.as_f64().unwrap_or(0.0), range, "", decimals, FIELD_W).map(|v| json!(v))
         }
         "slider" | "range" => {
+            // The track and a number field of fixed width beside it, together the field's width.
             let mut v = value.as_f64().unwrap_or(0.0);
             let (lo, hi) = (min.unwrap_or(0.0), max.unwrap_or(1.0).max(min.unwrap_or(0.0)));
-            widgets::slider(ui, egui::Slider::new(&mut v, lo..=hi)).changed().then(|| json!(v))
+            let decimals = c["fractionDigits"].as_u64().unwrap_or(2) as usize;
+            ui.spacing_mut().slider_width = FIELD_W - NUMBER_W - ui.spacing().item_spacing.x;
+            let slid = widgets::slider(ui, egui::Slider::new(&mut v, lo..=hi).show_value(false)).changed();
+            let typed = widgets::range_field(ui, (id, "number"), v, lo..=hi, "", decimals, NUMBER_W);
+            typed.or(slid.then_some(v)).map(|v| json!(v))
         }
         "boolean" | "checkbox" => {
             let on = value.as_bool().unwrap_or(false);

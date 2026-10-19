@@ -349,3 +349,52 @@ fn a_palette_runs_its_buttons_and_shows_the_values() {
     let texts = palettes_frame(&mut app, &ctx, vec![]);
     assert!(texts.iter().any(|(t, _)| t == "25"), "the new size shows: {texts:?}");
 }
+
+/// A palette dragged by its title bar opens there again the next time the script runs.
+#[test]
+fn a_palette_opens_where_the_user_put_it() {
+    let (mut app, _) = app();
+    let path = tempfile_path::Path::new("new Palette('Circles', { size: { value: 1 } })");
+    let ctx = egui::Context::default();
+    crate::theme::install_fonts(&ctx);
+    let title = |app: &mut VectorcraftApp| {
+        palettes_frame(app, &ctx, vec![]);
+        crate::tests_removeanchors::at(&palettes_frame(app, &ctx, vec![]), "Circles")
+    };
+    app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
+    let from = title(&mut app);
+    let to = from + egui::vec2(100.0, 50.0);
+    let press = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+    palettes_frame(&mut app, &ctx, vec![egui::Event::PointerMoved(from), press(from, true)]);
+    palettes_frame(&mut app, &ctx, vec![egui::Event::PointerMoved(from + egui::vec2(50.0, 25.0))]);
+    palettes_frame(&mut app, &ctx, vec![egui::Event::PointerMoved(to)]);
+    palettes_frame(&mut app, &ctx, vec![press(to, false)]);
+    assert!(app.prefs_changed, "the place is kept");
+    app.run("ui.stopScripts", json!({})).unwrap();
+    app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
+    let again = title(&mut app);
+    assert!((again - to).length() < 1.0, "{again:?} where it was put, {to:?}");
+}
+
+/// The scripts folder is listed again when the app comes to the front: a script added elsewhere
+/// meanwhile shows.
+#[test]
+fn the_scripts_folder_is_listed_again_when_the_app_comes_to_the_front() {
+    let (mut app, _) = app();
+    let folder = std::env::temp_dir().join(format!("papercraft-folder-{}", std::process::id()));
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("a.js"), "").unwrap();
+    let ctx = egui::Context::default();
+    let focus = |app: &mut VectorcraftApp, focused| {
+        let mut out = ctx.run_ui(egui::RawInput { focused, ..Default::default() }, |ui| crate::scripts::frame(app, ui.ctx(), 0.0));
+        out.textures_delta.clear();
+    };
+    focus(&mut app, true);
+    assert_eq!(app.scripts.tree(&folder, false).len(), 1);
+    std::fs::write(folder.join("b.js"), "").unwrap();
+    assert_eq!(app.scripts.tree(&folder, false).len(), 1, "listed once");
+    focus(&mut app, false);
+    focus(&mut app, true);
+    assert_eq!(app.scripts.tree(&folder, false).len(), 2, "back in front, listed again");
+    let _ = std::fs::remove_dir_all(&folder);
+}

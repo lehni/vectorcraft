@@ -53,8 +53,11 @@ pub struct Scripts {
     /// The console's runtime, made on its first line.
     console: Option<Running>,
     log: Vec<LogLine>,
-    /// The scripts folder as last listed, with the folder it lists.
+    /// The scripts folder as last listed, with the folder it lists. Dropped when the app comes to
+    /// the front, as scripts may have been added, renamed or edited elsewhere meanwhile.
     tree: Option<(PathBuf, Vec<Entry>)>,
+    /// Whether the app had the focus at the last frame.
+    focused: bool,
     /// The tool script the PaperCraft Tool button stands for: the last one run, until it fails.
     tool: Option<ToolScript>,
     /// Whether the PaperCraft Tool is the active tool: the canvas then sends its pointer events to
@@ -362,6 +365,11 @@ fn execute(app: &mut VectorcraftApp, script: &mut Running, wait: Duration) -> Re
 /// Drives the running scripts, once per frame: their queued work, timers and `onFrame` handlers
 /// run, and what they changed goes back to the document.
 pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
+    let focused = ctx.input(|i| i.focused);
+    if focused && !app.scripts.focused {
+        app.scripts.tree = None;
+    }
+    app.scripts.focused = focused;
     if app.scripts.running.is_empty() && app.scripts.console.is_none() {
         return;
     }
@@ -523,18 +531,25 @@ fn show_palettes(script: &mut Running, palettes: Vec<Value>) {
 }
 
 /// The scripts' palettes, as floating panels: what the user changes goes into the panel at once,
-/// and to the script as work. The × closes a palette.
+/// and to the script as work. The × closes a palette. A palette opens where the user last put the
+/// script's palette of that title.
 pub(crate) fn palettes(app: &mut VectorcraftApp, ctx: &egui::Context) {
     use crate::dialogs::script::{Edit, component};
     let t = crate::theme::Tokens::get(ctx);
-    let start = ctx.content_rect().center() - egui::vec2(120.0, 120.0);
+    let screen = ctx.content_rect();
+    let start = screen.center() - egui::vec2(120.0, 120.0);
     let mut events = Vec::new();
     let mut shown = 0.0;
     for script in app.scripts.running.iter_mut().chain(&mut app.scripts.console) {
+        let file = script.path.as_ref().map_or_else(|| script.name.clone(), |p| p.to_string_lossy().into_owned());
         for view in &mut script.palettes {
-            let pos = *view.pos.get_or_insert(start + egui::vec2(shown, shown));
+            let key = format!("{file}\u{1f}{}", view.title);
+            let placed = app.ui.papercraft_palettes.get(&key).map(|p| egui::pos2(p[0], p[1]));
+            let pos = *view.pos.get_or_insert_with(|| placed.unwrap_or(start + egui::vec2(shown, shown)));
             shown += 24.0;
             let area = egui::Id::new(("papercraft-palette", script.id, view.id));
+            let size = ctx.memory(|m| m.area_rect(area)).map_or(egui::vec2(300.0, 200.0), |r| r.size());
+            let pos = crate::floating::clamp([pos.x, pos.y], size, screen);
             egui::Area::new(area).order(egui::Order::Middle).fixed_pos(pos).show(ctx, |ui| {
                 let frame = egui::Frame::popup(ui.style()).fill(t.panel).corner_radius(4).inner_margin(egui::Margin::ZERO);
                 frame.show(ui, |ui| {
@@ -557,6 +572,10 @@ pub(crate) fn palettes(app: &mut VectorcraftApp, ctx: &egui::Context) {
                     );
                     if grip.dragged() {
                         view.pos = Some(pos + grip.drag_delta());
+                    }
+                    if grip.drag_stopped() {
+                        app.ui.papercraft_palettes.insert(key.clone(), [pos.x, pos.y]);
+                        app.prefs_changed = true;
                     }
                     let x = ui.interact(close, ui.id().with("close"), egui::Sense::click());
                     crate::icons::paint(ui, "x", close.shrink(3.0), if x.hovered() { t.text_strong } else { t.text_dim });

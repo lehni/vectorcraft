@@ -3,7 +3,8 @@
 //! stands for a coloured one, running scripts their name in the accent colour. Double-click opens a
 //! script in its editor. The bottom bar has Scriptographer's buttons in its groups: execute the
 //! selected script and stop the running ones, edit, create a script or a folder, and on the right,
-//! show or hide the console. The panel menu lists the folder again or chooses another one.
+//! show or hide the console. The panel menu lists the folder again or chooses another one; the app
+//! lists it again by itself when it comes to the front.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
