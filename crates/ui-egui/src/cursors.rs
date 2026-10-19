@@ -121,6 +121,18 @@ fn pen(p: &mut Ink, o: Pos2, badge: &str) {
     }
 }
 
+/// The PaperCraft Tool's pencil, as Scriptographer's tool cursor had it: hollow, pointing down-left,
+/// the lead tip the hotspot.
+fn script_pencil(p: &mut Ink, o: Pos2) {
+    let (along, across) = (vec2(1.0, -1.0) / 2f32.sqrt(), vec2(1.0, 1.0) / 2f32.sqrt());
+    let at = |t: f32, w: f32| o + along * t + across * w;
+    poly(p, vec![o, at(4.5, 2.4), at(15.0, 2.4), at(15.0, -2.4), at(4.5, -2.4)], HALO, INK);
+    // The lead, and where the wood ends and the eraser begins.
+    p.add(Shape::convex_polygon(vec![o, at(2.0, 1.1), at(2.0, -1.1)], INK, Stroke::NONE));
+    p.line_segment([at(4.5, 2.4), at(4.5, -2.4)], Stroke::new(1.0, INK));
+    p.line_segment([at(12.5, 2.4), at(12.5, -2.4)], Stroke::new(1.0, INK));
+}
+
 /// The Anchor Point tool's caret (as its toolbar icon): a small hollow square on the anchor at
 /// the hotspot, legs spreading down from its lower corners. Every halo goes under every stroke, so
 /// the legs join the square.
@@ -409,7 +421,7 @@ fn magnifier(p: &mut Ink, o: Pos2, out: bool) {
 
 /// Every cursor with a glyph: its own, drawn here, or the one it borrows.
 #[cfg(test)]
-const GLYPHS: [Cursor; 79] = [
+const GLYPHS: [Cursor; 80] = [
     Cursor::Hand,
     Cursor::HandGrab,
     Cursor::ZoomIn,
@@ -489,6 +501,7 @@ const GLYPHS: [Cursor; 79] = [
     Cursor::Scissors,
     Cursor::MeshAdd,
     Cursor::PuppetPin,
+    Cursor::Script,
 ];
 
 /// The shapes of cursor `c` with its hotspot at `p`; `None` for cursors that stay system cursors
@@ -525,6 +538,7 @@ fn glyph(c: Cursor, p: Pos2) -> Option<Vec<Shape>> {
             line(ink, p + vec2(5.0, 12.0), p + vec2(12.0, 5.0));
         }
         Cursor::Eyedropper => eyedropper(ink, p),
+        Cursor::Script => script_pencil(ink, p),
         Cursor::ResizeH => double_arrow(ink, p, vec2(1.0, 0.0)),
         Cursor::ResizeV => double_arrow(ink, p, vec2(0.0, 1.0)),
         Cursor::ResizeNwSe => double_arrow(ink, p, vec2(1.0, 1.0)),

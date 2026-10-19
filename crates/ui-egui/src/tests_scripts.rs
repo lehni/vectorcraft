@@ -224,3 +224,17 @@ fn an_endless_script_goes_on_alone_until_stopped() {
     app.run("ui.stopScripts", json!({})).unwrap();
     assert!(!app.scripts.is_running());
 }
+
+/// While the PaperCraft Tool is the active tool, the canvas shows its pencil.
+#[test]
+fn the_tool_has_its_own_cursor() {
+    let (mut app, _) = app();
+    assert_eq!(crate::scripts::cursor(&app), None);
+    let tool = tempfile_path::Path::new(TOOL);
+    app.run("ui.runScript", json!({ "path": tool.0.to_string_lossy() })).unwrap();
+    assert_eq!(crate::scripts::cursor(&app), Some(vectorcraft_tools::Cursor::Script));
+    app.session.prefs.use_precise_cursors = true;
+    assert_eq!(crate::scripts::cursor(&app), Some(vectorcraft_tools::Cursor::Crosshair), "Use Precise Cursors");
+    app.scripts.deselect_tool();
+    assert_eq!(crate::scripts::cursor(&app), None, "the app's tool has its own");
+}

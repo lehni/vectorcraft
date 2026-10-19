@@ -24,6 +24,7 @@ use serde_json::{Value, json};
 use vectorcraft_doc::{Document, NodeId};
 use vectorcraft_papercraft::worker::{Reply, Request, Work, Worker};
 use vectorcraft_papercraft::{Modifiers, MouseEvent};
+use vectorcraft_tools::Cursor;
 
 use crate::{FilePick, VectorcraftApp};
 
@@ -497,6 +498,13 @@ fn load_tool(app: &mut VectorcraftApp, ToolScript { path, source }: ToolScript) 
     let mut script = start(app, file_name(&path), Some(path), source)?;
     script.tool = true;
     Ok(script)
+}
+
+/// The canvas cursor while the PaperCraft Tool is the active tool, as Scriptographer's tool had it:
+/// a pencil, or the crosshair with Use Precise Cursors.
+pub(crate) fn cursor(app: &VectorcraftApp) -> Option<Cursor> {
+    app.scripts.active_tool()?;
+    Some(if app.session.prefs.use_precise_cursors { Cursor::Script.precise() } else { Cursor::Script })
 }
 
 /// The PaperCraft Tool's button in the toolbox, under the app's tools, as Scriptographer's tool

@@ -740,7 +740,8 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
             None
         };
         // In Presentation Mode the pointer is the default one, with no tool cursor.
-        let tool_cursor = (app.ui.screen_mode < 3).then(|| view_cursor.or_else(|| hover_cursor(app, mods(m, space), view_info, hover_still)));
+        let tool_cursor = (app.ui.screen_mode < 3)
+            .then(|| view_cursor.or_else(|| crate::scripts::cursor(app)).or_else(|| hover_cursor(app, mods(m, space), view_info, hover_still)));
         let cur = if let Some(c) = tool_cursor.flatten() {
             let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("tool-cursor")));
             // The loaded place cursor carries the file's thumbnail.
@@ -895,6 +896,7 @@ fn cursor_icon(c: Cursor) -> egui::CursorIcon {
         Cursor::RemoveStop => C::NotAllowed,
         Cursor::Slice => C::Crosshair,
         Cursor::SliceSelect => C::Default,
+        Cursor::Script => C::Crosshair,
         Cursor::Width | Cursor::WidthAdd => C::Crosshair,
         Cursor::WidthPoint => C::Move,
         Cursor::Blend | Cursor::BlendObject | Cursor::BlendAnchor | Cursor::ShapeBuilder | Cursor::ShapeBuilderErase => C::Crosshair,

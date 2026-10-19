@@ -632,6 +632,8 @@ pub enum Cursor {
     MeshAdd,
     /// Puppet Warp over the selection's mesh where a pin can go: a click adds one.
     PuppetPin,
+    /// The PaperCraft Tool, while it is the active tool: the tool script gets the mouse.
+    Script,
 }
 
 impl Cursor {
@@ -720,7 +722,8 @@ impl Cursor {
             | Cursor::SymbolStyler
             | Cursor::Scissors
             | Cursor::MeshAdd
-            | Cursor::PuppetPin => Cursor::Crosshair,
+            | Cursor::PuppetPin
+            | Cursor::Script => Cursor::Crosshair,
             c => c,
         }
     }
