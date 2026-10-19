@@ -268,7 +268,13 @@ pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
         return;
     }
     let mut scripts = std::mem::take(&mut app.scripts.running);
-    scripts.retain_mut(|script| if script.runtime.is_running() { tick(app, script, now) || script.tool } else { script.tool });
+    scripts.retain_mut(|script| {
+        let keeps = if script.runtime.is_running() { tick(app, script, now) || script.tool } else { script.tool };
+        if !keeps {
+            app.scripts.push_log(format!("{} stopped", script.name), false);
+        }
+        keeps
+    });
     // Scripts started by a script's frame join the list.
     scripts.append(&mut app.scripts.running);
     app.scripts.running = scripts;

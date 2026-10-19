@@ -199,6 +199,29 @@ fn scripts_without_handlers_have_no_tool<E: Engine>() {
     assert!(!runtime.has_tool(&scope).unwrap());
 }
 
+/// A path the script made and the document then gave an id is reloaded like any other when the
+/// user changes it (`invalidate()` on an item that was never a shell).
+fn edits_to_objects_a_script_made_reach_it<E: Engine>() {
+    let (mut s, _, _) = document();
+    let st = s.active().unwrap();
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(400.0, 300.0).unwrap();
+    runtime.bind(&scope, st.doc.clone(), st.selection.clone()).unwrap();
+    runtime
+        .execute(&scope, "var circle = new Path.Circle({ center: [200, 150], radius: 10 })\nfunction onFrame() { circle.position += [1, 0]; console.log(circle.bounds.width) }")
+        .unwrap();
+    // The circle goes to the document and gets its id.
+    let patch = runtime.take_patch(&scope).unwrap().unwrap();
+    let result = s.execute("document.patch", &patch.params).unwrap();
+    let circle = result["ids"][0].as_u64().unwrap();
+    let st = s.active().unwrap();
+    runtime.apply_ids(&scope, patch, &result, st.doc.clone(), st.selection.clone()).unwrap();
+    // The user makes it twice as wide.
+    s.execute("path.setAnchors", &json!({"id": circle, "subpaths": [{"anchors": [{"x": 180, "y": 150}, {"x": 200, "y": 140}, {"x": 220, "y": 150}, {"x": 200, "y": 160}], "closed": true}]})).unwrap();
+    frame(&mut s, &mut runtime, &scope, 20.0);
+    assert_eq!(runtime.take_output().last().map(String::as_str), Some("40"), "the script sees the user's change");
+}
+
 macro_rules! engine_tests {
     ($module:ident, $engine:ty $(, live_sync: $live_sync:meta)?) => {
         mod $module {
@@ -241,6 +264,12 @@ macro_rules! engine_tests {
             #[test]
             fn scripts_without_handlers_have_no_tool() {
                 super::scripts_without_handlers_have_no_tool::<$engine>();
+            }
+
+            #[test]
+            #[ignore = "Paper.js: invalidate() throws on keyed items that were never shells (CHANNEL.md N14)"]
+            fn edits_to_objects_a_script_made_reach_it() {
+                super::edits_to_objects_a_script_made_reach_it::<$engine>();
             }
 
             #[test]

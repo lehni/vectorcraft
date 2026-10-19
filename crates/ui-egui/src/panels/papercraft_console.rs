@@ -2,7 +2,7 @@
 //! PaperScript in the console's own project on the active document (Enter runs it, each line one
 //! undo step), and under it everything scripts printed, errors in the error colour.
 
-use egui::{RichText, Ui};
+use egui::Ui;
 use serde_json::json;
 
 use super::{pstate, set_pstate};
@@ -36,11 +36,32 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
         ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
             widgets::divider(ui);
             egui::ScrollArea::vertical().id_salt("papercraft-console-log").auto_shrink([false, false]).stick_to_bottom(true).show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
+                // One read-only text, so lines can be selected together and copied.
+                let mut text = String::new();
+                let mut errors = Vec::new();
                 for line in app.scripts.log() {
-                    let color = if line.error { t.error } else { t.text };
-                    ui.label(RichText::new(&line.text).monospace().color(color));
+                    let start = text.len();
+                    text.push_str(&line.text);
+                    text.push('\n');
+                    if line.error {
+                        errors.push(start..text.len());
+                    }
                 }
+                let font = egui::TextStyle::Monospace.resolve(ui.style());
+                let mut layouter = |ui: &Ui, text: &dyn egui::TextBuffer, width: f32| {
+                    let text = text.as_str();
+                    let mut job = egui::text::LayoutJob::default();
+                    job.wrap.max_width = width;
+                    let mut at = 0;
+                    for range in errors.iter().cloned().chain(std::iter::once(text.len()..text.len())) {
+                        let format = |color| egui::TextFormat::simple(font.clone(), color);
+                        job.append(text.get(at..range.start).unwrap_or_default(), 0.0, format(t.text));
+                        job.append(text.get(range.clone()).unwrap_or_default(), 0.0, format(t.error));
+                        at = range.end;
+                    }
+                    ui.fonts_mut(|f| f.layout_job(job))
+                };
+                ui.add(egui::TextEdit::multiline(&mut text.as_str()).desired_width(f32::INFINITY).frame(egui::Frame::NONE).layouter(&mut layouter));
             });
         });
     });
