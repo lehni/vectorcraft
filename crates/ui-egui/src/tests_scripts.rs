@@ -167,18 +167,14 @@ fn a_tool_script_replaces_the_previous_one() {
 }
 
 /// A script runs on the document it started on: it waits while another document is active, and
-/// stops when its document closes, the PaperCraft Tool with it.
+/// stops when its document closes.
 #[test]
 fn scripts_stop_when_their_document_closes() {
     let (mut app, id, _path) = running();
-    let tool = tempfile_path::Path::new(TOOL);
-    app.run("ui.runScript", json!({ "path": tool.0.to_string_lossy() })).unwrap();
     let ctx = egui::Context::default();
     app.run("file.new", json!({})).unwrap();
     crate::scripts::frame(&mut app, &ctx, 1.0);
     assert_eq!(children(&app), 0, "the script doesn't reach the other document");
-    assert!(pointer(&mut app, vectorcraft_tools::PointerKind::Down, 50.0), "the PaperCraft Tool keeps the click");
-    assert_eq!(children(&app), 0, "but draws nothing in the other document");
     app.run("file.close", json!({})).unwrap();
     crate::scripts::frame(&mut app, &ctx, 2.0);
     assert_eq!(left(&app, id), 20.0, "back on its document, it goes on");
@@ -187,10 +183,30 @@ fn scripts_stop_when_their_document_closes() {
     app.ui.dialog.as_mut().unwrap().fields.insert("discard".into(), json!(true));
     crate::dialogs::confirm(&mut app).unwrap();
     crate::scripts::frame(&mut app, &ctx, 3.0);
-    assert!(app.scripts.running_paths().is_empty(), "both stopped with their document");
-    assert_eq!(app.scripts.tool(), None);
-    let errors = app.scripts.log().iter().filter(|l| l.error).count();
-    crate::scripts::frame(&mut app, &ctx, 4.0);
-    assert_eq!(app.scripts.log().iter().filter(|l| l.error).count(), errors, "and print nothing more");
-    assert_eq!(errors, 0);
+    assert!(app.scripts.running_paths().is_empty(), "it stopped with its document");
+    assert!(app.scripts.log().iter().all(|l| !l.error), "without errors");
+}
+
+/// The PaperCraft Tool is global: it draws in whichever document is active, and stays when a
+/// document closes.
+#[test]
+fn the_tool_works_in_every_document() {
+    let (mut app, _) = app();
+    let tool = tempfile_path::Path::new(TOOL);
+    app.run("ui.runScript", json!({ "path": tool.0.to_string_lossy() })).unwrap();
+    app.run("file.new", json!({})).unwrap();
+    let ctx = egui::Context::default();
+    for _ in 0..2 {
+        assert!(pointer(&mut app, vectorcraft_tools::PointerKind::Down, 50.0));
+        pointer(&mut app, vectorcraft_tools::PointerKind::Up, 50.0);
+    }
+    assert_eq!(children(&app), 2, "it draws in the other document, run there once");
+    app.run("file.close", json!({})).unwrap();
+    app.ui.dialog.as_mut().unwrap().fields.insert("discard".into(), json!(true));
+    crate::dialogs::confirm(&mut app).unwrap();
+    crate::scripts::frame(&mut app, &ctx, 1.0);
+    assert_eq!(app.scripts.tool(), Some(tool.0.as_path()), "it stays the PaperCraft Tool's");
+    assert!(pointer(&mut app, vectorcraft_tools::PointerKind::Down, 50.0));
+    assert_eq!(children(&app), 2, "and draws in the first document");
+    assert!(app.scripts.log().iter().all(|l| !l.error));
 }

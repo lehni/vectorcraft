@@ -4,7 +4,8 @@
 //! Scripts stops it; the whole run is one undo step while nothing else edits the document in
 //! between. Before each frame the script's project catches up with edits made outside it. A
 //! script runs on the document it started on: it waits while another one is active, and stops
-//! when its document closes. One tool script at a time is the PaperCraft Tool.
+//! when its document closes. One tool script at a time is the PaperCraft Tool, which works in
+//! every document.
 //!
 //! `ui.runScript {path?}` runs a script (without a path it asks for the file),
 //! `ui.stopScripts` stops the running ones and `ui.evaluateScript {code}` runs a line in the
@@ -42,8 +43,8 @@ pub struct Scripts {
     log: Vec<LogLine>,
     /// The scripts folder as last listed, with the folder it lists.
     tree: Option<(PathBuf, Vec<Entry>)>,
-    /// The tool script the PaperCraft Tool button stands for: the last one run, while it is loaded.
-    tool: Option<PathBuf>,
+    /// The tool script the PaperCraft Tool button stands for: the last one run, until it fails.
+    tool: Option<ToolScript>,
     /// Whether the PaperCraft Tool is the active tool: the canvas then sends its pointer events to
     /// the tool script.
     tool_active: bool,
@@ -70,6 +71,13 @@ pub enum EntryKind {
     },
 }
 
+/// The tool script, global as the PaperCraft Tool is: as PaperScript fixes a script's `project`
+/// when it runs, it runs once in each document, the first time the tool is used there.
+struct ToolScript {
+    path: PathBuf,
+    source: String,
+}
+
 struct Running {
     /// The file name, for messages.
     name: String,
@@ -85,7 +93,7 @@ struct Running {
     /// The document after the script's last change: while it is still the document, the next
     /// change adds to the same undo step.
     last: Option<Arc<Document>>,
-    /// Whether the script made a tool: it then stays loaded, to be the active tool.
+    /// Whether the script made a tool: it then stays loaded, to be the active tool in its document.
     tool: bool,
 }
 
@@ -96,17 +104,24 @@ impl Scripts {
 
     /// The tool script the PaperCraft Tool button stands for.
     pub fn tool(&self) -> Option<&Path> {
-        self.tool.as_deref()
+        self.tool.as_ref().map(|t| t.path.as_path())
     }
 
     /// The tool script, while the PaperCraft Tool is the active tool.
     pub fn active_tool(&self) -> Option<&Path> {
-        self.tool.as_deref().filter(|_| self.tool_active)
+        self.tool().filter(|_| self.tool_active)
     }
 
     /// Makes the PaperCraft Tool the active tool, when a tool script is assigned to it.
     pub fn select_tool(&mut self) {
         self.tool_active = self.tool.is_some();
+    }
+
+    /// Takes the tool script off the PaperCraft Tool, and unloads it from every document.
+    fn unassign_tool(&mut self) {
+        self.tool = None;
+        self.tool_active = false;
+        self.running.retain(|s| !s.tool);
     }
 
     /// Makes the app's own tools active again: the canvas no longer sends pointer events to the
@@ -197,8 +212,8 @@ pub(crate) fn run(app: &mut VectorcraftApp, p: &Value) -> Result<Value, String> 
         }
     };
     let source = std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
-    let name = Path::new(&path).file_name().map_or(path.clone(), |n| n.to_string_lossy().into_owned());
     let path = PathBuf::from(&path);
+    let name = file_name(&path);
     let mut script = start(app, name, Some(path.clone()))?;
     let result = execute(app, &mut script, &source);
     let running = result.is_ok() && script.runtime.is_running();
@@ -207,12 +222,15 @@ pub(crate) fn run(app: &mut VectorcraftApp, p: &Value) -> Result<Value, String> 
     if running || tool {
         // Run again, a script replaces the one that runs from the same file; a tool script
         // replaces the one the PaperCraft Tool stood for, as there is one tool button.
-        app.scripts.running.retain(|s| s.path.as_deref() != Some(&path) && !(tool && s.tool));
+        if tool {
+            app.scripts.unassign_tool();
+        }
+        app.scripts.running.retain(|s| s.path.as_deref() != Some(&path));
         app.scripts.running.push(script);
     }
     if tool {
         // As Scriptographer's tool button: the tool script runs, and its tool is the active tool.
-        app.scripts.tool = Some(path);
+        app.scripts.tool = Some(ToolScript { path, source });
         app.scripts.tool_active = true;
     }
     let changed = result?;
@@ -279,7 +297,10 @@ pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
     let active = app.session.active().map(|d| d.uid);
     scripts.retain_mut(|script| {
         if !is_open(app, script.doc) {
-            app.scripts.push_log(format!("{} stopped: its document closed", script.name), false);
+            // The tool script stays the PaperCraft Tool's, for the other documents.
+            if !script.tool {
+                app.scripts.push_log(format!("{} stopped: its document closed", script.name), false);
+            }
             return false;
         }
         if active != Some(script.doc) {
@@ -294,10 +315,6 @@ pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
     // Scripts started by a script's frame join the list.
     scripts.append(&mut app.scripts.running);
     app.scripts.running = scripts;
-    if app.scripts.tool.as_ref().is_some_and(|tool| !app.scripts.running.iter().any(|s| s.path.as_ref() == Some(tool))) {
-        app.scripts.tool = None;
-        app.scripts.tool_active = false;
-    }
     if let Some(mut console) = app.scripts.console.take() {
         if active == Some(console.doc) && console.runtime.is_running() {
             tick(app, &mut console, now);
@@ -307,6 +324,11 @@ pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
     if app.scripts.is_running() {
         ctx.request_repaint();
     }
+}
+
+/// A script's file name, for messages.
+fn file_name(path: &Path) -> String {
+    path.file_name().unwrap_or(path.as_os_str()).to_string_lossy().into_owned()
 }
 
 /// Whether the document `uid` is still open.
@@ -319,18 +341,9 @@ fn is_open(app: &VectorcraftApp, uid: u64) -> bool {
 pub(crate) fn pointer(app: &mut VectorcraftApp, ev: &vectorcraft_tools::PointerEvent) -> bool {
     use vectorcraft_papercraft::{Modifiers, MouseEvent};
     use vectorcraft_tools::PointerKind;
-    let Some(path) = app.scripts.active_tool().map(PathBuf::from) else {
+    let Some(active) = app.session.active().map(|d| d.uid).filter(|_| app.scripts.active_tool().is_some()) else {
         return false;
     };
-    let Some(index) = app.scripts.running.iter().position(|s| s.path.as_deref() == Some(&path)) else {
-        app.scripts.tool = None;
-        app.scripts.tool_active = false;
-        return false;
-    };
-    // The tool script works on its own document: on another one the PaperCraft Tool does nothing.
-    if app.session.active().map(|d| d.uid) != app.scripts.running.get(index).map(|s| s.doc) {
-        return true;
-    }
     let event = match ev.kind {
         PointerKind::Down => MouseEvent::Down,
         PointerKind::Drag => MouseEvent::Drag,
@@ -341,7 +354,13 @@ pub(crate) fn pointer(app: &mut VectorcraftApp, ev: &vectorcraft_tools::PointerE
     // `cmd` is Command on macOS, Ctrl elsewhere, as Paper.js's `modifiers.command` is.
     let mac = cfg!(target_os = "macos");
     let modifiers = Modifiers { shift: ev.mods.shift, control: ev.mods.ctrl || (ev.mods.cmd && !mac), alt: ev.mods.alt, meta: ev.mods.cmd && mac };
-    let mut script = app.scripts.running.remove(index);
+    let mut script = match app.scripts.running.iter().position(|s| s.tool && s.doc == active) {
+        Some(index) => app.scripts.running.remove(index),
+        None => match load_tool(app) {
+            Some(script) => script,
+            None => return true,
+        },
+    };
     if event == MouseEvent::Down {
         // A drag starts its own undo step.
         script.last = None;
@@ -352,14 +371,32 @@ pub(crate) fn pointer(app: &mut VectorcraftApp, ev: &vectorcraft_tools::PointerE
     });
     show_output(app, &mut script);
     match result {
-        Ok(_) => app.scripts.running.insert(index.min(app.scripts.running.len()), script),
+        Ok(_) => app.scripts.running.push(script),
         Err(e) => {
             report(app, &script, &e);
-            app.scripts.tool = None;
-            app.scripts.tool_active = false;
+            app.scripts.unassign_tool();
         }
     }
     true
+}
+
+/// The tool script, run in the active document for the tool's first use there. When it fails, it
+/// is reported and the PaperCraft Tool no longer stands for it.
+fn load_tool(app: &mut VectorcraftApp) -> Option<Running> {
+    let (path, source) = app.scripts.tool.as_ref().map(|t| (t.path.clone(), t.source.clone()))?;
+    let mut script = match start(app, file_name(&path), Some(path)) {
+        Ok(script) => script,
+        Err(e) => {
+            app.status(e);
+            return None;
+        }
+    };
+    if execute(app, &mut script, &source).is_err() {
+        app.scripts.unassign_tool();
+        return None;
+    }
+    script.tool = true;
+    Some(script)
 }
 
 /// The PaperCraft Tool's button in the toolbox, under the app's tools, as Scriptographer's tool
@@ -367,7 +404,7 @@ pub(crate) fn pointer(app: &mut VectorcraftApp, ev: &vectorcraft_tools::PointerE
 /// active tool. Clicking it makes the tool script the active tool again.
 pub(crate) fn tool_button(app: &mut VectorcraftApp, ui: &mut egui::Ui, center_x: f32) {
     let t = crate::theme::Tokens::get(ui.ctx());
-    let assigned = app.scripts.tool.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned());
+    let assigned = app.scripts.tool().map(file_name);
     let active = app.scripts.active_tool().is_some();
     ui.horizontal(|ui| {
         ui.add_space((center_x - 18.0 - ui.cursor().min.x).max(0.0));
