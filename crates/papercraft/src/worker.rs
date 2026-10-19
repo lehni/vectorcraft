@@ -34,6 +34,9 @@ pub enum Work {
     Frame(f64),
     /// A pointer event for the script's tool, at a point in document coordinates.
     Mouse(MouseEvent, (f64, f64), Modifiers),
+    /// A key going down (`true`) or up for the script's tool: its name as Paper.js has it, and the
+    /// character it types.
+    Key(bool, String, Option<String>, Modifiers),
 }
 
 /// What a worker tells the app.
@@ -42,8 +45,8 @@ pub enum Reply {
     /// [`Request::Applied`]), and the objects selected in its project before and after.
     Changes { patch: Option<Json>, base: Arc<Document>, before: BTreeSet<NodeId>, selected: BTreeSet<NodeId> },
     /// The work is done: what the script printed, its error if it threw, whether it has timers
-    /// left, and whether it made a tool.
-    Done { output: Vec<String>, error: Option<String>, running: bool, tool: bool },
+    /// left, whether it made a tool, and whether that tool handles keys.
+    Done { output: Vec<String>, error: Option<String>, running: bool, tool: bool, keys: bool },
 }
 
 /// One script's runtime, and the patch waiting for its ids.
@@ -86,6 +89,7 @@ impl<E: Engine> Script<E> {
             Work::Execute(source) => self.runtime.execute(&self.scope, &source),
             Work::Frame(now) => self.runtime.run_timers(now),
             Work::Mouse(event, point, modifiers) => self.runtime.mouse_event(&self.scope, event, point, modifiers),
+            Work::Key(down, key, character, modifiers) => self.runtime.key_event(&self.scope, down, &key, character.as_deref(), modifiers),
         };
         let mut replies = Vec::new();
         let changes = self.changes(before).map(|changes| replies.extend(changes));
@@ -108,7 +112,8 @@ impl<E: Engine> Script<E> {
 
     fn done(&mut self, error: Option<String>) -> Reply {
         let tool = self.runtime.has_tool(&self.scope).unwrap_or(false);
-        Reply::Done { output: self.runtime.take_output(), error, running: self.runtime.is_running(), tool }
+        let keys = tool && self.runtime.has_key_handlers(&self.scope).unwrap_or(false);
+        Reply::Done { output: self.runtime.take_output(), error, running: self.runtime.is_running(), tool, keys }
     }
 }
 
@@ -140,7 +145,7 @@ impl Worker {
                     Ok(script) => script,
                     Err(e) => {
                         // The app may have stopped the script already; then nobody listens.
-                        let _ = outbox.send(Reply::Done { output: Vec::new(), error: Some(e.to_string()), running: false, tool: false });
+                        let _ = outbox.send(Reply::Done { output: Vec::new(), error: Some(e.to_string()), running: false, tool: false, keys: false });
                         return;
                     }
                 };

@@ -238,3 +238,28 @@ fn the_tool_has_its_own_cursor() {
     app.scripts.deselect_tool();
     assert_eq!(crate::scripts::cursor(&app), None, "the app's tool has its own");
 }
+
+/// A tool script with key handlers gets the plain keys typed on the canvas; keys with Cmd stay the
+/// app's shortcuts.
+#[test]
+fn a_tool_script_gets_the_plain_keys() {
+    let (mut app, _) = app();
+    let tool = tempfile_path::Path::new("function onKeyDown(event) { console.log(event.key, event.character) }");
+    app.run("ui.runScript", json!({ "path": tool.0.to_string_lossy() })).unwrap();
+    let key = |key, modifiers| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers };
+    let events = vec![
+        key(egui::Key::A, egui::Modifiers::SHIFT),
+        key(egui::Key::V, egui::Modifiers::COMMAND),
+        key(egui::Key::ArrowLeft, egui::Modifiers::NONE),
+    ];
+    let ctx = egui::Context::default();
+    let mut left = Vec::new();
+    let mut out = ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| {
+        crate::scripts::keys(&mut app, ui.ctx());
+        left = ui.input(|i| i.events.clone());
+    });
+    out.textures_delta.clear();
+    let log: Vec<&str> = app.scripts.log().iter().map(|l| l.text.as_str()).collect();
+    assert_eq!(log, ["a A", "left "]);
+    assert_eq!(left, [key(egui::Key::V, egui::Modifiers::COMMAND)], "Cmd+V stays the app's");
+}

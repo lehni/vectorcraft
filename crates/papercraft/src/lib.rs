@@ -197,7 +197,7 @@ pub enum MouseEvent {
     Up,
 }
 
-/// The keys held during a pointer event, as Paper.js's `Key.modifiers` has them.
+/// The keys held during a pointer or key event, as Paper.js's `Key.modifiers` has them.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Modifiers {
     pub shift: bool,
@@ -219,12 +219,7 @@ impl<E: Engine> Runtime<E> {
     pub fn mouse_event(&mut self, scope: &Scope<E::Handle>, event: MouseEvent, point: (f64, f64), modifiers: Modifiers) -> Result<(), Error> {
         let paper = &self.paper;
         self.engine.with_call(|call| {
-            let held = call.new_object()?;
-            for (name, down) in [("shift", modifiers.shift), ("control", modifiers.control), ("alt", modifiers.alt), ("meta", modifiers.meta)] {
-                call.set(&held, name, &Value::Bool(down))?;
-            }
-            let options = call.new_object()?;
-            call.set(&options, "modifiers", &Value::Js(held))?;
+            let options = event_options(call, modifiers)?;
             let kind = match event {
                 MouseEvent::Down => "mousedown",
                 MouseEvent::Move => "mousemove",
@@ -237,6 +232,48 @@ impl<E: Engine> Runtime<E> {
             Ok(())
         })
     }
+
+    /// Whether the tool of the script in `scope` handles keys: it has `onKeyDown` or `onKeyUp`.
+    pub fn has_key_handlers(&mut self, scope: &Scope<E::Handle>) -> Result<bool, Error> {
+        self.engine.with_call(|call| {
+            let Value::Js(tool) = call.get(&scope.0, "tool")? else {
+                return Ok(false);
+            };
+            for kind in ["keydown", "keyup"] {
+                if matches!(method(call, &tool, "responds", &[Value::String(kind.into())])?, Value::Bool(true)) {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        })
+    }
+
+    /// Sends a key going down (or up) to the view of `scope` (`view.dispatchKeyEvent()`): the
+    /// tool's `onKeyDown` and `onKeyUp` run. `key` is the key's name as Paper.js has it (`a`,
+    /// `enter`, `left`, `page-up`…), `character` what it types, if anything.
+    pub fn key_event(&mut self, scope: &Scope<E::Handle>, down: bool, key: &str, character: Option<&str>, modifiers: Modifiers) -> Result<(), Error> {
+        self.engine.with_call(|call| {
+            let options = event_options(call, modifiers)?;
+            if let Some(character) = character {
+                call.set(&options, "character", &Value::String(character.into()))?;
+            }
+            let view = object(call, &scope.0, "view")?;
+            let kind = if down { "keydown" } else { "keyup" };
+            method(call, &view, "dispatchKeyEvent", &[Value::String(kind.into()), Value::String(key.into()), Value::Js(options)])?;
+            Ok(())
+        })
+    }
+}
+
+/// The options of an event Paper.js dispatches: the keys held.
+fn event_options<H>(call: &mut dyn Call<H>, modifiers: Modifiers) -> Result<H, Error> {
+    let held = call.new_object()?;
+    for (name, down) in [("shift", modifiers.shift), ("control", modifiers.control), ("alt", modifiers.alt), ("meta", modifiers.meta)] {
+        call.set(&held, name, &Value::Bool(down))?;
+    }
+    let options = call.new_object()?;
+    call.set(&options, "modifiers", &Value::Js(held))?;
+    Ok(options)
 }
 
 /// The handle in `value`, or an error naming what was expected.

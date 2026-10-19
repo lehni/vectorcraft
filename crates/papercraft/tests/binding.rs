@@ -214,6 +214,7 @@ fn tool_scripts_get_pointer_events<E: Engine>() {
         )
         .unwrap();
     assert!(runtime.has_tool(&scope).unwrap());
+    assert!(!runtime.has_key_handlers(&scope).unwrap(), "a tool for the mouse only");
     let shift = Modifiers { shift: true, ..Default::default() };
     runtime.mouse_event(&scope, MouseEvent::Down, (0.0, 0.0), shift).unwrap();
     // Closer than minDistance: no drag event.
@@ -225,6 +226,28 @@ fn tool_scripts_get_pointer_events<E: Engine>() {
     assert_eq!(runtime.take_output(), ["down 0 true", "up 20"]);
     let patch = runtime.take_patch(&scope).unwrap().unwrap();
     assert_eq!(patch.params["insert"].as_array().unwrap().len(), 1, "one drag event drew one circle");
+}
+
+fn tool_scripts_get_key_events<E: Engine>() {
+    use vectorcraft_papercraft::Modifiers;
+    let (s, _, _) = document();
+    let st = s.active().unwrap();
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(400.0, 300.0).unwrap();
+    runtime.bind(&scope, st.doc.clone(), st.selection.clone()).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "function onKeyDown(event) { console.log('down', event.key, event.character, event.modifiers.shift) }\n\
+             function onKeyUp(event) { console.log('up', event.key) }",
+        )
+        .unwrap();
+    assert!(runtime.has_key_handlers(&scope).unwrap());
+    let shift = Modifiers { shift: true, ..Default::default() };
+    runtime.key_event(&scope, true, "a", Some("A"), shift).unwrap();
+    runtime.key_event(&scope, false, "a", None, shift).unwrap();
+    runtime.key_event(&scope, true, "left", None, Modifiers::default()).unwrap();
+    assert_eq!(runtime.take_output(), ["down a A true", "up a", "down left  false"]);
 }
 
 fn scripts_without_handlers_have_no_tool<E: Engine>() {
@@ -307,6 +330,11 @@ macro_rules! engine_tests {
             #[test]
             fn tool_scripts_get_pointer_events() {
                 super::tool_scripts_get_pointer_events::<$engine>();
+            }
+
+            #[test]
+            fn tool_scripts_get_key_events() {
+                super::tool_scripts_get_key_events::<$engine>();
             }
 
             #[test]

@@ -88,6 +88,8 @@ pub enum EntryKind {
 struct ToolScript {
     path: PathBuf,
     source: String,
+    /// Whether its tool handles keys: the keys typed on the canvas are then its own.
+    keys: bool,
 }
 
 /// A script that runs, on its thread.
@@ -123,6 +125,7 @@ enum Kind {
     Execute,
     Frame,
     Mouse,
+    Key,
 }
 
 impl Scripts {
@@ -372,7 +375,7 @@ fn pump(app: &mut VectorcraftApp, script: &mut Running, mut frame: Option<f64>, 
         let Some(kind) = script.busy else {
             return Ok(true);
         };
-        let Some(Done { error, tool }) = settle(app, script, wait) else {
+        let Some(Done { error, tool, keys }) = settle(app, script, wait) else {
             return Ok(true);
         };
         if let Some(error) = error {
@@ -386,7 +389,7 @@ fn pump(app: &mut VectorcraftApp, script: &mut Running, mut frame: Option<f64>, 
             // tool.
             script.tool = true;
             if app.scripts.tool().is_none_or(|t| t != path) {
-                app.scripts.tool = Some(ToolScript { path, source: script.source.clone() });
+                app.scripts.tool = Some(ToolScript { path, source: script.source.clone(), keys });
                 app.scripts.tool_active = true;
             }
         }
@@ -400,6 +403,7 @@ fn send(app: &mut VectorcraftApp, script: &mut Running, work: Work) -> Result<()
     script.busy = Some(match work {
         Work::Execute(_) => Kind::Execute,
         Work::Frame(_) => Kind::Frame,
+        Work::Key(..) => Kind::Key,
         Work::Mouse(event, ..) => {
             if event == MouseEvent::Down {
                 // A drag starts its own undo step.
@@ -412,10 +416,11 @@ fn send(app: &mut VectorcraftApp, script: &mut Running, work: Work) -> Result<()
     Ok(())
 }
 
-/// How a script's work ended: its error, and whether it made a tool.
+/// How a script's work ended: its error, whether it made a tool, and whether that handles keys.
 struct Done {
     error: Option<String>,
     tool: bool,
+    keys: bool,
 }
 
 /// Applies what the script's work changed as its replies come, until the work is done, or a reply
@@ -429,11 +434,11 @@ fn settle(app: &mut VectorcraftApp, script: &mut Running, wait: Duration) -> Opt
                     failed.get_or_insert(e);
                 }
             }
-            Reply::Done { output, error, running, tool } => {
+            Reply::Done { output, error, running, tool, keys } => {
                 show_output(app, output);
                 script.busy = None;
                 script.timers = running;
-                return Some(Done { error: error.or(failed), tool });
+                return Some(Done { error: error.or(failed), tool, keys });
             }
         }
     }
@@ -466,11 +471,72 @@ pub(crate) fn pointer(app: &mut VectorcraftApp, ev: &vectorcraft_tools::PointerE
     // `cmd` is Command on macOS, Ctrl elsewhere, as Paper.js's `modifiers.command` is.
     let mac = cfg!(target_os = "macos");
     let modifiers = Modifiers { shift: ev.mods.shift, control: ev.mods.ctrl || (ev.mods.cmd && !mac), alt: ev.mods.alt, meta: ev.mods.cmd && mac };
+    to_tool(app, active, [Work::Mouse(event, (ev.pos.x, ev.pos.y), modifiers)]);
+    true
+}
+
+/// Sends the keys typed on the canvas to the active tool script, when it handles keys: plain keys,
+/// with Shift or not. Keys with Cmd, Ctrl or Alt stay the app's shortcuts, and so do Space (the
+/// Hand tool) and Escape. The keys it gets are taken out of the frame's input.
+pub(crate) fn keys(app: &mut VectorcraftApp, ctx: &egui::Context) {
+    let handles = app.scripts.tool.as_ref().is_some_and(|t| t.keys) && app.scripts.active_tool().is_some();
+    let Some(active) = app.session.active().map(|d| d.uid).filter(|_| handles) else {
+        return;
+    };
+    let work = ctx.input_mut(|i| {
+        let mut work = Vec::new();
+        i.events.retain(|e| match e {
+            egui::Event::Key { key, pressed, modifiers, .. }
+                if !(modifiers.command || modifiers.ctrl || modifiers.alt) && !matches!(key, egui::Key::Space | egui::Key::Escape) =>
+            {
+                let (name, character) = paper_key(*key, modifiers.shift);
+                work.push(Work::Key(*pressed, name, character, Modifiers { shift: modifiers.shift, ..Default::default() }));
+                false
+            }
+            _ => true,
+        });
+        work
+    });
+    if !work.is_empty() {
+        to_tool(app, active, work);
+    }
+}
+
+/// A key's name as Paper.js has it, as browsers name keys (`a`, `5`, `-`, `enter`, `left`,
+/// `page-up`…), and the character it types.
+fn paper_key(key: egui::Key, shift: bool) -> (String, Option<String>) {
+    let symbol = match key {
+        egui::Key::Minus => "-",
+        key => key.symbol_or_name(),
+    };
+    if symbol.len() == 1 {
+        let name = symbol.to_lowercase();
+        let character = if shift { symbol.to_uppercase() } else { name.clone() };
+        return (name, Some(character));
+    }
+    let mut name = String::new();
+    for (i, c) in key.name().chars().enumerate() {
+        if c.is_uppercase() && i > 0 {
+            name.push('-');
+        }
+        name.extend(c.to_lowercase());
+    }
+    let character = match key {
+        egui::Key::Enter => Some("\r".to_owned()),
+        egui::Key::Tab => Some("\t".to_owned()),
+        _ => None,
+    };
+    (name, character)
+}
+
+/// Sends `work` to the tool script in document `active`, running it there first for the tool's
+/// first use in that document.
+fn to_tool(app: &mut VectorcraftApp, active: u64, work: impl IntoIterator<Item = Work>) {
     let script = match app.scripts.running.iter().position(|s| s.tool && s.doc == active) {
         Some(index) => Ok(app.scripts.running.remove(index)),
         None => match app.scripts.tool.clone() {
             Some(tool) => load_tool(app, tool),
-            None => return false,
+            None => return,
         },
     };
     let mut script = match script {
@@ -478,10 +544,10 @@ pub(crate) fn pointer(app: &mut VectorcraftApp, ev: &vectorcraft_tools::PointerE
         Err(e) => {
             app.status(e);
             app.scripts.tool = None;
-            return true;
+            return;
         }
     };
-    script.queued.push_back(Work::Mouse(event, (ev.pos.x, ev.pos.y), modifiers));
+    script.queued.extend(work);
     match pump(app, &mut script, None, FRAME_WAIT) {
         Ok(_) => app.scripts.running.push(script),
         Err(e) => {
@@ -490,11 +556,10 @@ pub(crate) fn pointer(app: &mut VectorcraftApp, ev: &vectorcraft_tools::PointerE
         }
     }
     app.scripts.tidy();
-    true
 }
 
 /// The tool script, to run in the active document for the tool's first use there.
-fn load_tool(app: &mut VectorcraftApp, ToolScript { path, source }: ToolScript) -> Result<Running, String> {
+fn load_tool(app: &mut VectorcraftApp, ToolScript { path, source, .. }: ToolScript) -> Result<Running, String> {
     let mut script = start(app, file_name(&path), Some(path), source)?;
     script.tool = true;
     Ok(script)
