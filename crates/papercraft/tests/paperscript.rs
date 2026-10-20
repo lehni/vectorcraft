@@ -886,6 +886,36 @@ fn the_console_writes_as_browsers_do<E: Engine>() {
     );
 }
 
+fn structured_clone_copies_as_browsers_do<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "const shared = { n: 1 }\n\
+             const original = { list: [shared, shared], when: new Date(5), pattern: /a/gi, map: new Map([[1, shared]]), set: new Set(['x']), bytes: new Uint8Array([1, 2]), matrix: new DOMMatrix().translate(3, 4) }\n\
+             original.self = original\n\
+             const copy = structuredClone(original)\n\
+             console.log(copy !== original, copy.self === copy, copy.list[0] === copy.list[1], copy.list[0] !== shared, copy.map.get(1) === copy.list[0])\n\
+             console.log(copy.when.getTime(), String(copy.pattern), copy.set.has('x'), copy.bytes.join(), copy.matrix instanceof DOMMatrix, copy.matrix.e)\n\
+             const error = structuredClone(new RangeError('far'))\n\
+             console.log(error instanceof RangeError, error.message, structuredClone(5), structuredClone('text'))\n\
+             const thrown = f => { try { f() } catch (e) { return e.name } }\n\
+             console.log(thrown(() => structuredClone(() => 1)), thrown(() => structuredClone({ f: Symbol() })), thrown(() => structuredClone(new OffscreenCanvas(1, 1))))",
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.take_output(),
+        [
+            // Shared and cyclic objects stay so.
+            "true true true true true",
+            "5 /a/gi true 1,2 true 3",
+            "true far 5 text",
+            "DataCloneError DataCloneError DataCloneError",
+        ]
+    );
+}
+
 fn runtimes_live_side_by_side<E: Engine>() {
     // As the app runs them: a second script starts while the first keeps running, and the first
     // stops first.
@@ -1066,6 +1096,11 @@ macro_rules! engine_tests {
             #[test]
             fn animation_frames_run_once_a_frame() {
                 super::animation_frames_run_once_a_frame::<$engine>();
+            }
+
+            #[test]
+            fn structured_clone_copies_as_browsers_do() {
+                super::structured_clone_copies_as_browsers_do::<$engine>();
             }
 
             #[test]

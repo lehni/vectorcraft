@@ -616,6 +616,41 @@ fn new_matrix<H: Clone>(call: &mut dyn Call<H>, kind: Kind, matrix: &Matrix) -> 
     Ok(made)
 }
 
+/// A copy of the geometry object `value`, whose class `Object.prototype.toString()` names
+/// (`[object DOMPoint]` …), as `structuredClone()` makes one; none for another object.
+pub(crate) fn copy<H: Clone>(call: &mut dyn Call<H>, value: &Value<H>, class: &str) -> Result<Option<Value<H>>, Error> {
+    let Some((kind, _)) = KINDS.iter().find(|(_, name)| class == format!("[object {name}]")) else {
+        return Ok(None);
+    };
+    let copied = match kind {
+        Kind::PointReadOnly | Kind::Point => {
+            let values = read_point(call, value)?;
+            new_point(call, *kind, values)?
+        }
+        Kind::RectReadOnly | Kind::Rect => {
+            let values = RECT.map(|i| FIELDS[i].1);
+            let mut read = [0.0; 4];
+            for (slot, key) in read.iter_mut().zip(values) {
+                *slot = number(call, value, key)?;
+            }
+            new_rect(call, *kind, read)?
+        }
+        Kind::Quad => {
+            let mut points = [[0.0; 4]; 4];
+            for (point, (_, key, _)) in points.iter_mut().zip(&FIELDS[QUAD]) {
+                let stored = stored(call, value, key)?;
+                *point = read_point(call, &stored)?;
+            }
+            new_quad(call, points)?
+        }
+        Kind::MatrixReadOnly | Kind::Matrix => {
+            let matrix = read_matrix(call, value)?;
+            new_matrix(call, *kind, &matrix)?
+        }
+    };
+    Ok(Some(Value::Js(copied)))
+}
+
 /// A new `DOMMatrix` of `matrix`, as `getTransform()` gives it.
 pub(crate) fn matrix_value<H: Clone>(call: &mut dyn Call<H>, matrix: &Matrix) -> Result<Value<H>, Error> {
     new_matrix(call, Kind::Matrix, matrix).map(Value::Js)
