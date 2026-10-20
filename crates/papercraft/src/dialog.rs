@@ -1,14 +1,15 @@
 //! Scriptographer's `Dialog`: `Dialog.alert([title,] message)`, `Dialog.confirm([title,]
 //! message)`, `Dialog.prompt(title, components, values)`, the file dialogs
-//! `Dialog.fileOpen([message, filters, selectedFile])`, `Dialog.fileSave(…)` and
-//! `Dialog.chooseDirectory([message, selectedDirectory])`, and `Dialog.chooseColor([color])`. Each
+//! `Dialog.openFile([message, filters, selectedFile])`, `Dialog.saveFile(…)` (Scriptographer's
+//! `fileOpen` and `fileSave`) and `Dialog.chooseDirectory([message, selectedDirectory])`, and
+//! `Dialog.chooseColor([color])`. Each
 //! one asks the host ([`Runtime::set_ask`]) and waits for the answer, which the user gives in a
 //! dialog the app shows: scripts block on them as they did in Scriptographer.
 //!
 //! The host gets the question as JSON: `{type: 'alert' | 'confirm', title, message}`, or
 //! `{type: 'prompt', title, components: [{name, type, label, value, …}]}` with each component's
 //! definition as the script wrote it, its type filled in where the script left it out, and its
-//! value from `values` or the definition, or `{type: 'fileOpen' | 'fileSave' | 'chooseDirectory',
+//! value from `values` or the definition, or `{type: 'openFile' | 'saveFile' | 'chooseDirectory',
 //! path, filters}` with the file or folder to start from. It answers `true` (OK) or `false`, for a prompt
 //! the values by name, for a file dialog the path, or `null` (Cancel). The file dialogs return
 //! a `File`; their `filters` come as `[label, [extensions]]`.
@@ -44,8 +45,8 @@ pub(crate) fn install<E: Engine>(runtime: &mut Runtime<E>, global: &E::Handle) -
     let alert = runtime.engine.function("alert", alert)?;
     let confirm = runtime.engine.function("confirm", confirm)?;
     let prompt = runtime.engine.function("prompt", prompt)?;
-    let file_open = runtime.engine.function("fileOpen", |call, _, args| file(call, "fileOpen", args.get(1), args.get(2)))?;
-    let file_save = runtime.engine.function("fileSave", |call, _, args| file(call, "fileSave", args.get(1), args.get(2)))?;
+    let open_file = runtime.engine.function("openFile", |call, _, args| file(call, "openFile", args.get(1), args.get(2)))?;
+    let save_file = runtime.engine.function("saveFile", |call, _, args| file(call, "saveFile", args.get(1), args.get(2)))?;
     let choose_directory = runtime.engine.function("chooseDirectory", |call, _, args| file(call, "chooseDirectory", None, args.get(1)))?;
     let choose_color = runtime.engine.function("chooseColor", choose_color)?;
     let paper = runtime.paper.clone();
@@ -54,8 +55,8 @@ pub(crate) fn install<E: Engine>(runtime: &mut Runtime<E>, global: &E::Handle) -
         call.set(&dialog, "alert", &Value::Js(alert))?;
         call.set(&dialog, "confirm", &Value::Js(confirm))?;
         call.set(&dialog, "prompt", &Value::Js(prompt))?;
-        call.set(&dialog, "fileOpen", &Value::Js(file_open))?;
-        call.set(&dialog, "fileSave", &Value::Js(file_save))?;
+        call.set(&dialog, "openFile", &Value::Js(open_file))?;
+        call.set(&dialog, "saveFile", &Value::Js(save_file))?;
         call.set(&dialog, "chooseDirectory", &Value::Js(choose_directory))?;
         call.set(&dialog, "chooseColor", &Value::Js(choose_color))?;
         call.set(global, "Dialog", &Value::Js(dialog))?;

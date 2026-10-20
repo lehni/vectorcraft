@@ -36,15 +36,15 @@ fn alert_and_confirm_ask_and_wait<E: Engine>() {
 }
 
 fn file_dialogs_return_paths<E: Engine>() {
-    let script = "console.log(Dialog.fileOpen('Open', null, '/tmp/in.svg'))\n\
-        console.log(Dialog.fileSave())\n\
+    let script = "console.log(Dialog.openFile('Open', null, '/tmp/in.svg'))\n\
+        console.log(Dialog.saveFile())\n\
         console.log(Dialog.chooseDirectory('Where?', '/tmp'))";
     let (questions, output) = run::<E>(script, vec![json!("/tmp/b.svg"), Value::Null, json!("/tmp/out")]);
     assert_eq!(
         questions,
         [
-            json!({"type": "fileOpen", "path": "/tmp/in.svg", "filters": []}),
-            json!({"type": "fileSave", "path": null, "filters": []}),
+            json!({"type": "openFile", "path": "/tmp/in.svg", "filters": []}),
+            json!({"type": "saveFile", "path": null, "filters": []}),
             json!({"type": "chooseDirectory", "path": "/tmp", "filters": []})
         ]
     );
@@ -52,8 +52,8 @@ fn file_dialogs_return_paths<E: Engine>() {
 }
 
 fn file_dialogs_take_file_types<E: Engine>() {
-    let script = "Dialog.fileOpen('Open', { Text: ['txt', '*.text'], SVG: 'svg', 'All Files': '*' })\n\
-        Dialog.fileSave('Save', ['Text Files (*.txt)', '*.txt;*.text', 'All Files', '*.*', '*.svg'])";
+    let script = "Dialog.openFile('Open', { Text: ['txt', '*.text'], SVG: 'svg', 'All Files': '*' })\n\
+        Dialog.saveFile('Save', ['Text Files (*.txt)', '*.txt;*.text', 'All Files', '*.*', '*.svg'])";
     let (questions, _) = run::<E>(script, vec![Value::Null, Value::Null]);
     assert_eq!(questions[0]["filters"], json!([["Text", ["txt", "text"]], ["SVG", ["svg"]], ["All Files", []]]), "in the order written");
     assert_eq!(

@@ -740,7 +740,7 @@ fn the_console_shows_when_a_script_prints() {
     assert_eq!(shown(&app), Some(true));
 }
 
-/// `Dialog.fileOpen` shows the app's file picker, starting where the script says, with its file
+/// `Dialog.openFile` shows the app's file picker, starting where the script says, with its file
 /// types; the path picked answers it, and a picker closed without one answers null.
 #[test]
 fn a_script_picks_a_file() {
@@ -752,7 +752,7 @@ fn a_script_picks_a_file() {
         answers.pop().flatten()
     }));
     let path =
-        tempfile_path::Path::new("print(Dialog.fileOpen('Open', { SVG: 'svg', 'All Files': '*' }, '/tmp/start.svg'))\nprint(Dialog.fileOpen())");
+        tempfile_path::Path::new("print(Dialog.openFile('Open', { SVG: 'svg', 'All Files': '*' }, '/tmp/start.svg'))\nprint(Dialog.openFile())");
     app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
     let ctx = egui::Context::default();
     for frame in 1..6 {

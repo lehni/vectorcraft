@@ -786,9 +786,9 @@ fn dialogs(app: &mut VectorcraftApp) {
     }
 }
 
-/// Whether `question` is for a file dialog: `Dialog.fileOpen`, `fileSave` or `chooseDirectory`.
+/// Whether `question` is for a file dialog: `Dialog.openFile`, `saveFile` or `chooseDirectory`.
 fn is_pick(question: &Value) -> bool {
-    matches!(question["type"].as_str(), Some("fileOpen" | "fileSave" | "chooseDirectory"))
+    matches!(question["type"].as_str(), Some("openFile" | "saveFile" | "chooseDirectory"))
 }
 
 /// Shows the file picker the script `id` asks for in `question`, starting from its `path`, with its
@@ -817,8 +817,8 @@ fn pick(app: &mut VectorcraftApp, id: u64, question: &Value) {
     let file = FilePick { name, folder, filters };
     crate::picks::button(app, move |app| {
         let picked = match kind.as_str() {
-            "fileOpen" => crate::picks::open(app, &file),
-            "fileSave" => crate::picks::save(app, &file),
+            "openFile" => crate::picks::open(app, &file),
+            "saveFile" => crate::picks::save(app, &file),
             _ => crate::picks::folder(app),
         };
         if let Some(picked) = picked {
