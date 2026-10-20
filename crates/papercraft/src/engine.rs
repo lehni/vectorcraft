@@ -70,7 +70,7 @@ pub trait Call<H> {
 }
 
 /// A JavaScript engine with one realm (global object) for scripts.
-pub trait Engine: Sized {
+pub trait Engine: Sized + 'static {
     /// A handle to a value that stays in the engine.
     type Handle: Clone;
 

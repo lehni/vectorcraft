@@ -60,13 +60,10 @@ pub(crate) fn load<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[V
         Some(None) => return Err(Error::Script(format!("import '{specifier}': it imports itself, through its imports"))),
         None => {}
     }
-    let source = match url::Url::parse(&key) {
-        Ok(url) if matches!(url.scheme(), "https" | "http") => {
-            call.host()?.borrow_mut().output.push(format!("import {key}"));
-            download(&key).map_err(|e| Error::Script(format!("import '{specifier}': {e}")))?
-        }
-        _ => std::fs::read_to_string(&key).map_err(|e| Error::Script(format!("import '{specifier}': {e}")))?,
-    };
+    if is_web(&key) {
+        call.host()?.borrow_mut().output.push(format!("import {key}"));
+    }
+    let source = source(&key).map_err(|e| Error::Script(format!("import '{specifier}': {e}")))?;
     let (paperscript, scope) = {
         let host = call.host()?;
         let host = host.borrow();
@@ -99,7 +96,7 @@ pub(crate) fn set_up<H: Clone>(call: &mut dyn Call<H>, paper: &H, scope: &H, loa
 
 /// The module `specifier` names, imported by the code at `importer` (a path or a URL; the script's
 /// folder when there is none), as its canonical path or its URL.
-fn locate(specifier: &str, importer: Option<&str>, directory: Option<PathBuf>) -> Result<String, Error> {
+pub(crate) fn locate(specifier: &str, importer: Option<&str>, directory: Option<PathBuf>) -> Result<String, Error> {
     let fail = |e: &dyn std::fmt::Display| Error::Script(format!("import '{specifier}': {e}"));
     if let Ok(url) = url::Url::parse(specifier)
         && url.scheme() != "file"
@@ -116,6 +113,15 @@ fn locate(specifier: &str, importer: Option<&str>, directory: Option<PathBuf>) -
     };
     let path = std::fs::canonicalize(&path).map_err(|e| fail(&e))?;
     Ok(path.to_string_lossy().into_owned())
+}
+
+fn is_web(key: &str) -> bool {
+    url::Url::parse(key).is_ok_and(|url| matches!(url.scheme(), "https" | "http"))
+}
+
+/// The text of the script at `key` ([`locate`]): downloaded when it's a URL, else read.
+pub(crate) fn source(key: &str) -> Result<String, String> {
+    if is_web(key) { download(key) } else { std::fs::read_to_string(key).map_err(|e| e.to_string()) }
 }
 
 /// The text at `url`, downloaded on the script's thread.

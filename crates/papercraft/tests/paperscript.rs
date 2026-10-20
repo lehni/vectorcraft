@@ -1052,6 +1052,65 @@ fn web_sockets_that_cant_connect_close<E: Engine>() {
     assert_eq!(output.get(2..), Some(&["error error".to_owned(), "close 1006 false".to_owned()][..]));
 }
 
+/// Runs the runtime's timers until it stops running, for five seconds at most.
+fn run_until_done<E: Engine>(runtime: &mut Runtime<E>) {
+    let started = std::time::Instant::now();
+    while runtime.is_running() && started.elapsed() < std::time::Duration::from_secs(5) {
+        runtime.run_timers(started.elapsed().as_secs_f64() * 1000.0).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
+fn workers_run_scripts_on_their_threads<E: Engine>(name: &str) {
+    let folder = std::env::temp_dir().join(format!("papercraft-workers-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("helper.js"), "function double(n) { return n * 2 }").unwrap();
+    std::fs::write(
+        folder.join("echo.js"),
+        "importScripts('helper.js')\n\
+         self.onmessage = event => {\n\
+             postMessage({ doubled: double(event.data.n), shared: event.data.list[0] === event.data.list[1], name: self.name })\n\
+             if (event.data.n === 2) close()\n\
+         }\n\
+         setTimeout(() => { throw new Error('later') }, 0)\n\
+         console.log('worker started', self instanceof EventTarget || typeof self.addEventListener)",
+    )
+    .unwrap();
+    let mut runtime = Runtime::<E>::new().unwrap();
+    runtime.set_script(&Setup { file: Some(folder.join("script.js").to_string_lossy().into_owned()), ..Setup::default() }).unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "const worker = new Worker('echo.js', { name: 'echo' })\n\
+             worker.onmessage = event => console.log('reply', JSON.stringify(event.data))\n\
+             worker.onerror = event => { console.log('error', event instanceof ErrorEvent, event.message.includes('later')); event.preventDefault() }\n\
+             const list = [{}]\n\
+             list.push(list[0])\n\
+             worker.postMessage({ n: 1, list })\n\
+             worker.postMessage({ n: 2, list })",
+        )
+        .unwrap();
+    run_until_done(&mut runtime);
+    assert_eq!(
+        runtime.take_output(),
+        [
+            "worker started function",
+            "reply {\"doubled\":2,\"shared\":true,\"name\":\"echo\"}",
+            "error true true",
+            "reply {\"doubled\":4,\"shared\":true,\"name\":\"echo\"}",
+        ]
+    );
+    assert!(!runtime.is_running(), "a closed worker keeps its parent running no more");
+    // A worker that never returns stops when it's terminated.
+    std::fs::write(folder.join("forever.js"), "while (true) {}").unwrap();
+    runtime.execute(&scope, "const forever = new Worker('forever.js')\nsetTimeout(() => forever.terminate(), 50)").unwrap();
+    run_until_done(&mut runtime);
+    assert!(!runtime.is_running(), "the terminated worker is gone");
+    std::fs::remove_dir_all(&folder).unwrap();
+}
+
 fn runtimes_live_side_by_side<E: Engine>() {
     // As the app runs them: a second script starts while the first keeps running, and the first
     // stops first.
@@ -1262,6 +1321,11 @@ macro_rules! engine_tests {
             #[test]
             fn web_sockets_that_cant_connect_close() {
                 super::web_sockets_that_cant_connect_close::<$engine>();
+            }
+
+            #[test]
+            fn workers_run_scripts_on_their_threads() {
+                super::workers_run_scripts_on_their_threads::<$engine>(stringify!($module));
             }
 
             #[test]

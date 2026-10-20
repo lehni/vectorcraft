@@ -35,6 +35,8 @@ mod urls;
 #[cfg(not(target_arch = "wasm32"))]
 mod web;
 #[cfg(not(target_arch = "wasm32"))]
+mod web_worker;
+#[cfg(not(target_arch = "wasm32"))]
 mod websocket;
 pub mod worker;
 mod writeback;
@@ -156,6 +158,13 @@ pub struct Host<H> {
     sockets: Vec<websocket::Socket<H>>,
     #[cfg(not(target_arch = "wasm32"))]
     next_socket: u32,
+    /// The workers the script started, and the number the next one gets; in a worker, its parent.
+    #[cfg(not(target_arch = "wasm32"))]
+    children: Vec<web_worker::Child<H>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    next_child: u32,
+    #[cfg(not(target_arch = "wasm32"))]
+    parent: Option<web_worker::Parent<H>>,
     #[cfg(not(target_arch = "wasm32"))]
     resolvers: Option<(H, H)>,
     /// `URL` and `URLSearchParams` outside a browser.
@@ -178,6 +187,8 @@ pub struct Host<H> {
     session_storage: storage::Storage,
     storages: Option<storage::Classes<H>>,
     next_palette_id: u64,
+    /// The language the app gave the script ([`Setup`]), which its workers have too.
+    language: Option<String>,
     /// `script.preferences` as last taken, as JSON.
     preferences: String,
     /// The [`HANDLERS`] the scripts defined, by name.
@@ -227,6 +238,12 @@ impl<H> Default for Host<H> {
             #[cfg(not(target_arch = "wasm32"))]
             next_socket: 0,
             #[cfg(not(target_arch = "wasm32"))]
+            children: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            next_child: 0,
+            #[cfg(not(target_arch = "wasm32"))]
+            parent: None,
+            #[cfg(not(target_arch = "wasm32"))]
             resolvers: None,
             #[cfg(not(target_arch = "wasm32"))]
             urls: None,
@@ -240,6 +257,7 @@ impl<H> Default for Host<H> {
             session_storage: storage::Storage::default(),
             storages: None,
             next_palette_id: 0,
+            language: None,
             preferences: String::new(),
             handlers: Vec::new(),
         }
@@ -306,6 +324,8 @@ impl<E: Engine> Runtime<E> {
         urls::install(&mut runtime, &global)?;
         #[cfg(not(target_arch = "wasm32"))]
         websocket::install(&mut runtime.engine, &global)?;
+        #[cfg(not(target_arch = "wasm32"))]
+        web_worker::install(&mut runtime.engine, &global)?;
         clone::install(&mut runtime.engine, &global)?;
         clipboard::install(&mut runtime.engine, &global)?;
         // After `performance`, its clock.
@@ -419,6 +439,8 @@ impl<E: Engine> Runtime<E> {
             fetch::poll(call)?;
             #[cfg(not(target_arch = "wasm32"))]
             websocket::poll(call)?;
+            #[cfg(not(target_arch = "wasm32"))]
+            web_worker::poll(call)?;
             for callback in due {
                 call.call(&callback, &Value::Undefined, &[])?;
             }
@@ -434,7 +456,7 @@ impl<E: Engine> Runtime<E> {
     pub fn is_running(&self) -> bool {
         let host = self.host.borrow();
         #[cfg(not(target_arch = "wasm32"))]
-        if !host.fetches.is_empty() || !host.sockets.is_empty() {
+        if !host.fetches.is_empty() || !host.sockets.is_empty() || !host.children.is_empty() {
             return true;
         }
         !host.intervals.is_empty() || !host.frames.is_empty()
@@ -467,6 +489,7 @@ impl<E: Engine> Runtime<E> {
                 host.local_storage = storage::Storage::kept_in(storage::Storage::file_for(folder, std::path::Path::new(file)));
             }
             host.preferences = preferences.to_string();
+            host.language.clone_from(language);
             host.file = file.map(std::path::PathBuf::from);
             host.directory = directory.clone();
         }

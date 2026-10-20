@@ -1,4 +1,4 @@
-//! `EventTarget`, `Event`, `CustomEvent`, `MessageEvent` and `CloseEvent` for scripts outside a browser, as the DOM standard has
+//! `EventTarget`, `Event`, `CustomEvent`, `MessageEvent`, `CloseEvent` and `ErrorEvent` for scripts outside a browser, as the DOM standard has
 //! them, to extend (`class Emitter extends EventTarget`): listeners with `capture`, `once`,
 //! `passive` and `signal`, objects with `handleEvent()`, `dispatchEvent()`, `preventDefault()` and
 //! the propagation methods. There's no tree to propagate through: an event reaches its target only
@@ -15,7 +15,7 @@ const PHASES: [(&str, f64); 4] = [("NONE", NONE), ("CAPTURING_PHASE", 1.0), ("AT
 
 /// What an event keeps, its getters' names: `srcElement` is its target. The first ten are every
 /// event's; the others the subclasses', which their init dictionaries give ([`CLASSES`]).
-const FIELDS: [&str; 19] = [
+const FIELDS: [&str; 24] = [
     "type",
     "bubbles",
     "cancelable",
@@ -35,6 +35,11 @@ const FIELDS: [&str; 19] = [
     "wasClean",
     "code",
     "reason",
+    "message",
+    "filename",
+    "lineno",
+    "colno",
+    "error",
 ];
 
 /// How many of [`FIELDS`] every event has.
@@ -54,11 +59,12 @@ enum Member {
 
 /// The event classes, `Event` first, the others extending it: their names, and their own fields,
 /// by [`FIELDS`] index.
-const CLASSES: [(&str, &[(usize, Member)]); 4] = [
+const CLASSES: [(&str, &[(usize, Member)]); 5] = [
     ("Event", &[]),
     ("CustomEvent", &[(10, Member::Any)]),
     ("MessageEvent", &[(11, Member::Any), (12, Member::Text), (13, Member::Text), (14, Member::Any), (15, Member::List)]),
     ("CloseEvent", &[(16, Member::Bool), (17, Member::Number), (18, Member::Text)]),
+    ("ErrorEvent", &[(19, Member::Text), (20, Member::Text), (21, Member::Number), (22, Member::Number), (23, Member::Any)]),
 ];
 
 /// What the classes share: the realm's `WeakMap`s of targets' listeners and events' states, the
@@ -83,7 +89,8 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
         return Ok(());
     }
     let target = engine.constructor("EventTarget", |_, _, _| Ok(Value::Undefined))?;
-    let constructors: [HostFunction<E::Handle>; CLASSES.len()] = [construct::<_, 0>, construct::<_, 1>, construct::<_, 2>, construct::<_, 3>];
+    let constructors: [HostFunction<E::Handle>; CLASSES.len()] =
+        [construct::<_, 0>, construct::<_, 1>, construct::<_, 2>, construct::<_, 3>, construct::<_, 4>];
     let mut classes = Vec::new();
     for ((name, _), constructor) in CLASSES.iter().zip(constructors) {
         classes.push(engine.constructor(name, constructor)?);
@@ -110,7 +117,7 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
     macro_rules! getters {
         ($($i:literal)*) => { [$(get::<E::Handle, $i> as HostFunction<E::Handle>),*] };
     }
-    let getters: [HostFunction<E::Handle>; FIELDS.len()] = getters!(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18);
+    let getters: [HostFunction<E::Handle>; FIELDS.len()] = getters!(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23);
     let mut fields = Vec::new();
     for (name, get) in FIELDS.iter().zip(getters) {
         fields.push((*name, engine.function(name, get)?));

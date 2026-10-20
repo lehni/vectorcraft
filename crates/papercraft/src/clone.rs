@@ -1,13 +1,16 @@
-//! `structuredClone(value)`, as browsers copy values between windows and workers: primitives as
-//! they are; arrays and objects deeply, as plain ones (their own enumerable properties), each
-//! object once, so shared and cyclic ones stay so; `Date`, `RegExp`, `Map`, `Set`, `ArrayBuffer`,
-//! typed arrays and `DataView` (sharing the copies of their buffers as they shared them), the
-//! `Error` classes, boxed primitives, `Blob`, `ImageData` and the geometry classes as themselves.
-//! Functions, symbols and other objects throw a `DataCloneError`. Transferring isn't supported.
+//! Structured serialization, as browsers copy values between windows and workers: [`serialize`]
+//! keeps a value as [`Data`], which [`deserialize`] makes again in any realm, on any thread.
+//! Primitives are kept as they are; arrays and objects deeply, as plain ones (their own enumerable
+//! properties), each object once, so shared and cyclic ones stay so; `Date`, `RegExp`, `Map`,
+//! `Set`, `ArrayBuffer`, typed arrays and `DataView` (sharing the copies of their buffers as they
+//! shared them), the `Error` classes, boxed primitives, `Blob`, `ImageData` and the geometry classes
+//! as themselves. Functions, symbols and other objects throw a `DataCloneError`.
+//!
+//! `structuredClone(value)` is both in one realm. Transferring isn't supported.
 
 use crate::{Call, Engine, Error, Value, method, object};
 
-/// How deep objects may nest, before the copy would run out of stack.
+/// How deep objects may nest, before serializing would run out of stack.
 const DEPTH: usize = 1024;
 
 /// The typed array classes, as `Object.prototype.toString()` names them.
@@ -26,8 +29,42 @@ const TYPED_ARRAYS: [&str; 12] = [
     "BigUint64Array",
 ];
 
-/// The `Error` classes a copy keeps.
+/// The `Error` classes kept as themselves.
 const ERRORS: [&str; 7] = ["Error", "EvalError", "RangeError", "ReferenceError", "SyntaxError", "TypeError", "URIError"];
+
+/// A serialized value. Objects are numbered in the order they're first met; one met again is
+/// [`Data::Seen`].
+#[derive(Clone, Debug)]
+pub(crate) enum Data {
+    Undefined,
+    Null,
+    Bool(bool),
+    Number(f64),
+    String(String),
+    /// A BigInt, as its decimal digits.
+    BigInt(String),
+    /// The object of this number, met before.
+    Seen(usize),
+    /// An object's or array's own enumerable properties (an array's `length` too).
+    Object(Vec<(String, Data)>),
+    Array(f64, Vec<(String, Data)>),
+    Date(f64),
+    RegExp(String, String),
+    Map(Vec<(Data, Data)>),
+    Set(Vec<Data>),
+    Buffer(Vec<u8>),
+    /// A typed array or `DataView` (its class), of a buffer, at an offset, of a length.
+    View(String, Box<Data>, f64, f64),
+    /// An error of a class of [`ERRORS`], with its message and stack.
+    Error(String, String, Option<String>),
+    /// A boxed `Boolean`, `Number` or `String`.
+    Boxed(String, Box<Data>),
+    Blob(Vec<u8>, String),
+    /// An `ImageData`: its pixels, width and height.
+    Pixels(Box<Data>, f64, f64),
+    /// A geometry object: its class, as `Object.prototype.toString()` names it, and its numbers.
+    Geometry(String, Vec<f64>),
+}
 
 /// The realm's global object and `Object.prototype.toString`, which names an object's class.
 pub(crate) struct Classes<H> {
@@ -35,18 +72,17 @@ pub(crate) struct Classes<H> {
     to_string: H,
 }
 
-/// Sets `structuredClone` on `global`, unless it has it.
+/// Sets `structuredClone` on `global`, unless it has it, and keeps what serializing uses.
 pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(), Error> {
     let function = engine.function("structuredClone", structured_clone)?;
     engine.with_call(|call| {
-        if !matches!(call.get(global, "structuredClone")?, Value::Undefined) {
-            return Ok(());
-        }
-        call.set(global, "structuredClone", &Value::Js(function))?;
         let object_class = object(call, global, "Object")?;
         let prototype = object(call, &object_class, "prototype")?;
         let to_string = object(call, &prototype, "toString")?;
         call.host()?.borrow_mut().clone_classes = Some(Classes { global: global.clone(), to_string });
+        if matches!(call.get(global, "structuredClone")?, Value::Undefined) {
+            call.set(global, "structuredClone", &Value::Js(function))?;
+        }
         Ok(())
     })
 }
@@ -62,181 +98,277 @@ fn structured_clone<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[
     {
         return Err(data_clone_error("a transfer list"));
     }
-    let (global, to_string) = {
-        let host = call.host()?;
-        let host = host.borrow();
-        let classes = host.clone_classes.as_ref().ok_or_else(|| Error::Script("structuredClone is not set up".into()))?;
-        (classes.global.clone(), classes.to_string.clone())
-    };
-    let map = object(call, &global, "Map")?;
-    let Value::Js(seen) = call.construct(&map, &[])? else {
-        return Err(Error::Script("new Map() made nothing".into()));
-    };
-    let mut copier = Copier { global, to_string, seen };
-    copier.copy(call, args.first().unwrap_or(&Value::Undefined), 0)
+    let data = serialize(call, args.first().unwrap_or(&Value::Undefined))?;
+    deserialize(call, &data)
 }
 
-/// A copy in progress: what it uses of the realm, and the objects copied so far, by original.
-struct Copier<H> {
+fn classes<H: Clone>(call: &mut dyn Call<H>) -> Result<(H, H), Error> {
+    let host = call.host()?;
+    let host = host.borrow();
+    let classes = host.clone_classes.as_ref().ok_or_else(|| Error::Script("structured cloning is not set up".into()))?;
+    Ok((classes.global.clone(), classes.to_string.clone()))
+}
+
+fn new_map<H: Clone>(call: &mut dyn Call<H>, global: &H) -> Result<H, Error> {
+    let map = object(call, global, "Map")?;
+    match call.construct(&map, &[])? {
+        Value::Js(map) => Ok(map),
+        _ => Err(Error::Script("new Map() made nothing".into())),
+    }
+}
+
+fn length<H: Clone>(call: &mut dyn Call<H>, object: &H) -> Result<usize, Error> {
+    Ok(match call.get(object, "length")? {
+        Value::Number(n) if n.is_finite() && n >= 0.0 => n as usize,
+        _ => 0,
+    })
+}
+
+/// `value`, serialized.
+pub(crate) fn serialize<H: Clone>(call: &mut dyn Call<H>, value: &Value<H>) -> Result<Data, Error> {
+    let (global, to_string) = classes(call)?;
+    let seen = new_map(call, &global)?;
+    let mut serializer = Serializer { global, to_string, seen, count: 0 };
+    serializer.serialize(call, value, 0)
+}
+
+/// A serialization in progress: what it uses of the realm, and the objects met so far, by number.
+struct Serializer<H> {
     global: H,
     to_string: H,
     seen: H,
+    count: usize,
 }
 
-impl<H: Clone> Copier<H> {
-    fn class(&self, call: &mut dyn Call<H>, name: &str) -> Result<H, Error> {
-        object(call, &self.global, name)
-    }
-
-    fn length(call: &mut dyn Call<H>, object: &H) -> Result<usize, Error> {
-        Ok(match call.get(object, "length")? {
-            Value::Number(n) if n.is_finite() && n >= 0.0 => n as usize,
-            _ => 0,
-        })
-    }
-
-    /// The copy of `value`, `depth` objects deep.
-    fn copy(&mut self, call: &mut dyn Call<H>, value: &Value<H>, depth: usize) -> Result<Value<H>, Error> {
-        let Value::Js(original) = value else {
-            return Ok(value.clone());
+impl<H: Clone> Serializer<H> {
+    fn serialize(&mut self, call: &mut dyn Call<H>, value: &Value<H>, depth: usize) -> Result<Data, Error> {
+        let original = match value {
+            Value::Undefined => return Ok(Data::Undefined),
+            Value::Null => return Ok(Data::Null),
+            Value::Bool(b) => return Ok(Data::Bool(*b)),
+            Value::Number(n) => return Ok(Data::Number(*n)),
+            Value::String(s) => return Ok(Data::String(s.clone())),
+            Value::Js(original) => original,
         };
         if depth > DEPTH {
             return Err(Error::Range("structuredClone: the value nests too deeply".into()));
         }
-        if crate::truthy(&method(call, &self.seen, "has", std::slice::from_ref(value))?) {
-            return method(call, &self.seen, "get", std::slice::from_ref(value));
+        if let Value::Number(number) = method(call, &self.seen, "get", std::slice::from_ref(value))? {
+            return Ok(Data::Seen(number as usize));
         }
         let class = call.call(&self.to_string, value, &[])?;
         let class = call.to_string(&class)?;
         let name = class.trim_start_matches("[object ").trim_end_matches(']').to_owned();
-        // What holds others is remembered before they're copied, so cycles come back to it.
-        let copy = match name.as_str() {
+        // A BigInt is a primitive, boxed or not; symbols and functions can't be kept.
+        if name == "BigInt" {
+            return Ok(Data::BigInt(call.to_string(value)?));
+        }
+        if name == "Symbol" || name.ends_with("Function") {
+            return Err(data_clone_error(if name == "Symbol" { "a symbol" } else { "a function" }));
+        }
+        // Numbered before what it holds, so cycles come back to it.
+        method(call, &self.seen, "set", &[value.clone(), Value::Number(self.count as f64)])?;
+        self.count += 1;
+        Ok(match name.as_str() {
             "Array" => {
-                let array = self.class(call, "Array")?;
-                let copy = call.construct(&array, &[])?;
-                self.remember(call, value, &copy)?;
-                self.copy_members(call, original, &copy, depth)?;
-                return Ok(copy);
+                let length = call.get(original, "length")?;
+                Data::Array(call.to_number(&length)?, self.members(call, original, depth)?)
             }
-            "Object" | "Arguments" => {
-                let copy = Value::Js(call.new_object()?);
-                self.remember(call, value, &copy)?;
-                self.copy_members(call, original, &copy, depth)?;
-                return Ok(copy);
-            }
+            "Object" | "Arguments" => Data::Object(self.members(call, original, depth)?),
             "Map" | "Set" => {
-                let class = self.class(call, &name)?;
-                let copy = call.construct(&class, &[])?;
-                self.remember(call, value, &copy)?;
-                let array = self.class(call, "Array")?;
+                let array = object(call, &self.global, "Array")?;
                 let Value::Js(entries) = method(call, &array, "from", std::slice::from_ref(value))? else {
-                    return Ok(copy);
+                    return Ok(Data::Set(Vec::new()));
                 };
-                let Value::Js(target) = &copy else {
-                    return Ok(copy);
-                };
-                for i in 0..Self::length(call, &entries)? {
+                let mut pairs = Vec::new();
+                let mut items = Vec::new();
+                for i in 0..length(call, &entries)? {
                     let entry = call.get(&entries, &i.to_string())?;
                     if name == "Map" {
                         let Value::Js(pair) = &entry else { continue };
                         let (key, item) = (call.get(pair, "0")?, call.get(pair, "1")?);
-                        let (key, item) = (self.copy(call, &key, depth + 1)?, self.copy(call, &item, depth + 1)?);
-                        method(call, target, "set", &[key, item])?;
+                        pairs.push((self.serialize(call, &key, depth + 1)?, self.serialize(call, &item, depth + 1)?));
                     } else {
-                        let item = self.copy(call, &entry, depth + 1)?;
-                        method(call, target, "add", &[item])?;
+                        items.push(self.serialize(call, &entry, depth + 1)?);
                     }
                 }
-                return Ok(copy);
+                if name == "Map" { Data::Map(pairs) } else { Data::Set(items) }
             }
             "Date" => {
                 let time = method(call, original, "getTime", &[])?;
-                let class = self.class(call, "Date")?;
-                call.construct(&class, &[time])?
+                Data::Date(call.to_number(&time)?)
             }
             "RegExp" => {
                 let (source, flags) = (call.get(original, "source")?, call.get(original, "flags")?);
-                let class = self.class(call, "RegExp")?;
-                call.construct(&class, &[source, flags])?
+                Data::RegExp(call.to_string(&source)?, call.to_string(&flags)?)
             }
             "Boolean" | "Number" | "String" => {
                 let primitive = method(call, original, "valueOf", &[])?;
-                let class = self.class(call, &name)?;
-                call.construct(&class, &[primitive])?
+                Data::Boxed(name.clone(), Box::new(self.serialize(call, &primitive, depth + 1)?))
             }
-            // A BigInt is a primitive (or boxed one).
-            "BigInt" => return Ok(value.clone()),
-            "ArrayBuffer" => method(call, original, "slice", &[Value::Number(0.0)])?,
-            "DataView" => {
+            "ArrayBuffer" => Data::Buffer(call.bytes(original)?),
+            name if name == "DataView" || TYPED_ARRAYS.contains(&name) => {
                 let buffer = call.get(original, "buffer")?;
-                let buffer = self.copy(call, &buffer, depth + 1)?;
-                let (offset, length) = (call.get(original, "byteOffset")?, call.get(original, "byteLength")?);
-                let class = self.class(call, "DataView")?;
-                call.construct(&class, &[buffer, offset, length])?
-            }
-            name if TYPED_ARRAYS.contains(&name) => {
-                let buffer = call.get(original, "buffer")?;
-                let buffer = self.copy(call, &buffer, depth + 1)?;
-                let (offset, length) = (call.get(original, "byteOffset")?, call.get(original, "length")?);
-                let class = self.class(call, name)?;
-                call.construct(&class, &[buffer, offset, length])?
+                let buffer = self.serialize(call, &buffer, depth + 1)?;
+                let offset = call.get(original, "byteOffset")?;
+                let length = call.get(original, if name == "DataView" { "byteLength" } else { "length" })?;
+                Data::View(name.to_owned(), Box::new(buffer), call.to_number(&offset)?, call.to_number(&length)?)
             }
             "Error" => {
                 let error_name = call.get(original, "name")?;
                 let error_name = call.to_string(&error_name)?;
-                let class = self.class(call, if ERRORS.contains(&error_name.as_str()) { &error_name } else { "Error" })?;
                 let message = call.get(original, "message")?;
-                let copy = call.construct(&class, &[message])?;
-                if let Value::Js(target) = &copy {
-                    let stack = call.get(original, "stack")?;
-                    call.set(target, "stack", &stack)?;
-                }
-                copy
+                let stack = match call.get(original, "stack")? {
+                    Value::String(stack) => Some(stack),
+                    _ => None,
+                };
+                let class = if ERRORS.contains(&error_name.as_str()) { error_name } else { "Error".into() };
+                Data::Error(class, call.to_string(&message)?, stack)
             }
             "ImageData" => {
                 let data = call.get(original, "data")?;
-                let data = self.copy(call, &data, depth + 1)?;
+                let data = self.serialize(call, &data, depth + 1)?;
                 let (width, height) = (call.get(original, "width")?, call.get(original, "height")?);
-                let class = self.class(call, "ImageData")?;
-                call.construct(&class, &[data, width, height])?
+                Data::Pixels(Box::new(data), call.to_number(&width)?, call.to_number(&height)?)
             }
             #[cfg(not(target_arch = "wasm32"))]
             "Blob" => {
                 let bytes = crate::fetch::blob_bytes(call, value)?;
                 let kind = call.get(original, "type")?;
-                let kind = call.to_string(&kind)?;
-                crate::fetch::new_blob(call, &bytes, &kind)?
+                Data::Blob(bytes, call.to_string(&kind)?)
             }
-            _ => match crate::geometry::copy(call, value, &class)? {
-                Some(copy) => copy,
-                None => return Err(data_clone_error(if name.ends_with("Function") { "a function" } else { &class })),
+            _ => match crate::geometry::serialize(call, value, &class)? {
+                Some(values) => Data::Geometry(class.clone(), values),
+                None => return Err(data_clone_error(&class)),
             },
-        };
-        self.remember(call, value, &copy)?;
-        Ok(copy)
+        })
     }
 
-    fn remember(&self, call: &mut dyn Call<H>, original: &Value<H>, copy: &Value<H>) -> Result<(), Error> {
-        method(call, &self.seen, "set", &[original.clone(), copy.clone()])?;
-        Ok(())
-    }
-
-    /// Copies the own enumerable properties of `original` onto `copy`.
-    fn copy_members(&mut self, call: &mut dyn Call<H>, original: &H, copy: &Value<H>, depth: usize) -> Result<(), Error> {
-        let Value::Js(target) = copy else {
-            return Ok(());
-        };
-        let object_class = self.class(call, "Object")?;
+    /// The own enumerable properties of `original`, serialized.
+    fn members(&mut self, call: &mut dyn Call<H>, original: &H, depth: usize) -> Result<Vec<(String, Data)>, Error> {
+        let object_class = object(call, &self.global, "Object")?;
         let Value::Js(keys) = method(call, &object_class, "keys", &[Value::Js(original.clone())])? else {
-            return Ok(());
+            return Ok(Vec::new());
         };
-        for i in 0..Self::length(call, &keys)? {
+        let mut members = Vec::new();
+        for i in 0..length(call, &keys)? {
             let key = call.get(&keys, &i.to_string())?;
             let key = call.to_string(&key)?;
             let member = call.get(original, &key)?;
-            let member = self.copy(call, &member, depth + 1)?;
-            call.set(target, &key, &member)?;
+            members.push((key, self.serialize(call, &member, depth + 1)?));
         }
-        Ok(())
+        Ok(members)
     }
+}
+
+/// `data`, made again in the realm `call` is in.
+pub(crate) fn deserialize<H: Clone>(call: &mut dyn Call<H>, data: &Data) -> Result<Value<H>, Error> {
+    let (global, _) = classes(call)?;
+    let mut made = Vec::new();
+    make(call, &global, data, &mut made)
+}
+
+/// `data` made, with `made` the objects made so far, by number.
+fn make<H: Clone>(call: &mut dyn Call<H>, global: &H, data: &Data, made: &mut Vec<Value<H>>) -> Result<Value<H>, Error> {
+    let construct = |call: &mut dyn Call<H>, class: &str, args: &[Value<H>]| -> Result<Value<H>, Error> {
+        let class = object(call, global, class)?;
+        call.construct(&class, args)
+    };
+    // An object is numbered when it's made, before what it holds is.
+    let number = made.len();
+    let value = match data {
+        Data::Undefined => return Ok(Value::Undefined),
+        Data::Null => return Ok(Value::Null),
+        Data::Bool(b) => return Ok(Value::Bool(*b)),
+        Data::Number(n) => return Ok(Value::Number(*n)),
+        Data::String(s) => return Ok(Value::String(s.clone())),
+        Data::BigInt(digits) => {
+            let big_int = object(call, global, "BigInt")?;
+            return call.call(&big_int, &Value::Undefined, &[Value::String(digits.clone())]);
+        }
+        Data::Seen(number) => return made.get(*number).cloned().ok_or_else(|| Error::Script("the serialized value is broken".into())),
+        Data::Object(members) | Data::Array(_, members) => {
+            let made_object = match data {
+                Data::Array(length, _) => construct(call, "Array", &[Value::Number(*length)])?,
+                _ => Value::Js(call.new_object()?),
+            };
+            made.push(made_object.clone());
+            if let Value::Js(target) = &made_object {
+                for (key, member) in members {
+                    let member = make(call, global, member, made)?;
+                    call.set(target, key, &member)?;
+                }
+            }
+            return Ok(made_object);
+        }
+        Data::Map(pairs) => {
+            let map = construct(call, "Map", &[])?;
+            made.push(map.clone());
+            if let Value::Js(target) = &map {
+                for (key, item) in pairs {
+                    let (key, item) = (make(call, global, key, made)?, make(call, global, item, made)?);
+                    method(call, target, "set", &[key, item])?;
+                }
+            }
+            return Ok(map);
+        }
+        Data::Set(items) => {
+            let set = construct(call, "Set", &[])?;
+            made.push(set.clone());
+            if let Value::Js(target) = &set {
+                for item in items {
+                    let item = make(call, global, item, made)?;
+                    method(call, target, "add", &[item])?;
+                }
+            }
+            return Ok(set);
+        }
+        Data::Date(time) => construct(call, "Date", &[Value::Number(*time)])?,
+        Data::RegExp(source, flags) => construct(call, "RegExp", &[Value::String(source.clone()), Value::String(flags.clone())])?,
+        Data::Boxed(class, primitive) => {
+            made.push(Value::Undefined);
+            let primitive = make(call, global, primitive, made)?;
+            let boxed = construct(call, class, &[primitive])?;
+            if let Some(slot) = made.get_mut(number) {
+                *slot = boxed.clone();
+            }
+            return Ok(boxed);
+        }
+        Data::Buffer(bytes) => {
+            let array = call.new_uint8_array(bytes)?;
+            call.get(&array, "buffer")?
+        }
+        Data::View(class, buffer, offset, length) => {
+            made.push(Value::Undefined);
+            let buffer = make(call, global, buffer, made)?;
+            let view = construct(call, class, &[buffer, Value::Number(*offset), Value::Number(*length)])?;
+            if let Some(slot) = made.get_mut(number) {
+                *slot = view.clone();
+            }
+            return Ok(view);
+        }
+        Data::Error(class, message, stack) => {
+            let error = construct(call, class, &[Value::String(message.clone())])?;
+            if let (Value::Js(target), Some(stack)) = (&error, stack) {
+                call.set(target, "stack", &Value::String(stack.clone()))?;
+            }
+            error
+        }
+        Data::Pixels(data, width, height) => {
+            made.push(Value::Undefined);
+            let data = make(call, global, data, made)?;
+            let image = construct(call, "ImageData", &[data, Value::Number(*width), Value::Number(*height)])?;
+            if let Some(slot) = made.get_mut(number) {
+                *slot = image.clone();
+            }
+            return Ok(image);
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        Data::Blob(bytes, kind) => crate::fetch::new_blob(call, bytes, kind)?,
+        #[cfg(target_arch = "wasm32")]
+        Data::Blob(..) => return Err(data_clone_error("a Blob")),
+        Data::Geometry(class, values) => crate::geometry::deserialize(call, class, values)?.ok_or_else(|| data_clone_error(class))?,
+    };
+    made.push(value.clone());
+    Ok(value)
 }

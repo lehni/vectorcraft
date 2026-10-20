@@ -616,39 +616,68 @@ fn new_matrix<H: Clone>(call: &mut dyn Call<H>, kind: Kind, matrix: &Matrix) -> 
     Ok(made)
 }
 
-/// A copy of the geometry object `value`, whose class `Object.prototype.toString()` names
-/// (`[object DOMPoint]` …), as `structuredClone()` makes one; none for another object.
-pub(crate) fn copy<H: Clone>(call: &mut dyn Call<H>, value: &Value<H>, class: &str) -> Result<Option<Value<H>>, Error> {
+/// The numbers of the geometry object `value`, whose class `Object.prototype.toString()` names
+/// (`[object DOMPoint]` …), as structured serialization keeps them: a point's four, a rect's four,
+/// a quad's points' sixteen, a matrix's sixteen and whether it's 2D. None for another object.
+pub(crate) fn serialize<H: Clone>(call: &mut dyn Call<H>, value: &Value<H>, class: &str) -> Result<Option<Vec<f64>>, Error> {
     let Some((kind, _)) = KINDS.iter().find(|(_, name)| class == format!("[object {name}]")) else {
         return Ok(None);
     };
-    let copied = match kind {
-        Kind::PointReadOnly | Kind::Point => {
-            let values = read_point(call, value)?;
-            new_point(call, *kind, values)?
-        }
+    Ok(Some(match kind {
+        Kind::PointReadOnly | Kind::Point => read_point(call, value)?.to_vec(),
         Kind::RectReadOnly | Kind::Rect => {
-            let values = RECT.map(|i| FIELDS[i].1);
-            let mut read = [0.0; 4];
-            for (slot, key) in read.iter_mut().zip(values) {
-                *slot = number(call, value, key)?;
+            let mut values = Vec::with_capacity(4);
+            for i in RECT {
+                values.push(number(call, value, FIELDS[i].1)?);
             }
-            new_rect(call, *kind, read)?
+            values
         }
         Kind::Quad => {
-            let mut points = [[0.0; 4]; 4];
-            for (point, (_, key, _)) in points.iter_mut().zip(&FIELDS[QUAD]) {
-                let stored = stored(call, value, key)?;
-                *point = read_point(call, &stored)?;
+            let mut values = Vec::with_capacity(16);
+            for (_, key, _) in &FIELDS[QUAD] {
+                let point = stored(call, value, key)?;
+                values.extend(read_point(call, &point)?);
             }
-            new_quad(call, points)?
+            values
         }
         Kind::MatrixReadOnly | Kind::Matrix => {
             let matrix = read_matrix(call, value)?;
-            new_matrix(call, *kind, &matrix)?
+            let mut values = matrix.m.to_vec();
+            values.push(if matrix.is_2d { 1.0 } else { 0.0 });
+            values
         }
+    }))
+}
+
+/// The geometry object of class `class` (as [`serialize`] names it) with `values`; none for
+/// another class or numbers that don't fit it.
+pub(crate) fn deserialize<H: Clone>(call: &mut dyn Call<H>, class: &str, values: &[f64]) -> Result<Option<Value<H>>, Error> {
+    let Some((kind, _)) = KINDS.iter().find(|(_, name)| class == format!("[object {name}]")) else {
+        return Ok(None);
     };
-    Ok(Some(Value::Js(copied)))
+    let four = |values: &[f64]| <[f64; 4]>::try_from(values).ok();
+    let made = match kind {
+        Kind::PointReadOnly | Kind::Point => match four(values) {
+            Some(values) => new_point(call, *kind, values)?,
+            None => return Ok(None),
+        },
+        Kind::RectReadOnly | Kind::Rect => match four(values) {
+            Some(values) => new_rect(call, *kind, values)?,
+            None => return Ok(None),
+        },
+        Kind::Quad => {
+            let points: Vec<[f64; 4]> = values.chunks(4).filter_map(four).collect();
+            match <[[f64; 4]; 4]>::try_from(points) {
+                Ok(points) => new_quad(call, points)?,
+                Err(_) => return Ok(None),
+            }
+        }
+        Kind::MatrixReadOnly | Kind::Matrix => match values.split_last().and_then(|(is_2d, m)| Some((*is_2d, <[f64; 16]>::try_from(m).ok()?))) {
+            Some((is_2d, m)) => new_matrix(call, *kind, &Matrix { m, is_2d: is_2d == 1.0 })?,
+            None => return Ok(None),
+        },
+    };
+    Ok(Some(Value::Js(made)))
 }
 
 /// A new `DOMMatrix` of `matrix`, as `getTransform()` gives it.
