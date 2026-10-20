@@ -26,6 +26,7 @@ impl Engine for Boa {
 
     fn eval(&mut self, source: &str) -> Result<Value<JsValue>, Error> {
         let result = self.context.eval(Source::from_bytes(source)).map_err(script_error)?;
+        self.run_jobs()?;
         Ok(from_js(result))
     }
 
@@ -43,11 +44,19 @@ impl Engine for Boa {
     }
 
     fn with_call<R>(&mut self, f: impl FnOnce(&mut dyn Call<JsValue>) -> Result<R, Error>) -> Result<R, Error> {
-        f(&mut BoaCall { context: &mut self.context })
+        let result = f(&mut BoaCall { context: &mut self.context });
+        self.run_jobs()?;
+        result
     }
 }
 
 impl Boa {
+    /// Runs the Promise jobs the script queued, as V8 does by itself when the host's call returns:
+    /// Boa leaves it to the host.
+    fn run_jobs(&mut self) -> Result<(), Error> {
+        self.context.run_jobs().map_err(script_error)
+    }
+
     fn host_function(&mut self, name: &str, function: HostFunction<JsValue>, constructor: bool) -> JsValue {
         let native = NativeFunction::from_copy_closure(move |this, args, context| call_host(function, this, args, context));
         let function = FunctionObjectBuilder::new(self.context.realm(), native).name(JsString::from(name)).constructor(constructor).build();

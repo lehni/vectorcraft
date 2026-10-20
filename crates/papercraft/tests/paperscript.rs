@@ -175,6 +175,13 @@ fn scripts_use_todays_javascript<E: Engine>() {
     assert_eq!(runtime.take_output(), ["3 { x: 3, y: 6 } none"]);
 }
 
+fn promises_resolve<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime.execute(&scope, "Promise.resolve(2).then(n => console.log('then', n))\nconsole.log('first')").unwrap();
+    assert_eq!(runtime.take_output(), ["first", "then 2"], "after the script, before the host goes on");
+}
+
 fn css_colors_resolve_without_a_canvas<E: Engine>() {
     let mut runtime = Runtime::<E>::new().unwrap();
     let scope = runtime.create_scope(800.0, 600.0).unwrap();
@@ -248,6 +255,11 @@ macro_rules! engine_tests {
             #[test]
             fn scripts_use_todays_javascript() {
                 super::scripts_use_todays_javascript::<$engine>();
+            }
+
+            #[test]
+            fn promises_resolve() {
+                super::promises_resolve::<$engine>();
             }
 
             #[test]
