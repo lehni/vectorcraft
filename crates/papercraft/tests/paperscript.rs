@@ -637,6 +637,53 @@ fn canvas_colors_are_css_colors<E: Engine>() {
     );
 }
 
+fn image_bitmaps_decode_crop_flip_and_resize<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "const source = new OffscreenCanvas(4, 2)\n\
+             const ctx = source.getContext('2d')\n\
+             ctx.fillStyle = 'red'; ctx.fillRect(0, 0, 2, 2); ctx.fillStyle = 'blue'; ctx.fillRect(2, 0, 2, 2)\n\
+             const tall = new OffscreenCanvas(1, 2)\n\
+             const tctx = tall.getContext('2d')\n\
+             tctx.fillStyle = 'red'; tctx.fillRect(0, 0, 1, 1); tctx.fillStyle = 'blue'; tctx.fillRect(0, 1, 1, 1)\n\
+             const at = (image, x, y) => {\n\
+                 const canvas = new OffscreenCanvas(image.width, image.height)\n\
+                 const c = canvas.getContext('2d')\n\
+                 c.drawImage(image, 0, 0)\n\
+                 return [...c.getImageData(x, y, 1, 1).data].join()\n\
+             }\n\
+             ;(async () => {\n\
+                 const decoded = await createImageBitmap(await source.convertToBlob())\n\
+                 console.log(decoded instanceof ImageBitmap, decoded.width, decoded.height, at(decoded, 0, 0), at(decoded, 3, 1))\n\
+                 const cropped = await createImageBitmap(source, 2, 0, 2, 2)\n\
+                 console.log(cropped.width, at(cropped, 0, 0))\n\
+                 console.log(at(await createImageBitmap(tall, { imageOrientation: 'flipY' }), 0, 0))\n\
+                 const big = await createImageBitmap(source, { resizeWidth: 8, resizeQuality: 'pixelated' })\n\
+                 console.log(big.width, big.height, at(big, 3, 3), at(big, 4, 0))\n\
+                 console.log(at(await createImageBitmap(new ImageData(new Uint8ClampedArray([0, 255, 0, 255]), 1, 1)), 0, 0))\n\
+                 decoded.close()\n\
+                 try { new OffscreenCanvas(1, 1).getContext('2d').drawImage(decoded, 0, 0) } catch (e) { console.log(decoded.width, e.message) }\n\
+                 try { await createImageBitmap(new Blob(['no image'])) } catch (e) { console.log(e.message.startsWith('InvalidStateError')) }\n\
+             })()",
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.take_output(),
+        [
+            "true 4 2 255,0,0,255 0,0,255,255",
+            "2 0,0,255,255",
+            "0,0,255,255",
+            "8 4 255,0,0,255 0,0,255,255",
+            "0,255,0,255",
+            "0 InvalidStateError: the image bitmap is closed",
+            "true",
+        ]
+    );
+}
+
 fn runtimes_live_side_by_side<E: Engine>() {
     // As the app runs them: a second script starts while the first keeps running, and the first
     // stops first.
@@ -782,6 +829,11 @@ macro_rules! engine_tests {
             #[test]
             fn canvas_colors_are_css_colors() {
                 super::canvas_colors_are_css_colors::<$engine>();
+            }
+
+            #[test]
+            fn image_bitmaps_decode_crop_flip_and_resize() {
+                super::image_bitmaps_decode_crop_flip_and_resize::<$engine>();
             }
 
             #[test]

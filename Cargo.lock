@@ -5725,6 +5725,7 @@ version = "0.16.0"
 dependencies = [
  "boa_engine",
  "getrandom 0.3.4",
+ "image",
  "js-sys",
  "serde_json",
  "svgtypes 0.16.1",

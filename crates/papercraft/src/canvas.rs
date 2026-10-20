@@ -14,27 +14,30 @@ use vello_cpu::Pixmap;
 use vello_cpu::color::PremulRgba8;
 use vello_cpu::kurbo::BezPath;
 
+use crate::bitmap;
 use crate::drawing::{self, Surface};
 use crate::path2d;
 
 use crate::{Call, Engine, Error, HostFunction, Value, define_accessor, method, object};
 
 /// The largest side of a canvas, and the most pixels one has, as browsers cap them.
-const SIDE: f64 = 16384.0;
-const AREA: f64 = 16384.0 * 16384.0 / 4.0;
+pub(crate) const SIDE: f64 = 16384.0;
+pub(crate) const AREA: f64 = 16384.0 * 16384.0 / 4.0;
 
 /// What canvases share: their prototype, `ImageData`'s, the realm's `Object`,
 /// `Uint8ClampedArray` and `FinalizationRegistry` (when it has one, to free a dropped canvas's
-/// pixels), and the pixels of every canvas, by its number; and the same for `Path2D`s.
+/// pixels), and the pixels of every canvas and `ImageBitmap`, by its number; and the same for
+/// `Path2D`s.
 pub(crate) struct Canvases<H> {
     prototype: H,
     image_data: H,
     gradient: H,
     pub object: H,
     clamped: H,
-    promise: H,
-    registry: Option<H>,
-    surfaces: Vec<Option<Surface<H>>>,
+    pub promise: H,
+    pub registry: Option<H>,
+    pub surfaces: Vec<Option<Surface<H>>>,
+    pub bitmap_prototype: H,
     pub path_prototype: H,
     pub path_registry: Option<H>,
     pub paths: Vec<Option<BezPath>>,
@@ -126,6 +129,11 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
     let set_width = engine.function("width", |call, this, args| resize(call, this, args.first(), None))?;
     let set_height = engine.function("height", |call, this, args| resize(call, this, None, args.first()))?;
     let release = engine.function("release", release)?;
+    let bitmap_width = engine.function("width", |call, this, _| bitmap::side(call, this, true))?;
+    let bitmap_height = engine.function("height", |call, this, _| bitmap::side(call, this, false))?;
+    let bitmap_close = engine.function("close", bitmap::close)?;
+    let bitmap_constructor = engine.constructor("ImageBitmap", |_, _, _| Err(Error::Script("TypeError: Illegal constructor".into())))?;
+    let create_bitmap = engine.function("createImageBitmap", bitmap::create)?;
     let get_fill = engine.function("fillStyle", |call, this, _| drawing::get_checked(call, this, "_fillStyle"))?;
     let set_fill = engine.function("fillStyle", |call, this, args| drawing::set_style(call, this, "_fillStyle", args.first()))?;
     let get_stroke = engine.function("strokeStyle", |call, this, _| drawing::get_checked(call, this, "_strokeStyle"))?;
@@ -164,6 +172,13 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
         }
         call.set(&path_constructor, "prototype", &Value::Js(path_prototype.clone()))?;
         call.set(global, "Path2D", &Value::Js(path_constructor))?;
+        let bitmap_prototype = call.new_object()?;
+        call.set(&bitmap_prototype, "close", &Value::Js(bitmap_close))?;
+        define_accessor(call, global, &bitmap_prototype, "width", bitmap_width, None)?;
+        define_accessor(call, global, &bitmap_prototype, "height", bitmap_height, None)?;
+        call.set(&bitmap_constructor, "prototype", &Value::Js(bitmap_prototype.clone()))?;
+        call.set(global, "ImageBitmap", &Value::Js(bitmap_constructor))?;
+        call.set(global, "createImageBitmap", &Value::Js(create_bitmap))?;
         let registry = finalization_registry(call, global, release)?;
         let path_registry = finalization_registry(call, global, release_path)?;
         call.host()?.borrow_mut().canvases = Some(Canvases {
@@ -175,6 +190,7 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
             promise: object(call, global, "Promise")?,
             registry,
             surfaces: Vec::new(),
+            bitmap_prototype,
             path_prototype,
             path_registry,
             paths: Vec::new(),
@@ -287,8 +303,13 @@ fn with_pixmap<H, R>(call: &mut dyn Call<H>, this: &Value<H>, f: impl FnOnce(&mu
     })
 }
 
-/// The pixels of `image`, a canvas, as they are now.
+/// The pixels of `image`, a canvas or an `ImageBitmap`, as they are now.
 pub(crate) fn image_pixels<H>(call: &mut dyn Call<H>, image: &Value<H>) -> Result<Arc<Pixmap>, Error> {
+    if let Value::Js(object) = image
+        && matches!(call.get(object, "_canvas")?, Value::Number(n) if n < 0.0)
+    {
+        return Err(Error::Script("InvalidStateError: the image bitmap is closed".into()));
+    }
     with_pixmap(call, image, |pixmap| Arc::new(pixmap.clone())).map_err(|_| Error::Script("TypeError: the image isn't a canvas".into()))
 }
 
@@ -340,7 +361,7 @@ fn numbers<H>(args: &[Value<H>]) -> [f64; 4] {
 }
 
 /// `[r, g, b, a]` premultiplied.
-fn premultiply([r, g, b, a]: [u8; 4]) -> PremulRgba8 {
+pub(crate) fn premultiply([r, g, b, a]: [u8; 4]) -> PremulRgba8 {
     let p = |c: u8| ((u16::from(c) * u16::from(a) + 127) / 255) as u8;
     PremulRgba8 { r: p(r), g: p(g), b: p(b), a }
 }

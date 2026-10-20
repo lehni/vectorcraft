@@ -25,6 +25,8 @@ vectorcraft-text = { workspace = true }
 vello_cpu = { workspace = true }
 # vello_cpu's filters, for shadows and `filter`.
 vello_common = { version = "0.2", default-features = false }
+# Decoding the images `createImageBitmap()` reads, as the app decodes placed images.
+image = { workspace = true }
 # `atob` and `btoa`.
 vectorcraft-format = { workspace = true }
 # Resolving `import` specifiers against modules from the web.

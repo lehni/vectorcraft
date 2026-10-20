@@ -35,33 +35,9 @@ canvas-host/2d.canvas.host.type.name.worker.js: OffscreenCanvas type and toStrin
 color-type/2d.color.type.u8p3.to.u8srgb.to.u8p3.worker.js: test srgb unorm8 canvas storing 8-bit display-p3 data accurately
 color-type/2d.color.type.u8srgb.to.u8p3.to.u8srgb.worker.js: test display-p3 unorm8 canvas not storing 8-bit srgb data accurately
 compositing/2d.composite.canvas.clear.worker.js: Untitled
-compositing/2d.composite.canvas.copy.worker.js: Untitled
-compositing/2d.composite.canvas.destination-atop.worker.js: Untitled
-compositing/2d.composite.canvas.destination-in.worker.js: Untitled
-compositing/2d.composite.canvas.destination-out.worker.js: Untitled
-compositing/2d.composite.canvas.destination-over.worker.js: Untitled
-compositing/2d.composite.canvas.lighter.worker.js: Untitled
-compositing/2d.composite.canvas.source-atop.worker.js: Untitled
-compositing/2d.composite.canvas.source-in.worker.js: Untitled
-compositing/2d.composite.canvas.source-out.worker.js: Untitled
-compositing/2d.composite.canvas.source-over.worker.js: Untitled
-compositing/2d.composite.canvas.xor.worker.js: Untitled
-compositing/2d.composite.globalAlpha.image.worker.js: Untitled
-compositing/2d.composite.globalAlpha.imagepattern.worker.js: Untitled
 compositing/2d.composite.globalAlpha.invalid.worker.js: Untitled
 compositing/2d.composite.globalAlpha.range.worker.js: Untitled
 compositing/2d.composite.image.clear.worker.js: Untitled
-compositing/2d.composite.image.copy.worker.js: Untitled
-compositing/2d.composite.image.destination-atop.worker.js: Untitled
-compositing/2d.composite.image.destination-in.worker.js: Untitled
-compositing/2d.composite.image.destination-out.worker.js: Untitled
-compositing/2d.composite.image.destination-over.worker.js: Untitled
-compositing/2d.composite.image.lighter.worker.js: Untitled
-compositing/2d.composite.image.source-atop.worker.js: Untitled
-compositing/2d.composite.image.source-in.worker.js: Untitled
-compositing/2d.composite.image.source-out.worker.js: Untitled
-compositing/2d.composite.image.source-over.worker.js: Untitled
-compositing/2d.composite.image.xor.worker.js: Untitled
 compositing/2d.composite.operation.casesensitive.worker.js: Untitled
 compositing/2d.composite.operation.darker.worker.js: Untitled
 compositing/2d.composite.operation.highlight.worker.js: Untitled
@@ -70,40 +46,14 @@ compositing/2d.composite.operation.over.worker.js: Untitled
 compositing/2d.composite.operation.unrecognised.worker.js: Untitled
 compositing/2d.composite.solid.clear.worker.js: Untitled
 compositing/2d.composite.transparent.clear.worker.js: Untitled
-compositing/2d.composite.uncovered.image.copy.worker.js: drawImage() draws pixels not covered by the source object as (0,0,0,0), and does not leave the pixels unchanged.
-compositing/2d.composite.uncovered.image.destination-atop.worker.js: drawImage() draws pixels not covered by the source object as (0,0,0,0), and does not leave the pixels unchanged.
-compositing/2d.composite.uncovered.image.destination-in.worker.js: drawImage() draws pixels not covered by the source object as (0,0,0,0), and does not leave the pixels unchanged.
-compositing/2d.composite.uncovered.image.source-in.worker.js: drawImage() draws pixels not covered by the source object as (0,0,0,0), and does not leave the pixels unchanged.
-compositing/2d.composite.uncovered.image.source-out.worker.js: drawImage() draws pixels not covered by the source object as (0,0,0,0), and does not leave the pixels unchanged.
-compositing/2d.composite.uncovered.pattern.copy.worker.js: Pattern fill() draws pixels not covered by the source object as (0,0,0,0), and does not leave the pixels unchanged.
-compositing/2d.composite.uncovered.pattern.destination-atop.worker.js: Pattern fill() draws pixels not covered by the source object as (0,0,0,0), and does not leave the pixels unchanged.
-compositing/2d.composite.uncovered.pattern.destination-in.worker.js: Pattern fill() draws pixels not covered by the source object as (0,0,0,0), and does not leave the pixels unchanged.
-compositing/2d.composite.uncovered.pattern.source-in.worker.js: Pattern fill() draws pixels not covered by the source object as (0,0,0,0), and does not leave the pixels unchanged.
-compositing/2d.composite.uncovered.pattern.source-out.worker.js: Pattern fill() draws pixels not covered by the source object as (0,0,0,0), and does not leave the pixels unchanged.
 conformance-requirements/2d.conformance.requirements.missingargs.worker.js: Missing arguments cause TypeError
-drawing-images-to-the-canvas/2d.drawImage.3arg.worker.js: Untitled
-drawing-images-to-the-canvas/2d.drawImage.5arg.worker.js: Untitled
-drawing-images-to-the-canvas/2d.drawImage.9arg.basic.worker.js: Untitled
-drawing-images-to-the-canvas/2d.drawImage.9arg.destpos.worker.js: Untitled
-drawing-images-to-the-canvas/2d.drawImage.9arg.destsize.worker.js: Untitled
-drawing-images-to-the-canvas/2d.drawImage.9arg.sourcepos.worker.js: Untitled
-drawing-images-to-the-canvas/2d.drawImage.9arg.sourcesize.worker.js: Untitled
-drawing-images-to-the-canvas/2d.drawImage.alpha.worker.js: Untitled
 drawing-images-to-the-canvas/2d.drawImage.broken.worker.js: Untitled
-drawing-images-to-the-canvas/2d.drawImage.clip.worker.js: Untitled
-drawing-images-to-the-canvas/2d.drawImage.composite.worker.js: Untitled
-drawing-images-to-the-canvas/2d.drawImage.floatsource.worker.js: Untitled
 drawing-images-to-the-canvas/2d.drawImage.negativedest.worker.js: Negative destination width/height represents the correct rectangle
 drawing-images-to-the-canvas/2d.drawImage.negativedir.worker.js: Negative dimensions do not affect the direction of the image
 drawing-images-to-the-canvas/2d.drawImage.negativesource.worker.js: Negative source width/height represents the correct rectangle
-drawing-images-to-the-canvas/2d.drawImage.nonfinite.worker.js: drawImage() with Infinity/NaN is ignored
-drawing-images-to-the-canvas/2d.drawImage.nowrap.worker.js: Stretched images do not get pixels wrapping around the edges
 drawing-images-to-the-canvas/2d.drawImage.null.worker.js: Untitled
-drawing-images-to-the-canvas/2d.drawImage.path.worker.js: Untitled
-drawing-images-to-the-canvas/2d.drawImage.transform.worker.js: Untitled
 drawing-images-to-the-canvas/2d.drawImage.wrongtype.worker.js: Incorrect image types in drawImage do not match any defined overloads, so WebIDL throws a TypeError
 drawing-images-to-the-canvas/2d.drawImage.zerocanvas.worker.js: Untitled
-drawing-images-to-the-canvas/2d.drawImage.zerosource.worker.js: drawImage with zero-sized source rectangle draws nothing without exception
 fill-and-stroke-styles/2d.fillStyle.colormix.worker.js: color-mix works as color input
 fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsl-3.worker.js: Untitled
 fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsl-4.worker.js: Untitled
@@ -133,35 +83,20 @@ fill-and-stroke-styles/2d.gradient.radial.equal.worker.js: Untitled
 fill-and-stroke-styles/2d.gradient.radial.negative.worker.js: createRadialGradient() throws INDEX_SIZE_ERR if either radius is negative
 fill-and-stroke-styles/2d.gradient.radial.nonfinite.worker.js: createRadialGradient() throws TypeError if arguments are not finite
 fill-and-stroke-styles/2d.gradient.relativecolor.worker.js: Relative color works as CanvasGradient color input
-fill-and-stroke-styles/2d.pattern.basic.image.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.basic.type.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.basic.zerocanvas.worker.js: Untitled
-fill-and-stroke-styles/2d.pattern.crosscanvas.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.image.null.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.image.string.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.image.undefined.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.modify.canvas1.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.modify.canvas2.worker.js: Untitled
-fill-and-stroke-styles/2d.pattern.paint.norepeat.basic.worker.js: Untitled
-fill-and-stroke-styles/2d.pattern.paint.norepeat.coord1.worker.js: Untitled
-fill-and-stroke-styles/2d.pattern.paint.norepeat.coord2.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.paint.norepeat.coord3.worker.js: Untitled
-fill-and-stroke-styles/2d.pattern.paint.norepeat.outside.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.paint.norepeat.outside_arc.worker.js: Untitled
-fill-and-stroke-styles/2d.pattern.paint.orientation.image.worker.js: Image patterns do not get flipped when painted
-fill-and-stroke-styles/2d.pattern.paint.repeat.basic.worker.js: Untitled
-fill-and-stroke-styles/2d.pattern.paint.repeat.coord1.worker.js: Untitled
-fill-and-stroke-styles/2d.pattern.paint.repeat.coord2.worker.js: Untitled
-fill-and-stroke-styles/2d.pattern.paint.repeat.coord3.worker.js: Untitled
-fill-and-stroke-styles/2d.pattern.paint.repeat.outside.worker.js: Untitled
-fill-and-stroke-styles/2d.pattern.paint.repeatx.basic.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.paint.repeatx.coord1.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.paint.repeatx.outside.worker.js: Untitled
-fill-and-stroke-styles/2d.pattern.paint.repeaty.basic.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.paint.repeaty.coord1.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.paint.repeaty.outside.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.repeat.case.worker.js: Untitled
-fill-and-stroke-styles/2d.pattern.repeat.empty.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.repeat.nullsuffix.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.repeat.undefined.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.repeat.unrecognised.worker.js: Untitled
@@ -247,9 +182,7 @@ pixel-manipulation/2d.imageData.create2.double.worker.js: createImageData(w, h) 
 pixel-manipulation/2d.imageData.create2.negative.worker.js: createImageData(sw, sh) takes the absolute magnitude of the size arguments
 pixel-manipulation/2d.imageData.create2.nonfinite.worker.js: createImageData() throws TypeError if arguments are not finite
 pixel-manipulation/2d.imageData.create2.zero.worker.js: createImageData(sw, sh) throws INDEX_SIZE_ERR if size is zero
-pixel-manipulation/2d.imageData.createImageBitmap.p3.rgba.unorm8.worker.js: Verify round-trip of 8-bit P3 data ImageData through ImageBitmap
 pixel-manipulation/2d.imageData.createImageBitmap.srgb.rgba.float16.worker.js: Verify round-trip of 16-bit float sRGB data ImageData through ImageBitmap
-pixel-manipulation/2d.imageData.createImageBitmap.srgb.rgba.unorm8.worker.js: Verify round-trip of 8-bit sRGB data ImageData through ImageBitmap
 pixel-manipulation/2d.imageData.get.large.crash.worker.js: Test that canvas crash when image data cannot be allocated.
 pixel-manipulation/2d.imageData.get.nonfinite.worker.js: getImageData() throws TypeError if arguments are not finite
 pixel-manipulation/2d.imageData.get.zero.worker.js: getImageData() throws INDEX_SIZE_ERR if size is zero
@@ -272,17 +205,7 @@ shadows/2d.shadow.composite.2.worker.js: Shadows are drawn using globalComposite
 shadows/2d.shadow.enable.blur.worker.js: Shadows are drawn if shadowBlur is set
 shadows/2d.shadow.enable.x.worker.js: Shadows are drawn if shadowOffsetX is set
 shadows/2d.shadow.enable.y.worker.js: Shadows are drawn if shadowOffsetY is set
-shadows/2d.shadow.image.alpha.worker.js: Shadows are drawn correctly for partially-transparent images
-shadows/2d.shadow.image.basic.worker.js: Shadows are drawn for images
-shadows/2d.shadow.image.scale.worker.js: Shadows are drawn correctly for scaled images
-shadows/2d.shadow.image.section.worker.js: Shadows are not drawn for areas outside image source rectangles
-shadows/2d.shadow.image.transparent.1.worker.js: Shadows are not drawn for transparent images
-shadows/2d.shadow.image.transparent.2.worker.js: Shadows are not drawn for transparent parts of images
 shadows/2d.shadow.outside.worker.js: Shadows of shapes outside the visible area can be offset onto the visible area
-shadows/2d.shadow.pattern.alpha.worker.js: Shadows are drawn correctly for partially-transparent fill patterns
-shadows/2d.shadow.pattern.basic.worker.js: Shadows are drawn for fill patterns
-shadows/2d.shadow.pattern.transparent.1.worker.js: Shadows are not drawn for transparent fill patterns
-shadows/2d.shadow.pattern.transparent.2.worker.js: Shadows are not drawn for transparent parts of fill patterns
 text/2d.text.align.invalid.worker.js: Untitled
 text/2d.text.baseline.invalid.worker.js: Untitled
 text/2d.text.direction.invalid.worker.js: Untitled

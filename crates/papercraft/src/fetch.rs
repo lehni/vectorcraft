@@ -594,11 +594,11 @@ pub(crate) fn new_blob<H: Clone>(call: &mut dyn Call<H>, bytes: &[u8], kind: &st
     Ok(Value::Js(blob))
 }
 
-fn is_blob<H: Clone>(call: &mut dyn Call<H>, value: &H) -> Result<bool, Error> {
+pub(crate) fn is_blob<H: Clone>(call: &mut dyn Call<H>, value: &H) -> Result<bool, Error> {
     Ok(matches!(call.get(value, "_bytes")?, Value::Js(_)))
 }
 
-fn blob_bytes<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>) -> Result<Vec<u8>, Error> {
+pub(crate) fn blob_bytes<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>) -> Result<Vec<u8>, Error> {
     match this {
         Value::Js(blob) => match call.get(blob, "_bytes")? {
             Value::Js(bytes) => call.bytes(&bytes),

@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 
 mod binding;
+mod bitmap;
 mod canvas;
 mod dialog;
 #[cfg(not(target_arch = "wasm32"))]
