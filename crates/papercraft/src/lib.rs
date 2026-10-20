@@ -57,6 +57,10 @@ pub type PlatformEngine = Boa;
 /// or the build `PAPERCRAFT_PAPER_JS` names (see `build.rs`).
 const PAPER_JS: &str = include_str!(env!("PAPERCRAFT_PAPER_JS_PATH"));
 
+/// Acorn 8.19.0 (MIT; `dist/acorn.js` of the npm package), which PaperScript prefers to the Acorn
+/// 0.5 Paper.js bundles when it finds it as `self.acorn`: scripts can use today's JavaScript.
+const ACORN: &str = include_str!("../vendor/acorn.js");
+
 /// The version of the Paper.js build scripts run with, as its header names it (`0.13.0-develop`).
 pub fn paper_version() -> &'static str {
     PAPER_JS.split_once("Paper.js v").and_then(|(_, rest)| rest.split_whitespace().next()).unwrap_or("")
@@ -158,6 +162,7 @@ impl<E: Engine> Runtime<E> {
         let host = Rc::new(RefCell::new(Host::default()));
         let mut engine = E::new(host.clone())?;
         install_globals(&mut engine, &host)?;
+        engine.eval(ACORN)?;
         engine.eval(PAPER_JS)?;
         let global = engine.global()?;
         let paper = engine.with_call(|call| object(call, &global, "paper"))?;

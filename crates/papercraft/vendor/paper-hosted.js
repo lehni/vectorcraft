@@ -9,7 +9,7 @@
  *
  * All rights reserved.
  *
- * Date: Tue Oct 20 05:16:21 2026 +0200
+ * Date: Tue Oct 20 06:44:03 2026 +0200
  *
  ***
  *
@@ -1233,6 +1233,10 @@ var Numerical = new function() {
 		TRIGONOMETRIC_EPSILON: 1e-8,
 		ANGULAR_EPSILON: 1e-5,
 		KAPPA: 4 * (sqrt(2) - 1) / 3,
+
+		getEpsilon: function(magnitude) {
+			return Math.max(EPSILON, magnitude * 4 * MACHINE_EPSILON);
+		},
 
 		isZero: function(val) {
 			return val >= -EPSILON && val <= EPSILON;
@@ -7728,6 +7732,11 @@ new function() {
 				x * sin + y * cos);
 		}
 		Curve.solveCubic(rv, 1, 0, roots, 0, 1);
+		var epsilon = 1e-7;
+		if (Math.abs(rv[1]) < epsilon)
+			roots.push(0);
+		if (Math.abs(rv[7]) < epsilon)
+			roots.push(1);
 		return roots;
 	}
 
@@ -7760,18 +7769,23 @@ new function() {
 	}
 
 	function getCurveIntersections(v1, v2, c1, c2, locations, include) {
-		var epsilon = 1e-12,
-			min = Math.min,
-			max = Math.max;
+		var min = Math.min,
+			max = Math.max,
+			abs = Math.abs,
+			minX1 = min(v1[0], v1[2], v1[4], v1[6]),
+			maxX1 = max(v1[0], v1[2], v1[4], v1[6]),
+			minY1 = min(v1[1], v1[3], v1[5], v1[7]),
+			maxY1 = max(v1[1], v1[3], v1[5], v1[7]),
+			minX2 = min(v2[0], v2[2], v2[4], v2[6]),
+			maxX2 = max(v2[0], v2[2], v2[4], v2[6]),
+			minY2 = min(v2[1], v2[3], v2[5], v2[7]),
+			maxY2 = max(v2[1], v2[3], v2[5], v2[7]),
+			epsilon = Numerical.getEpsilon(max(
+					abs(minX1), abs(maxX1), abs(minY1), abs(maxY1),
+					abs(minX2), abs(maxX2), abs(minY2), abs(maxY2)));
 
-		if (max(v1[0], v1[2], v1[4], v1[6]) + epsilon >
-			min(v2[0], v2[2], v2[4], v2[6]) &&
-			min(v1[0], v1[2], v1[4], v1[6]) - epsilon <
-			max(v2[0], v2[2], v2[4], v2[6]) &&
-			max(v1[1], v1[3], v1[5], v1[7]) + epsilon >
-			min(v2[1], v2[3], v2[5], v2[7]) &&
-			min(v1[1], v1[3], v1[5], v1[7]) - epsilon <
-			max(v2[1], v2[3], v2[5], v2[7])) {
+		if (maxX1 + epsilon > minX2 && minX1 - epsilon < maxX2 &&
+			maxY1 + epsilon > minY2 && minY1 - epsilon < maxY2) {
 			var overlaps = getOverlaps(v1, v2);
 			if (overlaps) {
 				for (var i = 0; i < 2; i++) {
@@ -8544,8 +8558,14 @@ var PathItem = Item.extend({
 			matrix1 = this._matrix._orNullIfIdentity(),
 			matrix2 = self ? matrix1
 				: (_matrix || path._matrix)._orNullIfIdentity();
-		return self || this.getBounds(matrix1).intersects(
-				path.getBounds(matrix2), 1e-12)
+		var bounds1 = !self && this.getBounds(matrix1),
+			bounds2 = !self && path.getBounds(matrix2),
+			abs = Math.abs;
+		return self || bounds1.intersects(bounds2, Numerical.getEpsilon(
+				Math.max(abs(bounds1.left), abs(bounds1.right),
+					abs(bounds1.top), abs(bounds1.bottom),
+					abs(bounds2.left), abs(bounds2.right),
+					abs(bounds2.top), abs(bounds2.bottom))))
 				? Curve.getIntersections(
 						this.getCurves(), !self && path.getCurves(), include,
 						matrix1, matrix2, _returnFirst)
@@ -10666,9 +10686,12 @@ PathItem.inject(new function() {
 			for (var i = 0, l = paths.length; i < l; i++) {
 				var path = paths[i];
 				if (!path._closed && !path.isEmpty()) {
+					var count = path._segments.length;
 					path.closePath(1e-12);
-					path.getFirstSegment().setHandleIn(0, 0);
-					path.getLastSegment().setHandleOut(0, 0);
+					if (path._segments.length === count) {
+						path.getFirstSegment().setHandleIn(0, 0);
+						path.getLastSegment().setHandleOut(0, 0);
+					}
 				}
 			}
 			res = res
@@ -10767,12 +10790,18 @@ PathItem.inject(new function() {
 					segment._path._overlapsOnly = false;
 			}
 			paths = tracePaths(segments, operator);
+			if (_path2 && (operator.subtract || operator.exclude)) {
+				paths = reorientPaths(paths, function(w) {
+					return !!(w & 1);
+				}, true);
+			}
 		} else {
 			paths = reorientPaths(
 					paths2 ? paths1.concat(paths2) : paths1.slice(),
 					function(w) {
 						return !!operator[w];
-					});
+					},
+					true);
 		}
 		return createResult(paths, true, path1, path2, options);
 	}
@@ -10783,27 +10812,31 @@ PathItem.inject(new function() {
 			crossings = _path1.getIntersections(_path2, filterIntersection),
 			subtract = operation === 'subtract',
 			divide = operation === 'divide',
-			added = {},
+			pieces = [],
 			paths = [];
 
-		function addPath(path) {
-			if (!added[path._id] && (divide ||
-					_path2.contains(path.getPointAt(path.getLength() / 2))
-						^ subtract)) {
-				paths.unshift(path);
-				return added[path._id] = true;
-			}
-		}
-
 		for (var i = crossings.length - 1; i >= 0; i--) {
-			var path = crossings[i].split();
+			var crossing = crossings[i],
+				split = crossing.getPath(),
+				path = crossing.split();
 			if (path) {
-				if (addPath(path))
-					path.getFirstSegment().setHandleIn(0, 0);
-				_path1.getLastSegment().setHandleOut(0, 0);
+				path.getFirstSegment().setHandleIn(0, 0);
+				split.getLastSegment().setHandleOut(0, 0);
+				if (pieces.indexOf(path) === -1)
+					pieces.push(path);
 			}
 		}
-		addPath(_path1);
+		var children = _path1._children || [_path1];
+		for (var i = 0, l = children.length; i < l; i++) {
+			if (pieces.indexOf(children[i]) === -1)
+				pieces.push(children[i]);
+		}
+		for (var i = 0, l = pieces.length; i < l; i++) {
+			var piece = pieces[i];
+			if (divide || _path2.contains(
+					piece.getPointAt(piece.getLength() / 2)) ^ subtract)
+				paths.unshift(piece);
+		}
 		return createResult(paths, false, path1, path2, options);
 	}
 
@@ -11494,34 +11527,39 @@ PathItem.inject(new function() {
 		getInteriorPoint: function() {
 			var bounds = this.getBounds(),
 				point = bounds.getCenter(true);
-			if (!this.contains(point)) {
+			if (!this.contains(point) || this.getNearestPoint(point)
+					.isClose(point, 1e-7)) {
 				var curves = this.getCurves(),
-					y = point.y,
+					monoCurves = [],
+					ys = [],
 					intercepts = [],
 					roots = [];
-				for (var i = 0, l = curves.length; i < l; i++) {
-					var v = curves[i].getValues(),
-						o0 = v[1],
-						o1 = v[3],
-						o2 = v[5],
-						o3 = v[7];
-					if (y >= min(o0, o1, o2, o3) && y <= max(o0, o1, o2, o3)) {
-						var monoCurves = Curve.getMonoCurves(v);
-						for (var j = 0, m = monoCurves.length; j < m; j++) {
-							var mv = monoCurves[j],
-								mo0 = mv[1],
-								mo3 = mv[7];
-							if ((mo0 !== mo3) &&
-								(y >= mo0 && y <= mo3 || y >= mo3 && y <= mo0)){
-								var x = y === mo0 ? mv[0]
-									: y === mo3 ? mv[6]
-									: Curve.solveCubic(mv, 1, y, roots, 0, 1)
-										=== 1
-										? Curve.getPoint(mv, roots[0]).x
-										: (mv[0] + mv[6]) / 2;
-								intercepts.push(x);
-							}
-						}
+				for (var i = 0, l = curves.length; i < l; i++)
+					Base.push(monoCurves, Curve.getMonoCurves(
+							curves[i].getValues()));
+				for (var i = 0, l = monoCurves.length; i < l; i++)
+					ys.push(monoCurves[i][1], monoCurves[i][7]);
+				ys.sort(function(a, b) { return a - b; });
+				var y = point.y,
+					below = y,
+					above = y;
+				for (var i = 0, l = ys.length; i < l && above === y; i++) {
+					if (ys[i] <= y) {
+						below = ys[i];
+					} else {
+						above = ys[i];
+					}
+				}
+				y = point.y = (below + above) / 2;
+				for (var i = 0, l = monoCurves.length; i < l; i++) {
+					var mv = monoCurves[i],
+						mo0 = mv[1],
+						mo3 = mv[7];
+					if (y > min(mo0, mo3) && y < max(mo0, mo3)) {
+						intercepts.push(
+								Curve.solveCubic(mv, 1, y, roots, 0, 1) === 1
+									? Curve.getPoint(mv, roots[0]).x
+									: (mv[0] + mv[6]) / 2);
 					}
 				}
 				if (intercepts.length > 1) {
@@ -18192,7 +18230,10 @@ Base.exports.PaperScript = function() {
 	}
 
 	function parse(code, options) {
-		return (self.acorn || acorn).parse(code, options);
+		var parser = self.acorn || acorn;
+		if (parseInt(parser.version, 10) >= 8)
+			options = Base.set({ ecmaVersion: 'latest' }, options);
+		return parser.parse(code, options);
 	}
 
 	var binaryOperators = {
@@ -18260,13 +18301,13 @@ Base.exports.PaperScript = function() {
 		var insertions = [];
 
 		function getOffset(offset) {
+			var current = offset;
 			for (var i = 0, l = insertions.length; i < l; i++) {
 				var insertion = insertions[i];
-				if (insertion[0] >= offset)
-					break;
-				offset += insertion[1];
+				if (insertion[1] <= offset)
+					current += insertion[2];
 			}
-			return offset;
+			return current;
 		}
 
 		function getCode(node) {
@@ -18280,16 +18321,14 @@ Base.exports.PaperScript = function() {
 		}
 
 		function replaceCode(node, str) {
-			var start = getOffset(node.range[0]),
-				end = getOffset(node.range[1]),
-				insert = 0;
-			for (var i = insertions.length - 1; i >= 0; i--) {
-				if (start > insertions[i][0]) {
-					insert = i + 1;
-					break;
-				}
-			}
-			insertions.splice(insert, 0, [start, str.length - end + start]);
+			var range = node.range,
+				start = getOffset(range[0]),
+				end = getOffset(range[1]);
+			insertions = insertions.filter(function(insertion) {
+				return insertion[0] < range[0] || insertion[1] > range[1];
+			});
+			insertions.push([range[0], range[1],
+					str.length - range[1] + range[0]]);
 			code = code.substring(0, start) + str + code.substring(end);
 		}
 
@@ -18358,8 +18397,68 @@ Base.exports.PaperScript = function() {
 			}
 		}
 
-		function handleExports(node) {
+		function collectNames(node, names) {
 			switch (node.type) {
+			case 'Identifier':
+				names.push(node.name);
+				break;
+			case 'ObjectPattern':
+				node.properties.forEach(function(property) {
+					collectNames(property.value || property.argument, names);
+				});
+				break;
+			case 'ArrayPattern':
+				node.elements.forEach(function(element) {
+					if (element)
+						collectNames(element, names);
+				});
+				break;
+			case 'AssignmentPattern':
+				collectNames(node.left, names);
+				break;
+			case 'RestElement':
+				collectNames(node.argument, names);
+				break;
+			}
+		}
+
+		var moduleCount = 0;
+
+		function getImport(source) {
+			return '__$import__(' + JSON.stringify(source.value) + ')';
+		}
+
+		function handleModules(node) {
+			switch (node.type) {
+			case 'ImportDeclaration':
+				var module = getImport(node.source),
+					named = [];
+				var vars = node.specifiers.map(function(specifier) {
+					var local = specifier.local.name;
+					if (specifier.type === 'ImportSpecifier') {
+						named.push(local + ' = ' + '__$module' + moduleCount
+								+ '__.' + specifier.imported.name);
+						return null;
+					}
+					return local + ' = ' + module;
+				}).filter(Boolean);
+				if (named.length) {
+					vars.push('__$module' + moduleCount + '__ = ' + module);
+					Base.push(vars, named);
+					moduleCount++;
+				}
+				replaceCode(node, vars.length
+						? 'var ' + vars.join(', ') + ';'
+						: module + ';');
+				break;
+			case 'ExportAllDeclaration':
+				replaceCode(node, node.exported
+						? 'module.exports.' + node.exported.name + ' = '
+							+ getImport(node.source) + ';'
+						: '(function(m) { for (var k in m) '
+							+ 'module.exports[k] = m[k]; })('
+							+ getImport(node.source) + ');');
+				break;
 			case 'ExportDefaultDeclaration':
 				replaceCode({
 					range: [node.start, node.declaration.start]
@@ -18369,22 +18468,26 @@ Base.exports.PaperScript = function() {
 				var declaration = node.declaration;
 				var specifiers = node.specifiers;
 				if (declaration) {
-					var declarations = declaration.declarations;
-					if (declarations) {
-						declarations.forEach(function(dec) {
-							replaceCode(dec, 'module.exports.' + getCode(dec));
+					var names = [];
+					if (declaration.declarations) {
+						declaration.declarations.forEach(function(dec) {
+							collectNames(dec.id, names);
 						});
-						replaceCode({
-							range: [
-								node.start,
-								declaration.start + declaration.kind.length
-							]
-						}, '');
+					} else {
+						names.push(declaration.id.name);
 					}
+					replaceCode(node, getCode(declaration) + names.map(
+						function(name) {
+							return ' module.exports.' + name + ' = ' + name
+									+ ';';
+						}).join(''));
 				} else if (specifiers) {
+					var source = node.source && getImport(node.source) + '.';
 					var exports = specifiers.map(function(specifier) {
-						var name = getCode(specifier);
-						return 'module.exports.' + name + ' = ' + name + '; ';
+						var local = specifier.local.name,
+							exported = specifier.exported.name;
+						return 'module.exports.' + exported + ' = '
+								+ (source || '') + local + '; ';
 					}).join('');
 					if (exports) {
 						replaceCode(node, exports);
@@ -18412,7 +18515,7 @@ Base.exports.PaperScript = function() {
 					handleOverloading(node, parent);
 				}
 				if (paperFeatures.moduleExports !== false) {
-					handleExports(node);
+					handleModules(node);
 				}
 			}
 		}
@@ -18528,8 +18631,17 @@ Base.exports.PaperScript = function() {
 				}
 			}
 		}
-		expose({ __$__: __$__, $__: $__, paper: scope, tool: tool },
-				true);
+		var load = options && options.load,
+			url = options && options.url;
+		function __$import__(specifier) {
+			if (!load) {
+				throw new Error('Unable to import \'' + specifier + '\': no '
+						+ 'loader was passed to PaperScript.execute().');
+			}
+			return load(specifier, url);
+		}
+		expose({ __$__: __$__, $__: $__, __$import__: __$import__,
+				paper: scope, tool: tool }, true);
 		expose(scope);
 		code = 'var module = { exports: {} }; ' + code;
 		var exports = Base.each(handlers, function(key) {

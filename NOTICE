@@ -32,7 +32,9 @@ under the Apache License 2.0 with the LLVM exception.
 
 Scripts (crates/papercraft) use Paper.js (crates/papercraft/vendor/paper-hosted.js, its
 paper-hosted.js build of 0.14.0-develop; Jürg Lehni & Jonathan Puckey, MIT, see
-crates/papercraft/vendor/LICENSE-paper.txt), which bundles Straps.js (MIT) and Acorn (MIT). Scripts on
+crates/papercraft/vendor/LICENSE-paper.txt), which bundles Straps.js (MIT) and Acorn (MIT), and Acorn
+8.19.0 for PaperScript (crates/papercraft/vendor/acorn.js; Marijn Haverbeke, Ingvar Stepanyan and
+other contributors, MIT, see crates/papercraft/vendor/LICENSE-acorn.txt). Scripts on
 desktop get a DOM from linkedom 0.18.13 and its dependencies (crates/papercraft/vendor/linkedom.js;
 linkedom and uhyphen: Andrea Giammarchi, ISC; htmlparser2: Chris Winberry, MIT; dom-serializer: the
 Cheerio contributors, MIT; cssom: Nikita Vasilyev, MIT; entities, domhandler, domutils,

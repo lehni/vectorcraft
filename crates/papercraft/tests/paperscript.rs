@@ -159,6 +159,22 @@ fn scripts_have_a_dom<E: Engine>() {
     assert_eq!(runtime.take_output(), ["true http://www.w3.org/2000/svg 1 <svg width=\"20\" />", "hé hi"]);
 }
 
+fn scripts_use_todays_javascript<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "const add = (a, b) => a + b\n\
+             class Dot { constructor(at) { this.at = at } }\n\
+             let [x, y] = [1, 2]\n\
+             const dot = new Dot(new Point(x, y) * 2)\n\
+             console.log(`${add(1, 2)}`, dot.at + [x, y], dot?.missing?.value ?? 'none')",
+        )
+        .unwrap();
+    assert_eq!(runtime.take_output(), ["3 { x: 3, y: 6 } none"]);
+}
+
 fn css_colors_resolve_without_a_canvas<E: Engine>() {
     let mut runtime = Runtime::<E>::new().unwrap();
     let scope = runtime.create_scope(800.0, 600.0).unwrap();
@@ -227,6 +243,11 @@ macro_rules! engine_tests {
             #[test]
             fn scripts_have_a_dom() {
                 super::scripts_have_a_dom::<$engine>();
+            }
+
+            #[test]
+            fn scripts_use_todays_javascript() {
+                super::scripts_use_todays_javascript::<$engine>();
             }
 
             #[test]
