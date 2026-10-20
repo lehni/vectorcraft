@@ -57,7 +57,11 @@ pub(crate) fn install<E: Engine>(runtime: &mut Runtime<E>, global: &E::Handle) -
     let choose_color = runtime.engine.function("chooseColor", choose_color)?;
     let paper = runtime.paper.clone();
     let globals = runtime.engine.with_call(|call| {
-        let dialog = call.new_object()?;
+        // The one the JavaScript made, with its file dialogs.
+        let dialog = match call.get(global, "Dialog")? {
+            Value::Js(dialog) => dialog,
+            _ => call.new_object()?,
+        };
         call.set(&dialog, "alert", &Value::Js(alert))?;
         call.set(&dialog, "confirm", &Value::Js(confirm))?;
         call.set(&dialog, "prompt", &Value::Js(prompt))?;

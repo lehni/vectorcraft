@@ -1,13 +1,17 @@
 // What scripts see that's written in JavaScript, on every platform. The runtime
-// runs it once its own classes are there.
+// runs it before its own classes, which build on these.
 import { setupFileDialogs } from './dialog.js'
+import * as events from './events.js'
 import * as geometry from './geometry.js'
 
 // What a browser's realm has already, it keeps:
+if (!globalThis.EventTarget) {
+  setGlobals(events)
+}
 if (!globalThis.DOMMatrix) {
   setGlobals({ ...geometry, WebKitCSSMatrix: geometry.DOMMatrix })
 }
-setupFileDialogs(globalThis.Dialog)
+setupFileDialogs((globalThis.Dialog ??= {}))
 
 // Set as the realm's own globals are: not enumerable.
 function setGlobals(values) {

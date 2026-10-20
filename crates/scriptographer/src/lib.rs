@@ -19,6 +19,7 @@ mod dom;
 mod drawing;
 mod engine;
 mod engines;
+#[cfg(not(target_arch = "wasm32"))]
 mod events;
 mod exception;
 #[cfg(not(target_arch = "wasm32"))]
@@ -189,8 +190,6 @@ pub struct Host<H> {
     urls: Option<urls::Classes<H>>,
     /// The realm's error classes, for the exceptions host functions throw.
     exceptions: Option<exception::Classes<H>>,
-    /// What `EventTarget` and `Event` share.
-    events: Option<events::Classes<H>>,
     /// The realm's global object, for its classes ([`global_class`]).
     global: Option<H>,
     /// The realm's `Promise`, for the clipboard's answers.
@@ -273,7 +272,6 @@ impl<H> Default for Host<H> {
             #[cfg(not(target_arch = "wasm32"))]
             urls: None,
             exceptions: None,
-            events: None,
             global: None,
             clipboard_promise: None,
             clone_classes: None,
@@ -329,9 +327,21 @@ impl<E: Engine> Runtime<E> {
         let global = engine.global()?;
         host.borrow_mut().global = Some(global.clone());
         exception::install(&mut engine, &global)?;
+        // What's written in JavaScript, before the classes that build on it (`AbortSignal` on
+        // `EventTarget`): on the web, with the app's pickers to ask, which it takes off the global
+        // object.
+        #[cfg(target_arch = "wasm32")]
+        {
+            let ask = engine.function("ask", dialog::ask_picker)?;
+            engine.with_call(|call| {
+                let host = call.new_object()?;
+                call.set(&host, "ask", &Value::Js(ask))?;
+                call.set(&global, "__scriptographer", &Value::Js(host))
+            })?;
+            engine.eval(SCRIPTOGRAPHER_WEB_JS)?;
+        }
+        engine.eval(SCRIPTOGRAPHER_JS)?;
         storage::install(&mut engine, &global)?;
-        // Before the classes that are event targets (`AbortSignal`).
-        events::install(&mut engine, &global)?;
         install_globals(&mut engine)?;
         let paper = engine.with_call(|call| object(call, &global, "paper"))?;
         let load = engine.function("load", modules::load)?;
@@ -360,19 +370,6 @@ impl<E: Engine> Runtime<E> {
         clipboard::install(&mut runtime.engine, &global)?;
         // After `performance`, its clock.
         console::install(&mut runtime.engine, &global)?;
-        // What's written in JavaScript, once what it uses is there: on the web, with the app's
-        // pickers to ask, which it takes off the global object.
-        #[cfg(target_arch = "wasm32")]
-        {
-            let ask = runtime.engine.function("ask", dialog::ask_picker)?;
-            runtime.engine.with_call(|call| {
-                let host = call.new_object()?;
-                call.set(&host, "ask", &Value::Js(ask))?;
-                call.set(&global, "__scriptographer", &Value::Js(host))
-            })?;
-            runtime.engine.eval(SCRIPTOGRAPHER_WEB_JS)?;
-        }
-        runtime.engine.eval(SCRIPTOGRAPHER_JS)?;
         Ok(runtime)
     }
 

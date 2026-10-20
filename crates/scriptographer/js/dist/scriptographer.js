@@ -99,6 +99,300 @@
     }
   }
 
+  // src/events.js
+  var events_exports = {};
+  __export(events_exports, {
+    CloseEvent: () => CloseEvent,
+    CustomEvent: () => CustomEvent,
+    ErrorEvent: () => ErrorEvent,
+    Event: () => Event,
+    EventTarget: () => EventTarget,
+    MessageEvent: () => MessageEvent
+  });
+  var phases = { NONE: 0, CAPTURING_PHASE: 1, AT_TARGET: 2, BUBBLING_PHASE: 3 };
+  var listenersByTarget = /* @__PURE__ */ new WeakMap();
+  var states = /* @__PURE__ */ new WeakMap();
+  var EventTarget = class {
+    addEventListener(type, callback, options) {
+      if (callback && typeof callback === "object" || typeof callback === "function") {
+        const { capture, once, passive, signal } = getOptions(options);
+        if (!signal?.aborted) {
+          type = String(type);
+          let listeners = listenersByTarget.get(this);
+          if (!listeners) {
+            listeners = [];
+            listenersByTarget.set(this, listeners);
+          }
+          if (!find(listeners, type, callback, capture)) {
+            const listener = {
+              type,
+              callback,
+              capture,
+              once,
+              passive,
+              removed: false
+            };
+            listeners.push(listener);
+            signal?.addEventListener("abort", () => remove(this, listener));
+          }
+        }
+      }
+    }
+    removeEventListener(type, callback, options) {
+      const { capture } = getOptions(options);
+      const listener = find(
+        listenersByTarget.get(this),
+        String(type),
+        callback,
+        capture
+      );
+      if (listener) remove(this, listener);
+    }
+    dispatchEvent(event) {
+      const state = states.get(event);
+      if (!state) {
+        throw new TypeError(`Invalid event: '${event}', not an Event.`);
+      }
+      if (state.dispatching) {
+        throw new DOMException(
+          "Unable to dispatch an event that is being dispatched.",
+          "InvalidStateError"
+        );
+      }
+      Object.assign(state, {
+        dispatching: true,
+        target: this,
+        currentTarget: this,
+        eventPhase: phases.AT_TARGET
+      });
+      for (const listener of [...listenersByTarget.get(this) ?? []]) {
+        if (!listener.removed && listener.type === state.type) {
+          if (listener.once) remove(this, listener);
+          const { callback } = listener;
+          state.passive = listener.passive;
+          try {
+            if (typeof callback === "function") {
+              callback.call(this, event);
+            } else if (typeof callback.handleEvent === "function") {
+              callback.handleEvent(event);
+            } else {
+              throw new TypeError("Invalid listener: it has no handleEvent().");
+            }
+          } catch (err) {
+            console.error(`Uncaught ${formatError(err)}`);
+          }
+          state.passive = false;
+          if (state.stopImmediately) break;
+        }
+      }
+      Object.assign(state, {
+        dispatching: false,
+        stop: false,
+        stopImmediately: false,
+        currentTarget: null,
+        eventPhase: phases.NONE
+      });
+      return !state.defaultPrevented;
+    }
+  };
+  var Event = class {
+    constructor(type, init) {
+      if (arguments.length === 0) {
+        throw new TypeError("Invalid event: its type is missing.");
+      }
+      const { bubbles, cancelable, composed } = init ?? {};
+      states.set(this, {
+        type: String(type),
+        bubbles: !!bubbles,
+        cancelable: !!cancelable,
+        composed: !!composed,
+        defaultPrevented: false,
+        eventPhase: phases.NONE,
+        target: null,
+        currentTarget: null,
+        timeStamp: globalThis.performance?.now() ?? 0,
+        isTrusted: false
+      });
+    }
+    get srcElement() {
+      return getState(this).target;
+    }
+    get returnValue() {
+      return !getState(this).defaultPrevented;
+    }
+    set returnValue(value) {
+      if (!value) this.preventDefault();
+    }
+    get cancelBubble() {
+      return !!getState(this).stop;
+    }
+    set cancelBubble(value) {
+      if (value) getState(this).stop = true;
+    }
+    // A passive listener can't cancel an event:
+    preventDefault() {
+      const state = getState(this);
+      if (state.cancelable && !state.passive) state.defaultPrevented = true;
+    }
+    stopPropagation() {
+      getState(this).stop = true;
+    }
+    stopImmediatePropagation() {
+      Object.assign(getState(this), { stop: true, stopImmediately: true });
+    }
+    // The target while the event is dispatched, as there's no tree around it.
+    composedPath() {
+      const { currentTarget } = getState(this);
+      return currentTarget ? [currentTarget] : [];
+    }
+    // The legacy way, before the event is dispatched.
+    initEvent(type, bubbles = false, cancelable = false) {
+      const state = getState(this);
+      if (!state.dispatching) {
+        Object.assign(state, {
+          type: String(type),
+          bubbles: !!bubbles,
+          cancelable: !!cancelable,
+          stop: false,
+          stopImmediately: false,
+          defaultPrevented: false
+        });
+      }
+    }
+  };
+  var CustomEvent = class extends Event {
+    constructor(type, init) {
+      super(...arguments);
+      setMembers(this, init, { detail: null });
+    }
+    initCustomEvent(type, bubbles, cancelable, detail = null) {
+      this.initEvent(type, bubbles, cancelable);
+      const state = getState(this);
+      if (!state.dispatching) state.detail = detail;
+    }
+  };
+  var MessageEvent = class extends Event {
+    constructor(type, init) {
+      super(...arguments);
+      setMembers(this, init, {
+        data: null,
+        origin: "",
+        lastEventId: "",
+        source: null,
+        ports: []
+      });
+    }
+  };
+  var CloseEvent = class extends Event {
+    constructor(type, init) {
+      super(...arguments);
+      setMembers(this, init, { wasClean: false, code: 0, reason: "" });
+    }
+  };
+  var ErrorEvent = class extends Event {
+    constructor(type, init) {
+      super(...arguments);
+      setMembers(this, init, {
+        message: "",
+        filename: "",
+        lineno: 0,
+        colno: 0,
+        error: null
+      });
+    }
+  };
+  var fields = {
+    [Event.name]: [
+      "type",
+      "bubbles",
+      "cancelable",
+      "composed",
+      "defaultPrevented",
+      "eventPhase",
+      "target",
+      "currentTarget",
+      "timeStamp",
+      "isTrusted"
+    ],
+    [CustomEvent.name]: ["detail"],
+    [MessageEvent.name]: ["data", "origin", "lastEventId", "source", "ports"],
+    [CloseEvent.name]: ["wasClean", "code", "reason"],
+    [ErrorEvent.name]: ["message", "filename", "lineno", "colno", "error"]
+  };
+  for (const Class of [
+    Event,
+    CustomEvent,
+    MessageEvent,
+    CloseEvent,
+    ErrorEvent
+  ]) {
+    for (const name of fields[Class.name]) {
+      Object.defineProperty(Class.prototype, name, {
+        get() {
+          return getState(this)[name];
+        },
+        configurable: true,
+        enumerable: true
+      });
+    }
+  }
+  for (const [name, value] of Object.entries(phases)) {
+    for (const target of [Event, Event.prototype]) {
+      Object.defineProperty(target, name, { value, enumerable: true });
+    }
+  }
+  for (const Class of [
+    EventTarget,
+    Event,
+    CustomEvent,
+    MessageEvent,
+    CloseEvent,
+    ErrorEvent
+  ]) {
+    Object.defineProperty(Class.prototype, Symbol.toStringTag, {
+      value: Class.name,
+      configurable: true
+    });
+  }
+  function formatError(err) {
+    const text = String(err);
+    const stack = err?.stack;
+    return typeof stack === "string" && stack.startsWith(text) ? stack : text;
+  }
+  function getState(event) {
+    const state = states.get(event);
+    if (!state) {
+      throw new TypeError(`Invalid event: '${event}', not an Event.`);
+    }
+    return state;
+  }
+  function setMembers(event, init, defaults) {
+    const state = getState(event);
+    for (const [name, value] of Object.entries(defaults)) {
+      const given = init?.[name];
+      state[name] = given === void 0 ? Array.isArray(value) ? [] : value : typeof value === "string" ? String(given) : typeof value === "number" ? Number(given) : typeof value === "boolean" ? !!given : given;
+    }
+  }
+  function getOptions(options) {
+    if (options && typeof options === "object") {
+      const { capture, once, passive, signal } = options;
+      return { capture: !!capture, once: !!once, passive: !!passive, signal };
+    } else {
+      return { capture: !!options, once: false, passive: false, signal: null };
+    }
+  }
+  function find(listeners, type, callback, capture) {
+    return listeners?.find(
+      (listener) => listener.type === type && listener.capture === capture && Object.is(listener.callback, callback)
+    );
+  }
+  function remove(target, listener) {
+    listener.removed = true;
+    const listeners = listenersByTarget.get(target);
+    const index = listeners?.indexOf(listener) ?? -1;
+    if (index >= 0) listeners.splice(index, 1);
+  }
+
   // src/geometry.js
   var geometry_exports = {};
   __export(geometry_exports, {
@@ -645,10 +939,13 @@
   }
 
   // src/index.js
+  if (!globalThis.EventTarget) {
+    setGlobals(events_exports);
+  }
   if (!globalThis.DOMMatrix) {
     setGlobals({ ...geometry_exports, WebKitCSSMatrix: DOMMatrix });
   }
-  setupFileDialogs(globalThis.Dialog);
+  setupFileDialogs(globalThis.Dialog ??= {});
   function setGlobals(values) {
     for (const [name, value] of Object.entries(values)) {
       Object.defineProperty(globalThis, name, {
