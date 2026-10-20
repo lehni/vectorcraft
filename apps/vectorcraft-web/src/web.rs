@@ -401,6 +401,7 @@ impl eframe::App for WebShell {
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
         raw.events.extend(self.host.pointers.borrow_mut().take());
         if let Some(app) = &mut self.app {
+            app.pointer_times = self.host.pointers.borrow_mut().take_times();
             app.raw_input_hook(raw);
         }
     }

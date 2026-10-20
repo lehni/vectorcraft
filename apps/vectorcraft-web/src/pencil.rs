@@ -13,6 +13,7 @@
 //!
 //! Mouse and trackpad events (a Magic Keyboard) are left to eframe. Until the first pen
 //! contact, fingers and their DOM touch events also stay with eframe (including its text agent).
+//! Their times, which egui leaves out, are noted for the app ([`Pointers::take_times`]).
 
 #[cfg(target_arch = "wasm32")]
 use std::cell::RefCell;
@@ -20,6 +21,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use egui::{Event, PointerButton, Pos2, TouchDeviceId, TouchId, TouchPhase};
+use vectorcraft_ui_egui::canvas::PointerTimes;
 use vectorcraft_ui_egui::touch::{self, Source};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast as _;
@@ -39,7 +41,13 @@ pub struct Pointers {
     /// The contact driving egui's pointer.
     primary: Option<i32>,
     button: Option<PointerButton>,
+    /// The times of the mouse events eframe handles, since the last frame.
+    times: PointerTimes,
 }
+
+/// The most times noted of a kind between two frames: a frame that doesn't come (the tab hidden)
+/// leaves no list growing.
+const MOST_TIMES: usize = 256;
 
 #[cfg(target_arch = "wasm32")]
 pub type SharedPointers = Rc<RefCell<Pointers>>;
@@ -69,6 +77,26 @@ impl Pointers {
     /// The events since the last frame, for the frame's raw input.
     pub fn take(&mut self) -> Vec<Event> {
         std::mem::take(&mut self.events)
+    }
+
+    /// The times of the mouse events since the last frame, for the app.
+    pub fn take_times(&mut self) -> PointerTimes {
+        std::mem::take(&mut self.times)
+    }
+
+    /// Notes the time of a mouse event that eframe handles: its DOM type `kind` and `timeStamp`
+    /// (milliseconds by `performance.now()`, whose seconds are eframe's clock). Moves, and presses
+    /// and releases of the primary button.
+    fn note_time(&mut self, kind: &str, pointer_type: &str, button: i16, time_stamp: f64) {
+        let list = match kind {
+            "mousemove" => &mut self.times.moves,
+            "pointerdown" if pointer_type == "mouse" && button == 0 => &mut self.times.downs,
+            "pointerup" if pointer_type == "mouse" && button == 0 => &mut self.times.ups,
+            _ => return,
+        };
+        if list.len() < MOST_TIMES {
+            list.push(time_stamp / 1000.0);
+        }
     }
 
     fn touch(&mut self, device: TouchDeviceId, id: i32, phase: TouchPhase, pos: Pos2, force: Option<f32>) {
@@ -242,6 +270,7 @@ pub fn install(runner: &eframe::WebRunner, canvas: &web_sys::HtmlCanvasElement, 
                 vec![]
             };
             let pointer_type = e.pointer_type();
+            pointers.borrow_mut().note_time(kind, &pointer_type, e.button(), e.time_stamp());
             let input = Input {
                 pointer_type: &pointer_type,
                 id: e.pointer_id(),
@@ -270,6 +299,13 @@ pub fn install(runner: &eframe::WebRunner, canvas: &web_sys::HtmlCanvasElement, 
                 runner.logic();
             }
             runner.egui_ctx().request_repaint();
+        })?;
+    }
+    // eframe takes the mouse's moves from its mouse events.
+    {
+        let pointers = pointers.clone();
+        runner.add_event_listener_ex(&window, "mousemove", &options, move |e: web_sys::MouseEvent, _runner, _| {
+            pointers.borrow_mut().note_time("mousemove", "mouse", e.button(), e.time_stamp());
         })?;
     }
     // The touch events behind those pointer events: eframe would see each touch a second time,
@@ -333,6 +369,23 @@ mod tests {
             }
         }
         reset();
+    }
+
+    #[test]
+    fn mouse_times_are_noted_in_seconds() {
+        let mut p = Pointers::default();
+        p.note_time("pointerdown", "mouse", 0, 1000.0);
+        p.note_time("mousemove", "mouse", 0, 1008.5);
+        p.note_time("pointerup", "mouse", 0, 1016.0);
+        // A pen's events are its own, and other buttons aren't the tool's.
+        p.note_time("pointerdown", "pen", 0, 1020.0);
+        p.note_time("pointerdown", "mouse", 2, 1030.0);
+        assert_eq!(p.take_times(), PointerTimes { moves: vec![1.0085], downs: vec![1.0], ups: vec![1.016] });
+        assert_eq!(p.take_times(), PointerTimes::default(), "a frame's times only");
+        for i in 0..1000 {
+            p.note_time("mousemove", "mouse", 0, f64::from(i));
+        }
+        assert_eq!(p.take_times().moves.len(), MOST_TIMES, "a hidden tab's times stay bounded");
     }
 
     #[test]
