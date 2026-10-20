@@ -28,10 +28,11 @@ const INDENT: f32 = 14.0;
 /// Whether the panel menu has Reload: hidden for now, as the folders are listed again by themselves
 /// when the app comes to the front.
 const SHOW_RELOAD: bool = false;
-/// The bottom bars' buttons, and the bars: 4 points above the buttons, the line included (the
-/// panel leaves 4 points under them).
+/// The bottom bars' buttons, 3 points under the line above them and 4 above the panel's edge: the
+/// panel's bottom margin shows 3 of those, the bar has the rest.
 pub(super) const BUTTON: f32 = 24.0;
-const BAR: f32 = 4.0 + BUTTON;
+const ABOVE: f32 = 3.5;
+const BELOW: f32 = 1.0;
 /// The space between the bottom bar's groups of buttons.
 const GAP: f32 = 8.0;
 
@@ -138,9 +139,10 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
 /// than they are.
 pub(super) fn bottom_bar(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
     let t = Tokens::get(ui.ctx());
-    let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), BAR), Sense::hover());
+    let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), ABOVE + BUTTON + BELOW), Sense::hover());
     ui.painter().line_segment([bar.left_top(), bar.right_top()], egui::Stroke::new(1.0, t.divider));
-    let mut row = ui.new_child(egui::UiBuilder::new().max_rect(bar).layout(egui::Layout::left_to_right(egui::Align::Max)));
+    let buttons = egui::Rect::from_min_size(bar.min + vec2(0.0, ABOVE), vec2(bar.width(), BUTTON));
+    let mut row = ui.new_child(egui::UiBuilder::new().max_rect(buttons).layout(egui::Layout::left_to_right(egui::Align::Center)));
     add(&mut row);
 }
 
