@@ -109,7 +109,7 @@ fn files_read_write_and_list<E: Engine>(name: &str) {
     let _ = std::fs::remove_dir_all(&folder);
     std::fs::create_dir_all(&folder).unwrap();
     let mut runtime = Runtime::<E>::new().unwrap();
-    runtime.set_script(Some(&folder.join("script.js").to_string_lossy()), &serde_json::json!({})).unwrap();
+    runtime.set_script(Some(&folder.join("script.js").to_string_lossy()), &serde_json::json!({}), None).unwrap();
     let scope = runtime.create_scope(800.0, 600.0).unwrap();
     runtime
         .execute(
@@ -214,7 +214,7 @@ fn scripts_import_modules<E: Engine>(name: &str) {
     write("a.js", "import { b } from './b.js'\nexport const a = 1");
     write("b.js", "import { a } from './a.js'\nexport const b = 2");
     let mut runtime = Runtime::<E>::new().unwrap();
-    runtime.set_script(Some(&folder.join("script.js").to_string_lossy()), &serde_json::json!({})).unwrap();
+    runtime.set_script(Some(&folder.join("script.js").to_string_lossy()), &serde_json::json!({}), None).unwrap();
     let scope = runtime.create_scope(800.0, 600.0).unwrap();
     runtime
         .execute(
@@ -783,6 +783,40 @@ fn geometry_classes_are_the_browsers<E: Engine>() {
     );
 }
 
+fn local_storage_lasts_and_session_storage_doesnt<E: Engine>(name: &str) {
+    let folder = std::env::temp_dir().join(format!("papercraft-storage-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    let (script, storage) = (folder.join("script.js").to_string_lossy().into_owned(), folder.join("storage"));
+    let run = |source: &str| {
+        let mut runtime = Runtime::<E>::new().unwrap();
+        runtime.set_script(Some(&script), &serde_json::json!({}), Some(&storage)).unwrap();
+        let scope = runtime.create_scope(800.0, 600.0).unwrap();
+        runtime.execute(&scope, source).unwrap();
+        runtime.take_output()
+    };
+    let first = run("localStorage.setItem('a', 1); localStorage.b = { toString: () => 'two' }; sessionStorage.c = 'gone'\n\
+         console.log(localStorage.length, localStorage.getItem('a'), localStorage.b, localStorage.key(1), localStorage.getItem('x'), localStorage.x)\n\
+         console.log(Object.keys(localStorage).join(), 'b' in localStorage, localStorage instanceof Storage, typeof localStorage.getItem)\n\
+         localStorage.getItem = 'item'; delete localStorage.a\n\
+         console.log(localStorage.getItem('getItem'), localStorage.length)\n\
+         const thrown = f => { try { f() } catch (e) { return e.name } }\n\
+         console.log(thrown(() => localStorage.setItem('big', 'x'.repeat(6 * 1024 * 1024))))");
+    assert_eq!(
+        first,
+        [
+            "2 1 two b null undefined",
+            "a,b true true function",
+            // Properties the storage has are its own; others are items.
+            "item 2",
+            "QuotaExceededError",
+        ]
+    );
+    // The next run of the script has its local items, not its session ones.
+    let second = run("console.log(localStorage.length, localStorage.b, localStorage.getItem('getItem'), sessionStorage.length)");
+    assert_eq!(second, ["2 two item 0"]);
+    std::fs::remove_dir_all(&folder).unwrap();
+}
+
 fn runtimes_live_side_by_side<E: Engine>() {
     // As the app runs them: a second script starts while the first keeps running, and the first
     // stops first.
@@ -948,6 +982,11 @@ macro_rules! engine_tests {
             #[test]
             fn geometry_classes_are_the_browsers() {
                 super::geometry_classes_are_the_browsers::<$engine>();
+            }
+
+            #[test]
+            fn local_storage_lasts_and_session_storage_doesnt() {
+                super::local_storage_lasts_and_session_storage_doesnt::<$engine>(stringify!($module));
             }
 
             #[test]

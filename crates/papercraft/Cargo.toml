@@ -27,6 +27,8 @@ vello_cpu = { workspace = true }
 vello_common = { version = "0.2", default-features = false }
 # Decoding the images `createImageBitmap()` reads, as the app decodes placed images.
 image = { workspace = true }
+# Naming each script's `localStorage` file for its path.
+sha2 = { version = "0.10", default-features = false }
 # `atob` and `btoa`.
 vectorcraft-format = { workspace = true }
 # Resolving `import` specifiers against modules from the web.

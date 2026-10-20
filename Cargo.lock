@@ -5728,6 +5728,7 @@ dependencies = [
  "image",
  "js-sys",
  "serde_json",
+ "sha2",
  "svgtypes 0.16.1",
  "thiserror 2.0.21",
  "ureq",

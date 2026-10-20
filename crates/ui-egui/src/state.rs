@@ -446,6 +446,11 @@ pub struct UiState {
     pub papercraft_folders: Vec<ScriptFolder>,
     /// PaperCraft scripts' `script.preferences`, by script file.
     pub papercraft_preferences: std::collections::BTreeMap<String, Value>,
+    /// The folder PaperCraft scripts keep their `localStorage` in, next to the preferences; none
+    /// in runs without preferences, whose scripts keep it while they run. Not saved: the app sets
+    /// it at launch.
+    #[serde(skip)]
+    pub papercraft_storage: Option<std::path::PathBuf>,
     /// Where the user put PaperCraft scripts' palettes, by script and palette title
     /// ([`crate::scripts::palettes`]): a palette opens there again.
     pub papercraft_palettes: std::collections::BTreeMap<String, [f32; 2]>,
@@ -896,6 +901,7 @@ impl Default for UiState {
             papercraft_folders: Vec::new(),
             papercraft_palettes: Default::default(),
             papercraft_preferences: Default::default(),
+            papercraft_storage: None,
             recording: None,
             shortcut_overrides: Default::default(),
             shortcut_set: default_shortcut_set(),

@@ -25,6 +25,7 @@ pub mod host;
 mod modules;
 mod palette;
 mod path2d;
+mod storage;
 #[cfg(not(target_arch = "wasm32"))]
 mod urls;
 #[cfg(not(target_arch = "wasm32"))]
@@ -151,6 +152,10 @@ pub struct Host<H> {
     exceptions: Option<exception::Classes<H>>,
     /// What `DOMMatrix` and the other geometry classes share.
     geometry: Option<geometry::Classes<H>>,
+    /// The script's `localStorage` and `sessionStorage`, and what their proxies use.
+    local_storage: storage::Storage,
+    session_storage: storage::Storage,
+    storages: Option<storage::Classes<H>>,
     next_palette_id: u64,
     /// `script.preferences` as last taken, as JSON.
     preferences: String,
@@ -201,6 +206,9 @@ impl<H> Default for Host<H> {
             urls: None,
             exceptions: None,
             geometry: None,
+            local_storage: storage::Storage::default(),
+            session_storage: storage::Storage::default(),
+            storages: None,
             next_palette_id: 0,
             preferences: String::new(),
             handlers: Vec::new(),
@@ -220,6 +228,15 @@ pub struct Runtime<E: Engine> {
 /// A `PaperScope` with its own project and view.
 pub struct Scope<H>(H);
 
+impl<E: Engine> Drop for Runtime<E> {
+    /// Writes what's left of the script's `localStorage`; a failure can't reach the script now.
+    fn drop(&mut self) {
+        if let Ok(mut host) = self.host.try_borrow_mut() {
+            let _ = host.local_storage.write(None);
+        }
+    }
+}
+
 impl<E: Engine> Runtime<E> {
     pub fn new() -> Result<Self, Error> {
         let host = Rc::new(RefCell::new(Host::default()));
@@ -227,6 +244,7 @@ impl<E: Engine> Runtime<E> {
         let global = engine.global()?;
         exception::install(&mut engine, &global)?;
         geometry::install(&mut engine, &global)?;
+        storage::install(&mut engine, &global)?;
         install_globals(&mut engine)?;
         let paper = engine.with_call(|call| object(call, &global, "paper"))?;
         let load = engine.function("load", modules::load)?;
@@ -326,6 +344,9 @@ impl<E: Engine> Runtime<E> {
         {
             let mut host = self.host.borrow_mut();
             host.now = now;
+            if let Err(e) = host.local_storage.write(Some(now)) {
+                host.output.push(e);
+            }
             for interval in host.intervals.iter_mut().filter(|interval| interval.due <= now) {
                 due.push(interval.callback.clone());
                 // Keep the cadence, but don't catch up on intervals missed while the host was busy.
@@ -377,12 +398,16 @@ impl<E: Engine> Runtime<E> {
     /// script's file and its folder (`null` for code typed in the console), `script.keepAlive`,
     /// which the script sets to keep running when another script runs, and
     /// `script.preferences`, `preferences` as the script last left them
-    /// ([`Runtime::take_preferences`]).
-    pub fn set_script(&mut self, file: Option<&str>, preferences: &serde_json::Value) -> Result<(), Error> {
+    /// ([`Runtime::take_preferences`]). Its `localStorage` is kept in `storage`, the app's folder
+    /// for them, when it has one and the script a file.
+    pub fn set_script(&mut self, file: Option<&str>, preferences: &serde_json::Value, storage: Option<&std::path::Path>) -> Result<(), Error> {
         let global = self.engine.global()?;
         let directory = file.and_then(|f| std::path::Path::new(f).parent()).map(std::path::Path::to_path_buf);
         {
             let mut host = self.host.borrow_mut();
+            if let (Some(folder), Some(file)) = (storage, file) {
+                host.local_storage = storage::Storage::kept_in(storage::Storage::file_for(folder, std::path::Path::new(file)));
+            }
             host.preferences = preferences.to_string();
             host.file = file.map(std::path::PathBuf::from);
             host.directory = directory.clone();

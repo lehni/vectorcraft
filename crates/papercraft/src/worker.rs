@@ -8,6 +8,7 @@
 //! anything else. On the web there are no threads: the worker runs each request as it is sent.
 
 use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -87,10 +88,18 @@ struct Script<E: Engine> {
 }
 
 impl<E: Engine> Script<E> {
-    /// A runtime whose view has the given size, bound to the document.
-    fn new(size: (f64, f64), file: Option<&str>, preferences: &Json, doc: Arc<Document>, selection: Selection) -> Result<Self, Error> {
+    /// A runtime whose view has the given size, bound to the document, its `localStorage` kept in
+    /// the folder `storage`.
+    fn new(
+        size: (f64, f64),
+        file: Option<&str>,
+        preferences: &Json,
+        storage: Option<&Path>,
+        doc: Arc<Document>,
+        selection: Selection,
+    ) -> Result<Self, Error> {
         let mut runtime = Runtime::<E>::new()?;
-        runtime.set_script(file, preferences)?;
+        runtime.set_script(file, preferences, storage)?;
         let scope = runtime.create_scope(size.0, size.1)?;
         runtime.bind(&scope, doc, selection)?;
         Ok(Self { runtime, scope, pending: None, style: Json::Null })
@@ -188,8 +197,16 @@ pub struct Worker {
 #[cfg(not(target_arch = "wasm32"))]
 impl Worker {
     /// Starts a script's thread, with a runtime whose view has the given size, for the script in
-    /// `file` with its `preferences`, on the document.
-    pub fn spawn(size: (f64, f64), file: Option<String>, preferences: Json, doc: Arc<Document>, selection: Selection) -> Result<Self, Error> {
+    /// `file` with its `preferences` and its `localStorage` in the folder `storage`, on the
+    /// document.
+    pub fn spawn(
+        size: (f64, f64),
+        file: Option<String>,
+        preferences: Json,
+        storage: Option<PathBuf>,
+        doc: Arc<Document>,
+        selection: Selection,
+    ) -> Result<Self, Error> {
         let (requests, inbox) = std::sync::mpsc::channel::<Request>();
         let (outbox, replies) = std::sync::mpsc::channel();
         let interrupt = Arc::new(std::sync::Mutex::new(None));
@@ -200,7 +217,7 @@ impl Worker {
             .name("papercraft script".into())
             .spawn(move || {
                 let inbox = std::rc::Rc::new(inbox);
-                let mut script = match Script::<PlatformEngine>::new(size, file.as_deref(), &preferences, doc, selection) {
+                let mut script = match Script::<PlatformEngine>::new(size, file.as_deref(), &preferences, storage.as_deref(), doc, selection) {
                     Ok(script) => script,
                     Err(e) => {
                         // The app may have stopped the script already; then nobody listens.
@@ -288,8 +305,15 @@ pub struct Worker {
 
 #[cfg(target_arch = "wasm32")]
 impl Worker {
-    pub fn spawn(size: (f64, f64), file: Option<String>, preferences: Json, doc: Arc<Document>, selection: Selection) -> Result<Self, Error> {
-        let script = Script::<PlatformEngine>::new(size, file.as_deref(), &preferences, doc, selection)?;
+    pub fn spawn(
+        size: (f64, f64),
+        file: Option<String>,
+        preferences: Json,
+        storage: Option<PathBuf>,
+        doc: Arc<Document>,
+        selection: Selection,
+    ) -> Result<Self, Error> {
+        let script = Script::<PlatformEngine>::new(size, file.as_deref(), &preferences, storage.as_deref(), doc, selection)?;
         Ok(Self { script: std::cell::RefCell::new(script), replies: Default::default() })
     }
 
