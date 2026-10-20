@@ -10,8 +10,10 @@
 //! they're read ([`Surface::flush`]): drawing many paths costs one render. As the standard has it,
 //! a path's points are transformed when they're added, a stroke's width by the transform when it's
 //! stroked, and gradients and patterns are in the coordinates of the transform when they paint.
-//! The context's properties (`fillStyle`, `lineWidth`, …) are the canvas's own JavaScript
-//! properties; `save()` keeps them with the transform, clip and dashes.
+//! The context's properties (`fillStyle`, `lineWidth`, …) are kept with its surface, as the
+//! script gave them; `save()` keeps them with the transform, clip and dashes. Each canvas, path,
+//! gradient and pattern is a slot of the runtime's (`crate::canvas::Canvases`), which its object in
+//! `js/src/canvas.js` names by its number: the functions here get it as `this`.
 
 use std::sync::Arc;
 
@@ -23,12 +25,11 @@ use vello_cpu::{Pixmap, RenderContext, RenderSettings, Resources};
 
 use crate::{Call, Error, Value};
 
-/// A context property: its name, the key its value is kept under, its value on a new canvas, and
-/// the values it takes; others are ignored, as browsers ignore them. `save()` keeps them.
+/// A context property: its name, its value on a new canvas, and the values it takes; others are
+/// ignored, as browsers ignore them. `save()` keeps them.
 pub(crate) struct Property {
     pub name: &'static str,
-    pub key: &'static str,
-    pub initial: Initial,
+    initial: Initial,
     check: Check,
 }
 
@@ -65,42 +66,36 @@ const COMPOSITE_OPERATIONS: &[&str] = &[
     "luminosity",
 ];
 
-const fn property(name: &'static str, key: &'static str, initial: Initial, check: Check) -> Property {
-    Property { name, key, initial, check }
+const fn property(name: &'static str, initial: Initial, check: Check) -> Property {
+    Property { name, initial, check }
 }
 
 pub(crate) const PROPERTIES: [Property; 26] = [
-    property("fillStyle", "_fillStyle", Initial::Text("#000000"), Check::Style),
-    property("strokeStyle", "_strokeStyle", Initial::Text("#000000"), Check::Style),
-    property("lineWidth", "_lineWidth", Initial::Number(1.0), Check::Positive),
-    property("lineCap", "_lineCap", Initial::Text("butt"), Check::Keyword(&["butt", "round", "square"])),
-    property("lineJoin", "_lineJoin", Initial::Text("miter"), Check::Keyword(&["round", "bevel", "miter"])),
-    property("miterLimit", "_miterLimit", Initial::Number(10.0), Check::Positive),
-    property("lineDashOffset", "_lineDashOffset", Initial::Number(0.0), Check::Finite),
-    property("globalAlpha", "_globalAlpha", Initial::Number(1.0), Check::Fraction),
-    property("globalCompositeOperation", "_globalCompositeOperation", Initial::Text("source-over"), Check::Keyword(COMPOSITE_OPERATIONS)),
-    property("font", "_font", Initial::Text(crate::canvas::DEFAULT_FONT), Check::Font),
-    property("textAlign", "_textAlign", Initial::Text("start"), Check::Keyword(&["start", "end", "left", "right", "center"])),
-    property(
-        "textBaseline",
-        "_textBaseline",
-        Initial::Text("alphabetic"),
-        Check::Keyword(&["top", "hanging", "middle", "alphabetic", "ideographic", "bottom"]),
-    ),
-    property("direction", "_direction", Initial::Text("inherit"), Check::Keyword(&["ltr", "rtl", "inherit"])),
-    property("imageSmoothingEnabled", "_imageSmoothingEnabled", Initial::Bool(true), Check::Bool),
-    property("imageSmoothingQuality", "_imageSmoothingQuality", Initial::Text("low"), Check::Keyword(&["low", "medium", "high"])),
-    property("shadowBlur", "_shadowBlur", Initial::Number(0.0), Check::NonNegative),
-    property("shadowColor", "_shadowColor", Initial::Text("rgba(0, 0, 0, 0)"), Check::Color),
-    property("shadowOffsetX", "_shadowOffsetX", Initial::Number(0.0), Check::Finite),
-    property("shadowOffsetY", "_shadowOffsetY", Initial::Number(0.0), Check::Finite),
-    property("filter", "_filter", Initial::Text("none"), Check::Filter),
-    property("letterSpacing", "_letterSpacing", Initial::Text("0px"), Check::Length),
-    property("wordSpacing", "_wordSpacing", Initial::Text("0px"), Check::Length),
-    property("fontKerning", "_fontKerning", Initial::Text("auto"), Check::Keyword(&["auto", "normal", "none"])),
+    property("fillStyle", Initial::Text("#000000"), Check::Style),
+    property("strokeStyle", Initial::Text("#000000"), Check::Style),
+    property("lineWidth", Initial::Number(1.0), Check::Positive),
+    property("lineCap", Initial::Text("butt"), Check::Keyword(&["butt", "round", "square"])),
+    property("lineJoin", Initial::Text("miter"), Check::Keyword(&["round", "bevel", "miter"])),
+    property("miterLimit", Initial::Number(10.0), Check::Positive),
+    property("lineDashOffset", Initial::Number(0.0), Check::Finite),
+    property("globalAlpha", Initial::Number(1.0), Check::Fraction),
+    property("globalCompositeOperation", Initial::Text("source-over"), Check::Keyword(COMPOSITE_OPERATIONS)),
+    property("font", Initial::Text(crate::canvas::DEFAULT_FONT), Check::Font),
+    property("textAlign", Initial::Text("start"), Check::Keyword(&["start", "end", "left", "right", "center"])),
+    property("textBaseline", Initial::Text("alphabetic"), Check::Keyword(&["top", "hanging", "middle", "alphabetic", "ideographic", "bottom"])),
+    property("direction", Initial::Text("inherit"), Check::Keyword(&["ltr", "rtl", "inherit"])),
+    property("imageSmoothingEnabled", Initial::Bool(true), Check::Bool),
+    property("imageSmoothingQuality", Initial::Text("low"), Check::Keyword(&["low", "medium", "high"])),
+    property("shadowBlur", Initial::Number(0.0), Check::NonNegative),
+    property("shadowColor", Initial::Text("rgba(0, 0, 0, 0)"), Check::Color),
+    property("shadowOffsetX", Initial::Number(0.0), Check::Finite),
+    property("shadowOffsetY", Initial::Number(0.0), Check::Finite),
+    property("filter", Initial::Text("none"), Check::Filter),
+    property("letterSpacing", Initial::Text("0px"), Check::Length),
+    property("wordSpacing", Initial::Text("0px"), Check::Length),
+    property("fontKerning", Initial::Text("auto"), Check::Keyword(&["auto", "normal", "none"])),
     property(
         "fontStretch",
-        "_fontStretch",
         Initial::Text("normal"),
         Check::Keyword(&[
             "ultra-condensed",
@@ -116,16 +111,10 @@ pub(crate) const PROPERTIES: [Property; 26] = [
     ),
     property(
         "fontVariantCaps",
-        "_fontVariantCaps",
         Initial::Text("normal"),
         Check::Keyword(&["normal", "small-caps", "all-small-caps", "petite-caps", "all-petite-caps", "unicase", "titling-caps"]),
     ),
-    property(
-        "textRendering",
-        "_textRendering",
-        Initial::Text("auto"),
-        Check::Keyword(&["auto", "optimizeSpeed", "optimizeLegibility", "geometricPrecision"]),
-    ),
+    property("textRendering", Initial::Text("auto"), Check::Keyword(&["auto", "optimizeSpeed", "optimizeLegibility", "geometricPrecision"])),
 ];
 
 /// The values a property takes.
@@ -172,22 +161,23 @@ impl Initial {
     }
 }
 
-/// `get(name)`, with the context as `this`: its property `name`.
+/// `get(name)`: the context's property `name`, as the script gave it.
 pub(crate) fn get_property<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let property = property_named(call, args)?;
-    stored(call, this, property.key)
+    property_value(call, this, property.name)
 }
 
-/// `set(name, value)`, with the context as `this`: keeps the value as the property has it, when it
-/// takes it.
+/// `set(name, value, slot)`: keeps the value as the property has it, when it takes it; a
+/// `fillStyle` or `strokeStyle` that is a gradient or a pattern comes with its slot.
 pub(crate) fn set_property<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let property = property_named(call, args)?;
-    let Value::Js(context) = this else {
-        return Err(Error::Script("not a canvas".into()));
-    };
     let value = args.get(1).cloned().unwrap_or(Value::Undefined);
-    if let Some(kept) = checked(call, property.check, value)? {
-        call.set(context, property.key, &kept)?;
+    let (kept, slot) = match (property.check, args.get(2)) {
+        (Check::Style, Some(Value::Number(slot))) => (Some(value), Some(*slot as usize)),
+        (check, _) => (checked(call, check, value)?, None),
+    };
+    if let Some(kept) = kept {
+        surface(call, this, |s| s.properties.set(property.name, kept, slot))?;
     }
     Ok(Value::Undefined)
 }
@@ -195,6 +185,46 @@ pub(crate) fn set_property<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, ar
 fn property_named<H>(call: &mut dyn Call<H>, args: &[Value<H>]) -> Result<&'static Property, Error> {
     let name = call.to_string(args.first().unwrap_or(&Value::Undefined))?;
     PROPERTIES.iter().find(|p| p.name == name).ok_or_else(|| Error::Type(format!("Unknown property: '{name}'.")))
+}
+
+/// The context's properties, as [`PROPERTIES`] lists them, and the slots of a `fillStyle` and
+/// `strokeStyle` that are a gradient or a pattern.
+#[derive(Clone)]
+pub(crate) struct Properties<H> {
+    values: Vec<Value<H>>,
+    styles: [Option<usize>; 2],
+}
+
+impl<H> Properties<H> {
+    /// As on a new canvas.
+    fn new() -> Self {
+        Self { values: PROPERTIES.iter().map(|p| p.initial.value()).collect(), styles: [None; 2] }
+    }
+
+    fn index(name: &str) -> Option<usize> {
+        PROPERTIES.iter().position(|p| p.name == name)
+    }
+
+    /// The slot of the style in `name`, when it's a gradient or a pattern.
+    fn style(&self, name: &str) -> Option<usize> {
+        self.styles.get(usize::from(name == "strokeStyle")).copied().flatten()
+    }
+
+    fn value(&self, name: &str) -> Value<H>
+    where
+        H: Clone,
+    {
+        Self::index(name).and_then(|i| self.values.get(i)).cloned().unwrap_or(Value::Undefined)
+    }
+
+    fn set(&mut self, name: &str, value: Value<H>, slot: Option<usize>) {
+        if let Some(stored) = Self::index(name).and_then(|i| self.values.get_mut(i)) {
+            *stored = value;
+        }
+        if let ("fillStyle" | "strokeStyle", Some(style)) = (name, self.styles.get_mut(usize::from(name == "strokeStyle"))) {
+            *style = slot;
+        }
+    }
 }
 
 /// `value` as a property that takes `check` keeps it, or `None` when it doesn't take it.
@@ -223,11 +253,6 @@ fn checked<H: Clone>(call: &mut dyn Call<H>, check: Check, value: Value<H>) -> R
             _ => None,
         },
         Check::Style => match &value {
-            Value::Js(object)
-                if matches!(call.get(object, "_gradient")?, Value::String(_)) || matches!(call.get(object, "_image")?, Value::Js(_)) =>
-            {
-                Some(value.clone())
-            }
             Value::String(css) => color_value(css),
             _ => None,
         },
@@ -258,14 +283,6 @@ fn css_length(text: &str) -> Option<f64> {
     units.iter().find_map(|(unit, scale)| text.strip_suffix(unit)?.parse::<f64>().ok().filter(|n| n.is_finite()).map(|n| n * scale))
 }
 
-/// Sets the properties of `context` to their values on a new canvas, as `reset()` and resizing do.
-pub(crate) fn reset_properties<H>(call: &mut dyn Call<H>, context: &H) -> Result<(), Error> {
-    for p in &PROPERTIES {
-        call.set(context, p.key, &p.initial.value())?;
-    }
-    Ok(())
-}
-
 /// A canvas's pixels and drawing state.
 pub(crate) struct Surface<H> {
     pub pixmap: Pixmap,
@@ -277,6 +294,7 @@ pub(crate) struct Surface<H> {
     /// The clip paths, in pixels; drawing is inside all of them.
     clips: Vec<(BezPath, Fill)>,
     dash: Vec<f64>,
+    properties: Properties<H>,
     saved: Vec<Saved<H>>,
 }
 
@@ -285,7 +303,7 @@ struct Saved<H> {
     transform: Affine,
     clips: Vec<(BezPath, Fill)>,
     dash: Vec<f64>,
-    properties: Vec<Value<H>>,
+    properties: Properties<H>,
 }
 
 impl<H> Surface<H> {
@@ -297,6 +315,7 @@ impl<H> Surface<H> {
             transform: Affine::IDENTITY,
             clips: Vec::new(),
             dash: Vec::new(),
+            properties: Properties::new(),
             saved: Vec::new(),
         }
     }
@@ -390,23 +409,20 @@ fn finite<const N: usize, H>(args: &[Value<H>], from: usize) -> Option<[f64; N]>
     out.iter().all(|n| n.is_finite()).then_some(out)
 }
 
-/// The value the context `this` is keeps under `key`.
-fn stored<H>(call: &mut dyn Call<H>, this: &Value<H>, key: &str) -> Result<Value<H>, Error> {
-    match this {
-        Value::Js(context) => call.get(context, key),
-        _ => Err(Error::Script("not a canvas".into())),
-    }
+/// The property `name` of the context `this` is.
+pub(crate) fn property_value<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, name: &str) -> Result<Value<H>, Error> {
+    surface(call, this, |s| s.properties.value(name))
 }
 
-fn text_property<H>(call: &mut dyn Call<H>, this: &Value<H>, key: &str) -> Result<String, Error> {
-    match stored(call, this, key)? {
+fn text_property<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, name: &str) -> Result<String, Error> {
+    match property_value(call, this, name)? {
         Value::String(text) => Ok(text),
         other => call.to_string(&other),
     }
 }
 
-fn number_property<H>(call: &mut dyn Call<H>, this: &Value<H>, key: &str, default: f64) -> Result<f64, Error> {
-    Ok(match stored(call, this, key)? {
+fn number_property<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, name: &str, default: f64) -> Result<f64, Error> {
+    Ok(match property_value(call, this, name)? {
         Value::Number(n) if n.is_finite() => n,
         _ => default,
     })
@@ -798,30 +814,22 @@ pub(crate) fn matrix_coefficients<H: Clone>(call: &mut dyn Call<H>, init: Option
 // State.
 
 pub(crate) fn save<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let mut properties = Vec::with_capacity(PROPERTIES.len());
-    for p in &PROPERTIES {
-        properties.push(stored(call, this, p.key)?);
-    }
     surface(call, this, |s| {
-        let saved = Saved { transform: s.transform, clips: s.clips.clone(), dash: s.dash.clone(), properties };
+        let saved = Saved { transform: s.transform, clips: s.clips.clone(), dash: s.dash.clone(), properties: s.properties.clone() };
         s.saved.push(saved);
     })?;
     Ok(Value::Undefined)
 }
 
 pub(crate) fn restore<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let saved = surface(call, this, |s| {
-        let saved = s.saved.pop()?;
-        s.transform = saved.transform;
-        s.clips = saved.clips;
-        s.dash = saved.dash;
-        Some(saved.properties)
-    })?;
-    if let (Some(properties), Value::Js(context)) = (saved, this) {
-        for (p, value) in PROPERTIES.iter().zip(properties) {
-            call.set(context, p.key, &value)?;
+    surface(call, this, |s| {
+        if let Some(saved) = s.saved.pop() {
+            s.transform = saved.transform;
+            s.clips = saved.clips;
+            s.dash = saved.dash;
+            s.properties = saved.properties;
         }
-    }
+    })?;
     Ok(Value::Undefined)
 }
 
@@ -831,9 +839,6 @@ pub(crate) fn reset<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[
         let (width, height) = (s.pixmap.width(), s.pixmap.height());
         s.resize(width, height);
     })?;
-    if let Value::Js(context) = this {
-        reset_properties(call, context)?;
-    }
     Ok(Value::Undefined)
 }
 
@@ -876,72 +881,41 @@ enum Style {
     Pattern(Arc<Pixmap>, Extend, Extend),
 }
 
-/// The style in property `key`, `None` when it paints nothing.
-fn style<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, key: &str) -> Result<Option<Style>, Error> {
-    match stored(call, this, key)? {
-        Value::String(css) => Ok(css_color(&css).map(Style::Color)),
-        Value::Js(object) => {
-            if let Value::String(kind) = call.get(&object, "_gradient")? {
-                return gradient(call, &object, &kind).map(|g| g.map(Style::Gradient));
-            }
-            if let Value::Js(image) = call.get(&object, "_image")? {
-                let repetition = match call.get(&object, "_repetition")? {
-                    Value::String(r) => r,
-                    _ => "repeat".into(),
-                };
-                let (x, y) = match repetition.as_str() {
-                    "repeat-x" => (Extend::Repeat, Extend::Pad),
-                    "repeat-y" => (Extend::Pad, Extend::Repeat),
-                    "no-repeat" => (Extend::Pad, Extend::Pad),
-                    _ => (Extend::Repeat, Extend::Repeat),
-                };
-                let pixels = crate::canvas::image_pixels(call, &Value::Js(image))?;
-                return Ok(Some(Style::Pattern(pixels, x, y)));
-            }
-            Ok(None)
-        }
+/// What a gradient's or a pattern's slot holds: a gradient as its stops are added, or a pattern's
+/// image as it was when the pattern was made.
+pub(crate) enum Paint {
+    Gradient { kind: &'static str, at: Vec<f64>, stops: Vec<ColorStop> },
+    Pattern(Arc<Pixmap>, Extend, Extend),
+}
+
+/// The style in the property `name`, `None` when it paints nothing.
+fn style<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, name: &str) -> Result<Option<Style>, Error> {
+    let (value, slot) = surface(call, this, |s| (s.properties.value(name), s.properties.style(name)))?;
+    match (slot, value) {
+        (Some(slot), _) => crate::canvas::with_paint(call, slot, |paint| match paint {
+            Paint::Gradient { kind, at, stops } => gradient(kind, at, stops).map(Style::Gradient),
+            Paint::Pattern(pixels, x, y) => Some(Style::Pattern(pixels.clone(), *x, *y)),
+        })
+        .map(Option::flatten),
+        (None, Value::String(css)) => Ok(css_color(&css).map(Style::Color)),
         _ => Ok(None),
     }
 }
 
-/// The gradient a `CanvasGradient` object stands for.
-fn gradient<H: Clone>(call: &mut dyn Call<H>, object: &H, kind: &str) -> Result<Option<peniko::Gradient>, Error> {
-    let numbers = |call: &mut dyn Call<H>, key: &str| -> Result<Vec<f64>, Error> {
-        let Value::Js(list) = call.get(object, key)? else {
-            return Ok(Vec::new());
-        };
-        let count = match call.get(&list, "length")? {
-            Value::Number(n) if n.is_finite() && n >= 0.0 => (n as usize).min(4096),
-            _ => 0,
-        };
-        (0..count).map(|i| call.get(&list, &i.to_string()).map(|v| if let Value::Number(n) = v { n } else { f64::NAN })).collect()
-    };
-    let at = numbers(call, "_at")?;
-    let offsets = numbers(call, "_offsets")?;
-    let Value::Js(colors) = call.get(object, "_colors")? else {
-        return Ok(None);
-    };
-    let mut stops = Vec::with_capacity(offsets.len());
-    for (i, offset) in offsets.iter().enumerate() {
-        let css = match call.get(&colors, &i.to_string())? {
-            Value::String(css) => css,
-            _ => continue,
-        };
-        if let Some(color) = css_color(&css) {
-            stops.push(ColorStop::from((*offset as f32, color)));
-        }
-    }
+/// The gradient of `kind` at `at`, with `stops` in the order of their offsets.
+fn gradient(kind: &str, at: &[f64], stops: &[ColorStop]) -> Option<peniko::Gradient> {
     if stops.is_empty() {
-        return Ok(None);
+        return None;
     }
+    let mut stops = stops.to_vec();
     stops.sort_by(|a, b| a.offset.total_cmp(&b.offset));
-    let gradient = match (kind, at.as_slice()) {
+    let gradient = match (kind, at) {
         ("linear", [x0, y0, x1, y1]) => peniko::Gradient::new_linear((*x0, *y0), (*x1, *y1)),
         ("radial", [x0, y0, r0, x1, y1, r1]) => peniko::Gradient::new_two_point_radial((*x0, *y0), *r0 as f32, (*x1, *y1), *r1 as f32),
         ("conic", [angle, x, y]) => peniko::Gradient::new_sweep((*x, *y), *angle as f32, (*angle + std::f64::consts::TAU) as f32),
-        _ => return Ok(None),
+        _ => return None,
     };
-    Ok(Some(gradient.with_stops(stops.as_slice())))
+    Some(gradient.with_stops(stops.as_slice()))
 }
 
 /// How a drawing lands on the canvas.
@@ -1082,8 +1056,8 @@ fn length(word: &str) -> Option<f64> {
 /// How drawing lands on the canvas now: `globalAlpha` and `globalCompositeOperation` as vello_cpu
 /// has them, `filter` and the shadow.
 fn compositing<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>) -> Result<Compositing, Error> {
-    let alpha = number_property(call, this, "_globalAlpha", 1.0)?.clamp(0.0, 1.0) as f32;
-    let operation = text_property(call, this, "_globalCompositeOperation")?;
+    let alpha = number_property(call, this, "globalAlpha", 1.0)?.clamp(0.0, 1.0) as f32;
+    let operation = text_property(call, this, "globalCompositeOperation")?;
     let (mix, compose) = match operation.as_str() {
         "source-in" => (Mix::Normal, Compose::SrcIn),
         "source-out" => (Mix::Normal, Compose::SrcOut),
@@ -1114,12 +1088,12 @@ fn compositing<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>) -> Result<Comp
         "luminosity" => (Mix::Luminosity, Compose::SrcOver),
         _ => (Mix::Normal, Compose::SrcOver),
     };
-    let mut effects = parse_filter(&text_property(call, this, "_filter")?).unwrap_or_default();
-    if let Some(color) = css_color(&text_property(call, this, "_shadowColor")?) {
-        let dx = number_property(call, this, "_shadowOffsetX", 0.0)?;
-        let dy = number_property(call, this, "_shadowOffsetY", 0.0)?;
+    let mut effects = parse_filter(&text_property(call, this, "filter")?).unwrap_or_default();
+    if let Some(color) = css_color(&text_property(call, this, "shadowColor")?) {
+        let dx = number_property(call, this, "shadowOffsetX", 0.0)?;
+        let dy = number_property(call, this, "shadowOffsetY", 0.0)?;
         // As for CSS shadows, the blur's standard deviation is half the `shadowBlur`.
-        let blur = number_property(call, this, "_shadowBlur", 0.0)?.max(0.0) / 2.0;
+        let blur = number_property(call, this, "shadowBlur", 0.0)?.max(0.0) / 2.0;
         effects.push(Effect::Shadow { dx, dy, blur, color });
     }
     Ok(Compositing { alpha, blend: BlendMode::new(mix, compose), effects })
@@ -1156,7 +1130,7 @@ fn fill_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, key: &str, path:
         return Ok(());
     };
     let compositing = compositing(call, this)?;
-    let smooth = !matches!(stored(call, this, "_imageSmoothingEnabled")?, Value::Bool(false));
+    let smooth = !matches!(property_value(call, this, "imageSmoothingEnabled")?, Value::Bool(false));
     surface(call, this, |s| {
         let transform = s.transform;
         s.draw(&compositing, |scene| {
@@ -1170,22 +1144,22 @@ fn fill_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, key: &str, path:
 
 /// The stroke the context's line properties describe, in user space.
 fn line<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, dash: &[f64]) -> Result<Option<Stroke>, Error> {
-    let width = number_property(call, this, "_lineWidth", 1.0)?;
+    let width = number_property(call, this, "lineWidth", 1.0)?;
     if width <= 0.0 {
         return Ok(None);
     }
-    let cap = match text_property(call, this, "_lineCap")?.as_str() {
+    let cap = match text_property(call, this, "lineCap")?.as_str() {
         "round" => Cap::Round,
         "square" => Cap::Square,
         _ => Cap::Butt,
     };
-    let join = match text_property(call, this, "_lineJoin")?.as_str() {
+    let join = match text_property(call, this, "lineJoin")?.as_str() {
         "round" => Join::Round,
         "bevel" => Join::Bevel,
         _ => Join::Miter,
     };
-    let miter = number_property(call, this, "_miterLimit", 10.0)?.max(0.0);
-    let offset = number_property(call, this, "_lineDashOffset", 0.0)?;
+    let miter = number_property(call, this, "miterLimit", 10.0)?.max(0.0);
+    let offset = number_property(call, this, "lineDashOffset", 0.0)?;
     let mut stroke = Stroke::new(width).with_caps(cap).with_join(join).with_miter_limit(miter);
     if !dash.is_empty() && dash.iter().any(|d| *d > 0.0) {
         stroke = stroke.with_dashes(offset, dash.iter().copied());
@@ -1195,7 +1169,7 @@ fn line<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, dash: &[f64]) -> Resu
 
 /// Strokes `path` (in pixels) with `strokeStyle`, its line in the current user space.
 fn stroke_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, path: BezPath) -> Result<(), Error> {
-    let Some(style) = style(call, this, "_strokeStyle")? else {
+    let Some(style) = style(call, this, "strokeStyle")? else {
         return Ok(());
     };
     let dash = surface(call, this, |s| s.dash.clone())?;
@@ -1203,7 +1177,7 @@ fn stroke_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, path: BezPath)
         return Ok(());
     };
     let compositing = compositing(call, this)?;
-    let smooth = !matches!(stored(call, this, "_imageSmoothingEnabled")?, Value::Bool(false));
+    let smooth = !matches!(property_value(call, this, "imageSmoothingEnabled")?, Value::Bool(false));
     surface(call, this, |s| {
         let transform = s.transform;
         // A transform that flattens everything strokes nothing.
@@ -1220,22 +1194,21 @@ fn stroke_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, path: BezPath)
     })
 }
 
-/// The `Path2D` that `fill()`, `stroke()`, `clip()` and the point tests take first, in pixels
-/// through the context's transform, and the arguments after it; the current path without one.
+/// The path whose slot `fill()`, `stroke()`, `clip()` and the point tests take first (`null` for
+/// the current path), in pixels through the context's transform, and the arguments after it.
 fn path_argument<'a, H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &'a [Value<H>]) -> Result<(BezPath, &'a [Value<H>]), Error> {
-    if let Some((first, rest)) = args.split_first()
-        && let Some(path) = crate::path2d::path_of(call, first)?
-    {
-        let transform = surface(call, this, |s| s.transform)?;
-        return Ok((transform * path, rest));
-    }
-    Ok((surface(call, this, |s| s.path.clone())?, args))
+    let (first, rest) = args.split_first().unwrap_or((&Value::Null, &[]));
+    let path = match crate::path2d::path_of(call, first)? {
+        Some(path) => surface(call, this, |s| s.transform * path)?,
+        None => surface(call, this, |s| s.path.clone())?,
+    };
+    Ok((path, rest))
 }
 
 /// `fill(path, fillRule)`.
 pub(crate) fn fill<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let (path, args) = path_argument(call, this, args)?;
-    fill_path(call, this, "_fillStyle", path, fill_rule(args))?;
+    fill_path(call, this, "fillStyle", path, fill_rule(args))?;
     Ok(Value::Undefined)
 }
 
@@ -1293,7 +1266,7 @@ fn rect_path<H>(s: &Surface<H>, x: f64, y: f64, w: f64, h: f64) -> BezPath {
 pub(crate) fn fill_rect<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     if let Some([x, y, w, h]) = finite(args, 0) {
         let path = surface(call, this, |s| rect_path(s, x, y, w, h))?;
-        fill_path(call, this, "_fillStyle", path, Fill::NonZero)?;
+        fill_path(call, this, "fillStyle", path, Fill::NonZero)?;
     }
     Ok(Value::Undefined)
 }
@@ -1336,9 +1309,9 @@ fn text_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>
     let Some([x, y]) = finite(args, 1) else {
         return Ok(None);
     };
-    let font = text_property(call, this, "_font")?;
-    let align = text_property(call, this, "_textAlign")?;
-    let baseline = text_property(call, this, "_textBaseline")?;
+    let font = text_property(call, this, "font")?;
+    let align = text_property(call, this, "textAlign")?;
+    let baseline = text_property(call, this, "textBaseline")?;
     let (outline, measured) = crate::canvas::outline(&text, &font);
     let dx = match align.as_str() {
         "center" => -measured.width / 2.0,
@@ -1362,7 +1335,7 @@ fn text_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>
 
 pub(crate) fn fill_text<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     if let Some(path) = text_path(call, this, args)? {
-        fill_path(call, this, "_fillStyle", path, Fill::NonZero)?;
+        fill_path(call, this, "fillStyle", path, Fill::NonZero)?;
     }
     Ok(Value::Undefined)
 }
@@ -1402,7 +1375,7 @@ pub(crate) fn draw_image<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args
         return Ok(Value::Undefined);
     }
     let compositing = compositing(call, this)?;
-    let smooth = !matches!(stored(call, this, "_imageSmoothingEnabled")?, Value::Bool(false));
+    let smooth = !matches!(property_value(call, this, "imageSmoothingEnabled")?, Value::Bool(false));
     // The source rectangle, clipped to the image, maps onto the destination rectangle.
     let scale = Vec2::new(destination.width() / source.width(), destination.height() / source.height());
     let visible = source.intersect(Rect::new(0.0, 0.0, iw, ih));
@@ -1432,66 +1405,56 @@ pub(crate) fn draw_image<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args
 }
 
 /// `createLinearGradient(x0, y0, x1, y1)`, `createRadialGradient(x0, y0, r0, x1, y1, r1)` or
-/// `createConicGradient(angle, x, y)`: a `CanvasGradient`, its stops added by `addColorStop()`.
-pub(crate) fn create_gradient<H: Clone>(call: &mut dyn Call<H>, kind: &str, args: &[Value<H>], count: usize) -> Result<Value<H>, Error> {
-    let at: Vec<Value<H>> = (0..count).map(|i| Value::Number(number(args, i))).collect();
-    if at.iter().any(|v| matches!(v, Value::Number(n) if !n.is_finite())) {
+/// `createConicGradient(angle, x, y)`: the slot of a gradient, its stops added by `addColorStop()`.
+pub(crate) fn create_gradient<H: Clone>(call: &mut dyn Call<H>, kind: &'static str, args: &[Value<H>], count: usize) -> Result<Value<H>, Error> {
+    let at: Vec<f64> = (0..count).map(|i| number(args, i)).collect();
+    if at.iter().any(|n| !n.is_finite()) {
         return Err(Error::Type(format!("create{kind}Gradient: not finite")));
     }
-    let gradient = crate::canvas::new_style(call, "CanvasGradient")?;
-    let at = call.new_array(&at)?;
-    let (offsets, colors) = (call.new_array(&[])?, call.new_array(&[])?);
-    for (key, value) in
-        [("_gradient", Value::String(kind.into())), ("_at", Value::Js(at)), ("_offsets", Value::Js(offsets)), ("_colors", Value::Js(colors))]
-    {
-        call.set(&gradient, key, &value)?;
-    }
-    Ok(Value::Js(gradient))
+    crate::canvas::store_paint(call, Paint::Gradient { kind, at, stops: Vec::new() })
 }
 
-/// `gradient.addColorStop(offset, color)`.
+/// `addColorStop(offset, color)`, of the gradient `this` is.
 pub(crate) fn add_color_stop<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let Value::Js(gradient) = this else {
-        return Err(Error::Script("not a CanvasGradient".into()));
-    };
     let offset = number(args, 0);
     if !(0.0..=1.0).contains(&offset) {
         return Err(Error::Dom("IndexSizeError", "addColorStop: the offset isn't between 0 and 1".into()));
     }
-    let color = match args.get(1) {
+    let css = match args.get(1) {
         Some(color) => call.to_string(color)?,
         None => String::new(),
     };
-    if css_color(&color).is_none() {
-        return Err(Error::Dom("SyntaxError", format!("addColorStop: '{color}' isn't a colour")));
-    }
-    for (key, value) in [("_offsets", Value::Number(offset)), ("_colors", Value::String(color))] {
-        if let Value::Js(list) = call.get(gradient, key)? {
-            crate::method(call, &list, "push", &[value])?;
+    let Some(color) = css_color(&css) else {
+        return Err(Error::Dom("SyntaxError", format!("addColorStop: '{css}' isn't a colour")));
+    };
+    let slot = call.to_number(this)?;
+    crate::canvas::with_paint(call, slot as usize, |paint| {
+        if let Paint::Gradient { stops, .. } = paint {
+            stops.push(ColorStop::from((offset as f32, color)));
         }
-    }
+    })?;
     Ok(Value::Undefined)
 }
 
-/// `createPattern(image, repetition)`: a `CanvasPattern` of a canvas.
+/// `createPattern(image, repetition)`: the slot of a pattern of a canvas's or bitmap's pixels.
 pub(crate) fn create_pattern<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let Some(image) = args.first() else {
         return Err(Error::Type("createPattern: no image".into()));
     };
     // The image's pixels as they are now.
-    crate::canvas::image_pixels(call, image)?;
+    let pixels = crate::canvas::image_pixels(call, image)?;
     let repetition = match args.get(1) {
-        None | Some(Value::Null | Value::Undefined) => "repeat".to_owned(),
+        None | Some(Value::Null | Value::Undefined) => String::new(),
         Some(r) => call.to_string(r)?,
     };
-    let repetition = if repetition.is_empty() { "repeat".to_owned() } else { repetition };
-    if !matches!(repetition.as_str(), "repeat" | "repeat-x" | "repeat-y" | "no-repeat") {
-        return Err(Error::Dom("SyntaxError", format!("createPattern: '{repetition}' isn't a repetition")));
-    }
-    let pattern = crate::canvas::new_style(call, "CanvasPattern")?;
-    call.set(&pattern, "_image", image)?;
-    call.set(&pattern, "_repetition", &Value::String(repetition))?;
-    Ok(Value::Js(pattern))
+    let (x, y) = match repetition.as_str() {
+        "" | "repeat" => (Extend::Repeat, Extend::Repeat),
+        "repeat-x" => (Extend::Repeat, Extend::Pad),
+        "repeat-y" => (Extend::Pad, Extend::Repeat),
+        "no-repeat" => (Extend::Pad, Extend::Pad),
+        _ => return Err(Error::Dom("SyntaxError", format!("createPattern: '{repetition}' isn't a repetition"))),
+    };
+    crate::canvas::store_paint(call, Paint::Pattern(pixels, x, y))
 }
 
 #[cfg(test)]

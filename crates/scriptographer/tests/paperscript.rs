@@ -309,7 +309,11 @@ fn scripts_have_the_browsers_everyday_apis<E: Engine>() {
              console.log('script')",
         )
         .unwrap();
-    assert_eq!(runtime.take_output(), ["3 hé hé", "4 true", "true", "true [object ImageData]", "script", "microtask"], "the globals are the realm's kind: values scripts can set, not listed");
+    assert_eq!(
+        runtime.take_output(),
+        ["3 hé hé", "4 true", "true", "true [object ImageData]", "script", "microtask"],
+        "the globals are the realm's kind: values scripts can set, not listed"
+    );
 }
 
 /// Encoding as the Encoding standard has it, and base64 as browsers read it.
@@ -549,12 +553,13 @@ fn canvases_have_pixels<E: Engine>() {
              const raster = new Raster(new Size(3, 2))\n\
              raster.setPixel(1, 1, new Color(0, 0, 1))\n\
              console.log(raster.getPixel(1, 1).toCSS(true), raster.getPixel(0, 0).alpha)\n\
+             console.log(Object.keys(canvas).length, Object.keys(new Path2D()).length, ctx.fillStyle)\n\
              canvas.convertToBlob().then(blob => blob.bytes()).then(png => console.log(png[1], png[2], png[3]))",
         )
         .unwrap();
     assert_eq!(
         runtime.take_output(),
-        ["48 [0, 0, 0, 0] [255, 0, 0, 128] true", "[0, 255, 0, 255] [0, 0, 0, 0] [0, 0, 0, 0]", "2 3 [0, 0, 0, 0]", "#0000ff 0", "80 78 71"],
+        ["48 [0, 0, 0, 0] [255, 0, 0, 128] true", "[0, 255, 0, 255] [0, 0, 0, 0] [0, 0, 0, 0]", "2 3 [0, 0, 0, 0]", "#0000ff 0", "0 0 #000000", "80 78 71"],
         "a half red stays half red, cleared and outside is transparent, resizing clears, PNG's signature"
     );
 }

@@ -12,14 +12,14 @@ use vello_cpu::{Pixmap, RenderContext, RenderSettings, Resources};
 
 use crate::canvas::{AREA, SIDE, premultiply, store};
 use crate::drawing::Surface;
-use crate::{Call, Error, Value, method};
+use crate::{Call, Error, Value};
 
-/// `createImageBitmap(image[, sx, sy, sw, sh][, options])`: a Promise of an `ImageBitmap` of
-/// `image` (a `Blob`, an `ImageData`, a canvas or an `ImageBitmap`), cropped to the rectangle,
+/// `createImageBitmap(image[, sx, sy, sw, sh][, options])`: the slot of a bitmap of `image` (an
+/// image's bytes, an `ImageData`, or the slot of a canvas or a bitmap), cropped to the rectangle,
 /// then flipped (`imageOrientation: 'flipY'`) and resized (`resizeWidth`, `resizeHeight`,
 /// `resizeQuality`) as the options say.
 pub(crate) fn create<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let Some(Value::Js(source)) = args.first() else {
+    let Some(source) = args.first() else {
         return Err(Error::Type("createImageBitmap: not an image".into()));
     };
     let pixels = pixels(call, source)?;
@@ -70,22 +70,16 @@ pub(crate) fn create<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &
     } else {
         render(pixels, width, height, transform, smooth)
     };
-    let bitmap = new_bitmap(call, pixmap)?;
-    let promise = call.host()?.borrow().canvases.as_ref().map(|c| c.promise.clone()).ok_or_else(not_set_up)?;
-    method(call, &promise, "resolve", &[bitmap])
+    let mut surface = Surface::new(0, 0);
+    surface.pixmap = pixmap;
+    crate::canvas::with_canvases(call, |canvases| Value::Number(store(&mut canvases.surfaces, surface) as f64))
 }
 
-fn not_set_up() -> Error {
-    Error::Script("ImageBitmap is not set up".into())
-}
-
-/// The pixels of a `Blob`'s image, an `ImageData`, a canvas or an `ImageBitmap`.
-fn pixels<H: Clone>(call: &mut dyn Call<H>, source: &H) -> Result<Arc<Pixmap>, Error> {
-    #[cfg(not(target_arch = "wasm32"))]
-    if crate::blob::is_blob(call, source)? {
-        let bytes = crate::blob::blob_bytes(call, &Value::Js(source.clone()))?;
-        return decode(&bytes).map(Arc::new).map_err(|e| Error::Dom("InvalidStateError", format!("createImageBitmap: {e}")));
-    }
+/// The pixels of an image's bytes, an `ImageData`, or a canvas or a bitmap by its slot.
+fn pixels<H: Clone>(call: &mut dyn Call<H>, source: &Value<H>) -> Result<Arc<Pixmap>, Error> {
+    let Value::Js(source) = source else {
+        return crate::canvas::image_pixels(call, source);
+    };
     if let Value::Js(data) = call.get(source, "data")? {
         let (w, h) = (call.get(source, "width")?, call.get(source, "height")?);
         let (Value::Number(w), Value::Number(h)) = (w, h) else {
@@ -98,7 +92,13 @@ fn pixels<H: Clone>(call: &mut dyn Call<H>, source: &H) -> Result<Arc<Pixmap>, E
         let data = bytes.as_chunks::<4>().0.iter().map(|p| premultiply(*p)).collect();
         return Ok(Arc::new(Pixmap::from_parts(data, w as u16, h as u16)));
     }
-    crate::canvas::image_pixels(call, &Value::Js(source.clone()))
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let bytes = call.bytes(source)?;
+        decode(&bytes).map(Arc::new).map_err(|e| Error::Dom("InvalidStateError", format!("createImageBitmap: {e}")))
+    }
+    #[cfg(target_arch = "wasm32")]
+    Err(Error::Type("createImageBitmap: not an image".into()))
 }
 
 /// The image in `bytes`, in any format the app reads, within the size a canvas may have.
@@ -134,42 +134,4 @@ fn render(pixels: Arc<Pixmap>, width: u16, height: u16, transform: Affine, smoot
     let mut pixmap = Pixmap::new(width, height);
     scene.render(&mut pixmap, &mut Resources::default());
     pixmap
-}
-
-/// A new `ImageBitmap` of `pixmap`.
-fn new_bitmap<H: Clone>(call: &mut dyn Call<H>, pixmap: Pixmap) -> Result<Value<H>, Error> {
-    let bitmap = crate::canvas::new_style(call, "ImageBitmap")?;
-    let (number, registry) = {
-        let host = call.host()?;
-        let mut host = host.borrow_mut();
-        let canvases = host.canvases.as_mut().ok_or_else(not_set_up)?;
-        let mut surface = Surface::new(0, 0);
-        surface.pixmap = pixmap;
-        (store(&mut canvases.surfaces, surface), canvases.registry.clone())
-    };
-    call.set(&bitmap, "_canvas", &Value::Number(number as f64))?;
-    if let Some(registry) = registry {
-        method(call, &registry, "register", &[Value::Js(bitmap.clone()), Value::Number(number as f64)])?;
-    }
-    Ok(Value::Js(bitmap))
-}
-
-/// `bitmap.width` or `height` (`horizontal`): 0 once it's closed.
-pub(crate) fn side<H>(call: &mut dyn Call<H>, this: &Value<H>, horizontal: bool) -> Result<Value<H>, Error> {
-    let side = crate::canvas::with_surface(call, this, |s| if horizontal { s.pixmap.width() } else { s.pixmap.height() }).unwrap_or(0);
-    Ok(Value::Number(f64::from(side)))
-}
-
-/// `bitmap.close()`: frees its pixels; drawing it throws from then on.
-pub(crate) fn close<H>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let Value::Js(bitmap) = this else {
-        return Ok(Value::Undefined);
-    };
-    if let Value::Number(number) = call.get(bitmap, "_canvas")? {
-        if let Some(slot) = call.host()?.borrow_mut().canvases.as_mut().and_then(|c| c.surfaces.get_mut(number as usize)) {
-            *slot = None;
-        }
-        call.set(bitmap, "_canvas", &Value::Number(-1.0))?;
-    }
-    Ok(Value::Undefined)
 }

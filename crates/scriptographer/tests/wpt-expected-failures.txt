@@ -163,7 +163,6 @@ html/canvas/offscreen/canvas-context/2d.canvas.context.type.exists.worker.js: Th
 html/canvas/offscreen/canvas-context/2d.canvas.context.type.extend.worker.js: Interface methods can be added
 html/canvas/offscreen/canvas-context/2d.canvas.context.type.prototype.worker.js: window.CanvasRenderingContext2D.prototype are not [[Writable]] and not [[Configurable]], and its methods are [[Configurable]].
 html/canvas/offscreen/canvas-context/2d.canvas.context.type.replace.worker.js: Interface methods can be overridden
-html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.pattern.worker.js: Resetting the canvas state does not invalidate any existing patterns
 html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.idl.worker.js: Getting/setting width/height IDL attributes
 html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.decimal.worker.js: Parsing of non-negative integers
 html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.em.worker.js: Parsing of non-negative integers
@@ -185,7 +184,6 @@ html/canvas/offscreen/canvas-host/2d.canvas.host.size.large.worker.js: Untitled
 html/canvas/offscreen/color-type/2d.color.type.u8p3.to.u8srgb.to.u8p3.worker.js: test srgb unorm8 canvas storing 8-bit display-p3 data accurately
 html/canvas/offscreen/color-type/2d.color.type.u8srgb.to.u8p3.to.u8srgb.worker.js: test display-p3 unorm8 canvas not storing 8-bit srgb data accurately
 html/canvas/offscreen/conformance-requirements/2d.conformance.requirements.missingargs.worker.js: Missing arguments cause TypeError
-html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.broken.worker.js: Untitled
 html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.negativedest.worker.js: Negative destination width/height represents the correct rectangle
 html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.negativedir.worker.js: Negative dimensions do not affect the direction of the image
 html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.negativesource.worker.js: Negative source width/height represents the correct rectangle
@@ -215,8 +213,6 @@ html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.radial.equal.worker.js:
 html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.radial.negative.worker.js: createRadialGradient() throws INDEX_SIZE_ERR if either radius is negative
 html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.relativecolor.worker.js: Relative color works as CanvasGradient color input
 html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.basic.zerocanvas.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.modify.canvas1.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.modify.canvas2.worker.js: Untitled
 html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.paint.norepeat.coord3.worker.js: Untitled
 html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.paint.norepeat.outside_arc.worker.js: Untitled
 html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.paint.repeatx.coord1.worker.js: Untitled

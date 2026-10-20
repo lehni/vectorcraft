@@ -675,13 +675,24 @@
     createImageBitmap: () => createImageBitmap
   });
   var { canvas } = natives;
+  var getCanvasSurface;
+  var getBitmapSurface;
+  var getPath;
+  var getGradientPaint;
+  var getPatternPaint;
+  var registry = globalThis.FinalizationRegistry && new FinalizationRegistry(([kind, slot]) => canvas.release(kind, slot));
   var OffscreenCanvas = class {
     static {
       __name(this, "OffscreenCanvas");
     }
+    #surface;
     // Transparent black, with a context's defaults.
     constructor(width, height) {
-      canvas.create.call(this, width, height);
+      this.#surface = canvas.create(width, height);
+      registry?.register(this, ["surface", this.#surface]);
+    }
+    static {
+      getCanvasSurface = /* @__PURE__ */ __name((canvas2) => canvas2.#surface, "getCanvasSurface");
     }
     // The canvas is its own context, of any kind asked for:
     getContext() {
@@ -691,33 +702,109 @@
       return this;
     }
     get width() {
-      return canvas.width.call(this);
+      return canvas.width.call(this.#surface);
     }
     // Cleared to the new size, its state reset, as in browsers:
     set width(width) {
-      canvas.resize.call(this, width, void 0);
+      canvas.resize.call(this.#surface, width, void 0);
     }
     get height() {
-      return canvas.height.call(this);
+      return canvas.height.call(this.#surface);
     }
     set height(height) {
-      canvas.resize.call(this, void 0, height);
+      canvas.resize.call(this.#surface, void 0, height);
+    }
+    async convertToBlob() {
+      const png = canvas.toPNG.call(this.#surface);
+      return new globalThis.Blob([png], { type: "image/png" });
     }
     // Transparent black, of a size or of another `ImageData`'s.
     createImageData(widthOrImage, height) {
       return widthOrImage instanceof ImageData ? new ImageData(widthOrImage.width, widthOrImage.height) : new ImageData(widthOrImage, height);
     }
+    createLinearGradient(x0, y0, x1, y1) {
+      return createGradient("linear", x0, y0, x1, y1);
+    }
+    createRadialGradient(x0, y0, r0, x1, y1, r1) {
+      return createGradient("radial", x0, y0, r0, x1, y1, r1);
+    }
+    createConicGradient(angle, x, y) {
+      return createGradient("conic", angle, x, y);
+    }
+    createPattern(image, repetition) {
+      return new CanvasPattern(
+        internal,
+        canvas.createPattern(getSurface(image), repetition)
+      );
+    }
+    drawImage(image, ...args) {
+      canvas.methods.drawImage.call(this.#surface, getSurface(image), ...args);
+    }
+    // The path first, `null` for the current one:
+    fill(...args) {
+      return callWithPath(this.#surface, "fill", args);
+    }
+    stroke(...args) {
+      return callWithPath(this.#surface, "stroke", args);
+    }
+    clip(...args) {
+      return callWithPath(this.#surface, "clip", args);
+    }
+    isPointInPath(...args) {
+      return callWithPath(this.#surface, "isPointInPath", args);
+    }
+    isPointInStroke(...args) {
+      return callWithPath(this.#surface, "isPointInStroke", args);
+    }
   };
-  inject(OffscreenCanvas.prototype, canvas.methods);
+  for (const name of [
+    "getImageData",
+    "putImageData",
+    "measureText",
+    "beginPath",
+    "closePath",
+    "moveTo",
+    "lineTo",
+    "bezierCurveTo",
+    "quadraticCurveTo",
+    "arc",
+    "arcTo",
+    "ellipse",
+    "rect",
+    "roundRect",
+    "fillRect",
+    "strokeRect",
+    "clearRect",
+    "fillText",
+    "strokeText",
+    "translate",
+    "rotate",
+    "scale",
+    "transform",
+    "setTransform",
+    "resetTransform",
+    "getTransform",
+    "save",
+    "restore",
+    "reset",
+    "setLineDash",
+    "getLineDash"
+  ]) {
+    inject(OffscreenCanvas.prototype, {
+      [name](...args) {
+        return canvas.methods[name].call(getSurface(this), ...args);
+      }
+    });
+  }
   for (const name of canvas.properties) {
     inject(
       OffscreenCanvas.prototype,
       {
         get [name]() {
-          return canvas.get.call(this, name);
+          return canvas.get.call(getSurface(this), name);
         },
         set [name](value) {
-          canvas.set.call(this, name, value);
+          canvas.set.call(getSurface(this), name, value, getPaint(value));
         }
       },
       { enumerable: true }
@@ -766,49 +853,107 @@
       return "srgb";
     }
   };
-  var Path2D = class {
+  var Path2D = class _Path2D {
     static {
       __name(this, "Path2D");
     }
+    #path;
     constructor(path) {
-      canvas.createPath.call(this, path);
+      this.#path = canvas.createPath(
+        path instanceof _Path2D ? path.#path : path === void 0 ? null : String(path)
+      );
+      registry?.register(this, ["path", this.#path]);
+    }
+    static {
+      getPath = /* @__PURE__ */ __name((path) => path instanceof _Path2D ? path.#path : void 0, "getPath");
+    }
+    addPath(path, transform) {
+      canvas.pathMethods.addPath.call(this.#path, getPath(path), transform);
     }
   };
-  inject(Path2D.prototype, canvas.pathMethods);
+  for (const name of [
+    "closePath",
+    "moveTo",
+    "lineTo",
+    "bezierCurveTo",
+    "quadraticCurveTo",
+    "arc",
+    "arcTo",
+    "ellipse",
+    "rect",
+    "roundRect"
+  ]) {
+    inject(Path2D.prototype, {
+      [name](...args) {
+        return canvas.pathMethods[name].call(getPath(this), ...args);
+      }
+    });
+  }
   var ImageBitmap = class {
     static {
       __name(this, "ImageBitmap");
     }
-    constructor(key) {
+    #surface;
+    constructor(key, surface) {
       checkInternal(key, "ImageBitmap", "createImageBitmap() makes them");
+      this.#surface = surface;
+      registry?.register(this, ["surface", surface], this);
     }
+    static {
+      getBitmapSurface = /* @__PURE__ */ __name((bitmap) => {
+        if (bitmap.#surface === null) {
+          throw new DOMException(
+            "the image bitmap is closed",
+            "InvalidStateError"
+          );
+        }
+        return bitmap.#surface;
+      }, "getBitmapSurface");
+    }
+    // None once it's closed:
     get width() {
-      return canvas.bitmapWidth.call(this);
+      return this.#surface === null ? 0 : canvas.width.call(this.#surface);
     }
     get height() {
-      return canvas.bitmapHeight.call(this);
+      return this.#surface === null ? 0 : canvas.height.call(this.#surface);
     }
     close() {
-      canvas.closeBitmap.call(this);
+      if (this.#surface !== null) {
+        registry?.unregister(this);
+        canvas.release("surface", this.#surface);
+        this.#surface = null;
+      }
     }
   };
   var CanvasGradient = class {
     static {
       __name(this, "CanvasGradient");
     }
-    constructor(key) {
+    #paint;
+    constructor(key, paint) {
       checkInternal(key, "CanvasGradient", "the context makes them");
+      this.#paint = paint;
+      registry?.register(this, ["paint", paint]);
+    }
+    static {
+      getGradientPaint = /* @__PURE__ */ __name((gradient) => gradient.#paint, "getGradientPaint");
     }
     addColorStop(offset, color) {
-      canvas.addColorStop.call(this, offset, color);
+      canvas.addColorStop.call(this.#paint, offset, color);
     }
   };
   var CanvasPattern = class {
     static {
       __name(this, "CanvasPattern");
     }
-    constructor(key) {
+    #paint;
+    constructor(key, paint) {
       checkInternal(key, "CanvasPattern", "the context makes them");
+      this.#paint = paint;
+      registry?.register(this, ["paint", paint]);
+    }
+    static {
+      getPatternPaint = /* @__PURE__ */ __name((pattern) => pattern.#paint, "getPatternPaint");
     }
   };
   setToStringTag(
@@ -819,7 +964,34 @@
     CanvasGradient,
     CanvasPattern
   );
-  var { createImageBitmap } = canvas;
+  async function createImageBitmap(image, ...args) {
+    const source = image instanceof globalThis.Blob ? new Uint8Array(await image.arrayBuffer()) : image instanceof ImageData ? image : getSurface(image);
+    return new ImageBitmap(internal, canvas.createImageBitmap(source, ...args));
+  }
+  __name(createImageBitmap, "createImageBitmap");
+  function getSurface(image) {
+    if (image instanceof OffscreenCanvas) {
+      return getCanvasSurface(image);
+    } else if (image instanceof ImageBitmap) {
+      return getBitmapSurface(image);
+    } else {
+      throw new TypeError(`Invalid image: '${image}', not a canvas or bitmap.`);
+    }
+  }
+  __name(getSurface, "getSurface");
+  function getPaint(style) {
+    return style instanceof CanvasGradient ? getGradientPaint(style) : style instanceof CanvasPattern ? getPatternPaint(style) : void 0;
+  }
+  __name(getPaint, "getPaint");
+  function createGradient(kind, ...args) {
+    return new CanvasGradient(internal, canvas.createGradient(kind, ...args));
+  }
+  __name(createGradient, "createGradient");
+  function callWithPath(surface, name, args) {
+    const path = args[0] instanceof Path2D ? getPath(args.shift()) : null;
+    return canvas.methods[name].call(surface, path, ...args);
+  }
+  __name(callWithPath, "callWithPath");
   function getSide(value) {
     const side = Math.trunc(Number(value));
     if (!(side > 0)) {
@@ -1965,10 +2137,10 @@ ${value}\r
       return this instanceof FileSystemDirectoryHandle ? "directory" : "file";
     }
     get name() {
-      return natives.fs.info(getPath(this)).name;
+      return natives.fs.info(getPath2(this)).name;
     }
     async isSameEntry(other) {
-      return pathsByHandle.get(other) === getPath(this);
+      return pathsByHandle.get(other) === getPath2(this);
     }
     // Granted: scripts on desktop may change what the user's files.
     async queryPermission() {
@@ -1983,7 +2155,7 @@ ${value}\r
       __name(this, "FileSystemFileHandle");
     }
     async getFile() {
-      const path = getPath(this);
+      const path = getPath2(this);
       const { name, lastModified } = natives.fs.info(path);
       return new File([natives.fs.read(path)], name, {
         type: getType2(path),
@@ -1993,7 +2165,7 @@ ${value}\r
     // A stream that writes the file on `close()`, starting empty, or with what
     // the file holds.
     async createWritable({ keepExistingData = false } = {}) {
-      const path = getPath(this);
+      const path = getPath2(this);
       return new FileSystemWritableFileStream(
         internal,
         path,
@@ -2017,11 +2189,11 @@ ${value}\r
     // The names from the directory down to `handle`, or `null` outside it.
     async resolve(handle) {
       const path = pathsByHandle.get(handle);
-      return path ? natives.fs.relative(getPath(this), path) : null;
+      return path ? natives.fs.relative(getPath2(this), path) : null;
     }
     // What's in the directory, by name:
     async *entries() {
-      for (const path of natives.fs.list(getPath(this))) {
+      for (const path of natives.fs.list(getPath2(this))) {
         yield [natives.fs.info(path).name, createHandle(path)];
       }
     }
@@ -2149,14 +2321,14 @@ ${value}\r
     return pathsByHandle.get(handle) ?? null;
   }
   __name(getHandlePath, "getHandlePath");
-  function getPath(handle) {
+  function getPath2(handle) {
     const path = pathsByHandle.get(handle);
     if (!path) {
       throw new TypeError(`Invalid handle: '${handle}', not a FileSystemHandle.`);
     }
     return path;
   }
-  __name(getPath, "getPath");
+  __name(getPath2, "getPath");
   function createHandle(path, isDirectory = natives.fs.info(path).isDirectory) {
     const Handle = isDirectory ? FileSystemDirectoryHandle : FileSystemFileHandle;
     return new Handle(internal, path);
@@ -2167,7 +2339,7 @@ ${value}\r
     if (!name || name === "." || name === ".." || /[/\\]/.test(name)) {
       throw new TypeError(`Invalid name: '${name}'.`);
     }
-    return natives.fs.path(getPath(directory), name);
+    return natives.fs.path(getPath2(directory), name);
   }
   __name(getEntryPath, "getEntryPath");
   function getEntry2(directory, name, isDirectory, create) {

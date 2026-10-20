@@ -1,5 +1,5 @@
-//! What the runtime reads and makes of the realm's `Blob`s: the browser's, or outside a browser
-//! those of `js/src/blob.js`, which gives the runtime their bytes (`getBytes()`).
+//! What the runtime reads and makes of the `Blob`s of `js/src/blob.js`, which gives the runtime
+//! their bytes (`getBytes()`), for structured cloning.
 
 use crate::{Call, Error, Value};
 
@@ -13,15 +13,6 @@ pub(crate) fn new_blob<H: Clone>(call: &mut dyn Call<H>, bytes: &[u8], kind: &st
     call.construct(&blob, &[parts, Value::Js(options)])
 }
 
-/// Whether `value` is a `Blob`, a `File` or a `LocalFile`.
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn is_blob<H: Clone>(call: &mut dyn Call<H>, value: &H) -> Result<bool, Error> {
-    let blob = crate::global_class(call, "Blob")?;
-    let prototype = crate::handle(call.get(&blob, "prototype")?, "Blob.prototype")?;
-    Ok(matches!(crate::method(call, &prototype, "isPrototypeOf", &[Value::Js(value.clone())])?, Value::Bool(true)))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn blob_bytes<H: Clone>(call: &mut dyn Call<H>, blob: &Value<H>) -> Result<Vec<u8>, Error> {
     let bytes = crate::call_bundle(call, "getBytes", std::slice::from_ref(blob))?;
     call.bytes(&crate::handle(bytes, "the blob's bytes")?)

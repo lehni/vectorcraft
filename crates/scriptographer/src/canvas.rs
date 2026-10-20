@@ -1,9 +1,9 @@
-//! `OffscreenCanvas` for scripts outside a browser, with pixels: a vello_cpu pixmap per canvas,
-//! kept in Rust and freed when the script drops the canvas (through a `FinalizationRegistry`,
-//! where the engine has one). A canvas is its own 2D context (`getContext('2d')` returns it), with
-//! `fillRect`, `clearRect`, `getImageData`, `putImageData`, `createImageData` and the `ImageData`
-//! class, `convertToBlob()` (PNG), and text measuring (`font`, `measureText()`) with the app's fonts
-//! and shaping (VectorCraft's text crate, harfrust). It draws as [`drawing`] describes.
+//! The canvases of `OffscreenCanvas` outside a browser (`js/src/canvas.js`), with pixels: a
+//! vello_cpu pixmap and drawing state per canvas, in a slot the canvas's object names, which it
+//! frees when the script drops the canvas. A canvas is its own 2D context, with `fillRect`,
+//! `clearRect`, `getImageData`, `putImageData`, `convertToBlob()` (PNG), and text measuring
+//! (`font`, `measureText()`) with the app's fonts and shaping (VectorCraft's text crate,
+//! harfrust). It draws as [`drawing`] describes.
 //!
 //! Paper.js resolves CSS colours with it (it fills a pixel with the colour and reads it back), and
 //! measures `PointText` with it.
@@ -15,24 +15,27 @@ use vello_cpu::color::PremulRgba8;
 use vello_cpu::kurbo::BezPath;
 
 use crate::bitmap;
-use crate::drawing::{self, Surface};
+use crate::drawing::{self, Paint, Surface};
 use crate::path2d;
 
-use crate::{Call, Engine, Error, HostFunction, Value, method};
+use crate::{Call, Engine, Error, HostFunction, Value};
 
 /// The largest side of a canvas, and the most pixels one has, as browsers cap them.
 pub(crate) const SIDE: f64 = 16384.0;
 pub(crate) const AREA: f64 = 16384.0 * 16384.0 / 4.0;
 
-/// What canvases share: the realm's `Promise`, the `FinalizationRegistry`s that free a dropped
-/// canvas's pixels and a dropped `Path2D`'s path (when the realm has the class), and the pixels of
-/// every canvas and `ImageBitmap`, and the paths, by their numbers.
+/// The slots of every canvas and `ImageBitmap` (their pixels and drawing state), `Path2D` and
+/// gradient or pattern, by their numbers, which their objects in `js/src/canvas.js` keep.
 pub(crate) struct Canvases<H> {
-    pub promise: H,
-    pub registry: Option<H>,
     pub surfaces: Vec<Option<Surface<H>>>,
-    pub path_registry: Option<H>,
     pub paths: Vec<Option<BezPath>>,
+    pub paints: Vec<Option<Paint>>,
+}
+
+impl<H> Default for Canvases<H> {
+    fn default() -> Self {
+        Self { surfaces: Vec::new(), paths: Vec::new(), paints: Vec::new() }
+    }
 }
 
 /// Keeps `item` in the first free slot, and gives back its number.
@@ -51,18 +54,17 @@ pub(crate) fn store<T>(slots: &mut Vec<Option<T>>, item: T) -> usize {
     }
 }
 
-/// The natives `js/src/canvas.js` makes its classes of: `create(width, height)` and the
-/// `methods` of a canvas, which is its own 2D context, the context's `properties` with `get(name)`
-/// and `set(name, value)`, `width()`, `height()` and `resize(width, height)`; `createPath(path)` and
-/// the `pathMethods` of a `Path2D`; `bitmapWidth()`, `bitmapHeight()` and `closeBitmap()` of an
-/// `ImageBitmap`; `addColorStop()` of a `CanvasGradient`; and `createImageBitmap()`. Each takes
-/// the object it's for as `this`.
+/// The natives `js/src/canvas.js` makes its classes of, each with the slot it's for as `this`:
+/// `create(width, height)`, a canvas's slot, `width()`, `height()`, `resize(width, height)`,
+/// `toPNG()`, the context's `properties` with `get(name)` and `set(name, value, slot)`, and its
+/// `methods`; `createGradient(kind, …)`, `addColorStop()` and `createPattern(image, repetition)`;
+/// `createPath(source)` and the `pathMethods` of a `Path2D`; `createImageBitmap(source, …)`; and
+/// `release(kind, slot)` for the slots the script dropped.
 pub(crate) fn natives<E: Engine>(engine: &mut E) -> Result<Vec<(&'static str, E::Handle)>, Error> {
     let methods: Vec<(&str, HostFunction<E::Handle>)> = vec![
         ("getImageData", get_image_data),
         ("putImageData", put_image_data),
         ("measureText", measure_text),
-        ("convertToBlob", convert_to_blob),
         ("beginPath", drawing::begin_path),
         ("closePath", drawing::close_path::<_, drawing::Context>),
         ("moveTo", drawing::move_to::<_, drawing::Context>),
@@ -97,10 +99,6 @@ pub(crate) fn natives<E: Engine>(engine: &mut E) -> Result<Vec<(&'static str, E:
         ("reset", drawing::reset),
         ("setLineDash", drawing::set_line_dash),
         ("getLineDash", drawing::get_line_dash),
-        ("createLinearGradient", |call, _, args| drawing::create_gradient(call, "linear", args, 4)),
-        ("createRadialGradient", |call, _, args| drawing::create_gradient(call, "radial", args, 6)),
-        ("createConicGradient", |call, _, args| drawing::create_gradient(call, "conic", args, 3)),
-        ("createPattern", drawing::create_pattern),
     ];
     let path_methods: Vec<(&str, HostFunction<E::Handle>)> = vec![
         ("closePath", drawing::close_path::<_, drawing::Path2D>),
@@ -116,9 +114,7 @@ pub(crate) fn natives<E: Engine>(engine: &mut E) -> Result<Vec<(&'static str, E:
         ("addPath", path2d::add_path),
     ];
     let natives: Vec<(&str, HostFunction<E::Handle>)> = vec![
-        ("create", offscreen_canvas),
-        ("get", drawing::get_property),
-        ("set", drawing::set_property),
+        ("create", create),
         ("width", |call, this, _| Ok(Value::Number(f64::from(with_pixmap(call, this, |p| p.width())?)))),
         ("height", |call, this, _| Ok(Value::Number(f64::from(with_pixmap(call, this, |p| p.height())?)))),
         // `undefined` for the side that stays.
@@ -126,20 +122,27 @@ pub(crate) fn natives<E: Engine>(engine: &mut E) -> Result<Vec<(&'static str, E:
             let given = |n: usize| args.get(n).filter(|side| !matches!(side, Value::Undefined));
             resize(call, this, given(0), given(1))
         }),
-        ("createPath", path2d::construct),
-        ("bitmapWidth", |call, this, _| bitmap::side(call, this, true)),
-        ("bitmapHeight", |call, this, _| bitmap::side(call, this, false)),
-        ("closeBitmap", bitmap::close),
+        ("toPNG", to_png),
+        ("get", drawing::get_property),
+        ("set", drawing::set_property),
+        ("createGradient", |call, _, args| {
+            let (kind, count) = match args.first() {
+                Some(Value::String(kind)) if kind == "linear" => ("linear", 4),
+                Some(Value::String(kind)) if kind == "radial" => ("radial", 6),
+                _ => ("conic", 3),
+            };
+            drawing::create_gradient(call, kind, args.get(1..).unwrap_or_default(), count)
+        }),
         ("addColorStop", drawing::add_color_stop),
+        ("createPattern", drawing::create_pattern),
+        ("createPath", path2d::construct),
         ("createImageBitmap", bitmap::create),
+        ("release", release),
     ];
     let functions = |engine: &mut E, list: Vec<(&'static str, HostFunction<E::Handle>)>| {
         list.into_iter().map(|(name, f)| Ok((name, engine.function(name, f)?))).collect::<Result<Vec<_>, Error>>()
     };
     let (methods, path_methods, mut natives) = (functions(engine, methods)?, functions(engine, path_methods)?, functions(engine, natives)?);
-    let release = engine.function("release", release)?;
-    let release_path = engine.function("release", path2d::release)?;
-    let global = engine.global()?;
     let objects = engine.with_call(|call| {
         let object = |call: &mut dyn Call<E::Handle>, list: Vec<(&'static str, E::Handle)>| -> Result<E::Handle, Error> {
             let object = call.new_object()?;
@@ -149,26 +152,11 @@ pub(crate) fn natives<E: Engine>(engine: &mut E) -> Result<Vec<(&'static str, E:
             Ok(object)
         };
         let names: Vec<_> = drawing::PROPERTIES.iter().map(|p| Value::String(p.name.into())).collect();
-        let objects = [("methods", object(call, methods)?), ("pathMethods", object(call, path_methods)?), ("properties", call.new_array(&names)?)];
-        let registry = finalization_registry(call, &global, release)?;
-        let path_registry = finalization_registry(call, &global, release_path)?;
-        let promise = crate::object(call, &global, "Promise")?;
-        call.host()?.borrow_mut().canvases = Some(Canvases { promise, registry, surfaces: Vec::new(), path_registry, paths: Vec::new() });
-        Ok(objects)
+        call.host()?.borrow_mut().canvases = Some(Canvases::default());
+        Ok([("methods", object(call, methods)?), ("pathMethods", object(call, path_methods)?), ("properties", call.new_array(&names)?)])
     })?;
     natives.extend(objects);
     Ok(natives)
-}
-
-/// A `FinalizationRegistry` that calls `release`, when the realm has the class.
-fn finalization_registry<H: Clone>(call: &mut dyn Call<H>, global: &H, release: H) -> Result<Option<H>, Error> {
-    Ok(match call.get(global, "FinalizationRegistry")? {
-        Value::Js(class) => match call.construct(&class, &[Value::Js(release)])? {
-            Value::Js(registry) => Some(registry),
-            _ => None,
-        },
-        _ => None,
-    })
 }
 
 /// A canvas's or image's side from a script: whole, within the caps.
@@ -188,70 +176,68 @@ fn pixels(n: f64) -> Result<u16, Error> {
     }
 }
 
-/// `new OffscreenCanvas(width, height)`: transparent black, with a context's defaults.
-fn offscreen_canvas<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+/// `create(width, height)`: the slot of a new canvas, transparent black, with a context's
+/// defaults.
+fn create<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let (width, height) = (side(args.first())?, side(args.get(1))?);
     if f64::from(width) * f64::from(height) > AREA {
         return Err(Error::Script(format!("a canvas can't have {width} × {height} pixels")));
     }
-    let registry = {
-        let host = call.host()?;
-        let host = host.borrow();
-        host.canvases.as_ref().ok_or_else(|| Error::Script("OffscreenCanvas is not set up".into()))?.registry.clone()
-    };
-    // `this`, which `new` made from `new.target.prototype`: a subclass's instances stay its own.
-    let Value::Js(canvas) = this else {
-        return Err(Error::Type("OffscreenCanvas needs 'new'".into()));
-    };
-    let canvas = canvas.clone();
-    let number = {
-        let host = call.host()?;
-        let mut host = host.borrow_mut();
-        let canvases = host.canvases.as_mut().ok_or_else(|| Error::Script("OffscreenCanvas is not set up".into()))?;
-        store(&mut canvases.surfaces, Surface::new(width, height))
-    };
-    call.set(&canvas, "_canvas", &Value::Number(number as f64))?;
-    if let Some(registry) = registry {
-        method(call, &registry, "register", &[Value::Js(canvas.clone()), Value::Number(number as f64)])?;
-    }
-    drawing::reset_properties(call, &canvas)?;
-    Ok(Value::Js(canvas))
+    with_canvases(call, |canvases| Value::Number(store(&mut canvases.surfaces, Surface::new(width, height)) as f64))
 }
 
-/// Frees the pixels of the canvas numbered `args[0]`, which the script dropped.
+/// `release(kind, slot)`: frees the slot of a `'surface'`, `'path'` or `'paint'` the script
+/// dropped, or closed.
 fn release<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    if let Some(Value::Number(number)) = args.first()
-        && let Some(canvases) = call.host()?.borrow_mut().canvases.as_mut()
-        && let Some(slot) = canvases.surfaces.get_mut(*number as usize)
-    {
-        *slot = None;
+    let kind = call.to_string(args.first().unwrap_or(&Value::Undefined))?;
+    let slot = call.to_number(args.get(1).unwrap_or(&Value::Undefined))?;
+    if slot.is_finite() && slot >= 0.0 {
+        let slot = slot as usize;
+        with_canvases(call, |canvases| match kind.as_str() {
+            "surface" => free(&mut canvases.surfaces, slot),
+            "path" => free(&mut canvases.paths, slot),
+            _ => free(&mut canvases.paints, slot),
+        })?;
     }
     Ok(Value::Undefined)
 }
 
-/// The number of the canvas `this` is.
-fn number<H>(call: &mut dyn Call<H>, this: &Value<H>) -> Result<usize, Error> {
-    let Value::Js(canvas) = this else {
-        return Err(Error::Script("not a canvas".into()));
-    };
-    match call.get(canvas, "_canvas")? {
-        Value::Number(n) if n.is_finite() && n >= 0.0 => Ok(n as usize),
-        _ => Err(Error::Script("not a canvas".into())),
+fn free<T>(slots: &mut [Option<T>], slot: usize) {
+    if let Some(slot) = slots.get_mut(slot) {
+        *slot = None;
+    }
+}
+
+/// `f` with the slots.
+pub(crate) fn with_canvases<H, R>(call: &mut dyn Call<H>, f: impl FnOnce(&mut Canvases<H>) -> R) -> Result<R, Error> {
+    let host = call.host()?;
+    let mut host = host.borrow_mut();
+    host.canvases.as_mut().map(f).ok_or_else(|| Error::Script("OffscreenCanvas is not set up".into()))
+}
+
+/// The slot `value` is.
+pub(crate) fn slot<H>(call: &mut dyn Call<H>, value: &Value<H>) -> Result<usize, Error> {
+    match call.to_number(value)? {
+        n if n.is_finite() && n >= 0.0 => Ok(n as usize),
+        _ => Err(Error::Type("not a canvas's slot".into())),
     }
 }
 
 /// `f` with the surface of the canvas `this` is.
 pub(crate) fn with_surface<H, R>(call: &mut dyn Call<H>, this: &Value<H>, f: impl FnOnce(&mut Surface<H>) -> R) -> Result<R, Error> {
-    let number = number(call, this)?;
-    let host = call.host()?;
-    let mut host = host.borrow_mut();
-    let surface = host
-        .canvases
-        .as_mut()
-        .and_then(|c| c.surfaces.get_mut(number))
-        .and_then(Option::as_mut)
-        .ok_or_else(|| Error::Script("the canvas is gone".into()))?;
-    Ok(f(surface))
+    let slot = slot(call, this)?;
+    with_canvases(call, |canvases| canvases.surfaces.get_mut(slot).and_then(Option::as_mut).map(f))?
+        .ok_or_else(|| Error::Script("the canvas is gone".into()))
+}
+
+/// `f` with the gradient or pattern in `slot`; `None` when it's gone.
+pub(crate) fn with_paint<H, R>(call: &mut dyn Call<H>, slot: usize, f: impl FnOnce(&mut Paint) -> R) -> Result<Option<R>, Error> {
+    with_canvases(call, |canvases| canvases.paints.get_mut(slot).and_then(Option::as_mut).map(f))
+}
+
+/// The slot of a new gradient or pattern.
+pub(crate) fn store_paint<H>(call: &mut dyn Call<H>, paint: Paint) -> Result<Value<H>, Error> {
+    with_canvases(call, |canvases| Value::Number(store(&mut canvases.paints, paint) as f64))
 }
 
 /// `f` with the pixels of the canvas `this` is, what was drawn rendered onto them.
@@ -262,39 +248,21 @@ fn with_pixmap<H, R>(call: &mut dyn Call<H>, this: &Value<H>, f: impl FnOnce(&mu
     })
 }
 
-/// The pixels of `image`, a canvas or an `ImageBitmap`, as they are now.
+/// The pixels of `image`, the slot of a canvas or an `ImageBitmap`, as they are now.
 pub(crate) fn image_pixels<H>(call: &mut dyn Call<H>, image: &Value<H>) -> Result<Arc<Pixmap>, Error> {
-    if let Value::Js(object) = image
-        && matches!(call.get(object, "_canvas")?, Value::Number(n) if n < 0.0)
-    {
-        return Err(Error::Dom("InvalidStateError", "the image bitmap is closed".into()));
-    }
     with_pixmap(call, image, |pixmap| Arc::new(pixmap.clone())).map_err(|_| Error::Type("the image isn't a canvas".into()))
-}
-
-/// A new `CanvasGradient` or `CanvasPattern` (`class`), which scripts can't construct.
-pub(crate) fn new_style<H: Clone>(call: &mut dyn Call<H>, class: &str) -> Result<H, Error> {
-    let class = crate::global_class(call, class)?;
-    let prototype = call.get(&class, "prototype")?;
-    let object_class = crate::global_class(call, "Object")?;
-    crate::handle(method(call, &object_class, "create", &[prototype])?, "Object.create()")
 }
 
 /// Setting `canvas.width` or `height`: the canvas is cleared to that size and its state reset, as
 /// in browsers.
 fn resize<H>(call: &mut dyn Call<H>, this: &Value<H>, width: Option<&Value<H>>, height: Option<&Value<H>>) -> Result<Value<H>, Error> {
     let (width, height) = (width.map(|w| side(Some(w))).transpose()?, height.map(|h| side(Some(h))).transpose()?);
-    let resized = with_surface(call, this, |surface| {
+    with_surface(call, this, |surface| {
         let (width, height) = (width.unwrap_or(surface.pixmap.width()), height.unwrap_or(surface.pixmap.height()));
-        let fits = f64::from(width) * f64::from(height) <= AREA;
-        if fits {
+        if f64::from(width) * f64::from(height) <= AREA {
             surface.resize(width, height);
         }
-        fits
     })?;
-    if let (true, Value::Js(context)) = (resized, this) {
-        drawing::reset_properties(call, context)?;
-    }
     Ok(Value::Undefined)
 }
 
@@ -411,13 +379,10 @@ fn put_image_data<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Val
     Ok(Value::Undefined)
 }
 
-/// `convertToBlob()`: a Promise of the canvas as a PNG `Blob`.
-fn convert_to_blob<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
+/// `toPNG()`: the canvas as PNG bytes, for `convertToBlob()`.
+fn to_png<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
     let png = with_pixmap(call, this, |pixmap| pixmap.clone().into_png())?.map_err(|e| Error::Script(format!("convertToBlob: {e}")))?;
-    let blob = crate::blob::new_blob(call, &png, "image/png")?;
-    let promise =
-        call.host()?.borrow().canvases.as_ref().map(|c| c.promise.clone()).ok_or_else(|| Error::Script("OffscreenCanvas is not set up".into()))?;
-    method(call, &promise, "resolve", &[blob])
+    Ok(Value::Js(call.new_uint8_array(&png)?))
 }
 
 /// Whether `css` is a CSS `font` shorthand a context takes.
@@ -431,15 +396,12 @@ pub(crate) const DEFAULT_FONT: &str = "10px sans-serif";
 /// `context.measureText(text)`: a `TextMetrics` of `text` in the context's `font`: its advance
 /// (`width`), its ink around the start of its baseline (`actualBoundingBox…`) and the font's
 /// ascent and descent (`fontBoundingBox…`).
-fn measure_text<H>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let Value::Js(context) = this else {
-        return Err(Error::Script("measureText: not called on a canvas".into()));
-    };
+fn measure_text<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let text = match args.first() {
         Some(text) => call.to_string(text)?,
         None => String::new(),
     };
-    let font = match call.get(context, "_font")? {
+    let font = match drawing::property_value(call, this, "font")? {
         Value::String(font) => font,
         _ => DEFAULT_FONT.to_owned(),
     };
