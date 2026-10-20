@@ -559,7 +559,14 @@ fn canvases_have_pixels<E: Engine>() {
         .unwrap();
     assert_eq!(
         runtime.take_output(),
-        ["48 [0, 0, 0, 0] [255, 0, 0, 128] true", "[0, 255, 0, 255] [0, 0, 0, 0] [0, 0, 0, 0]", "2 3 [0, 0, 0, 0]", "#0000ff 0", "0 0 #000000", "80 78 71"],
+        [
+            "48 [0, 0, 0, 0] [255, 0, 0, 128] true",
+            "[0, 255, 0, 255] [0, 0, 0, 0] [0, 0, 0, 0]",
+            "2 3 [0, 0, 0, 0]",
+            "#0000ff 0",
+            "0 0 #000000",
+            "80 78 71"
+        ],
         "a half red stays half red, cleared and outside is transparent, resizing clears, PNG's signature"
     );
 }

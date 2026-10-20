@@ -5,6 +5,7 @@ import { inject } from './define.js'
 import * as abort from './abort.js'
 import * as blob from './blob.js'
 import * as canvas from './canvas.js'
+import { dom } from './dom.js'
 import { Clipboard } from './clipboard.js'
 import { createConsole } from './console.js'
 import { Crypto } from './crypto.js'
@@ -82,6 +83,10 @@ if (!globalThis.Worker) {
   inject(globalThis, { Worker })
   // What the runtime makes a worker's global object with:
   Object.assign(natives, { setupWorker })
+}
+// A DOM outside a browser, after Paper.js, which would take one for a browser's:
+if (natives.dom && !globalThis.document) {
+  inject(globalThis, dom, { configurable: true })
 }
 // The file system on desktop, by path; the web has the browser's:
 if (natives.fs) {

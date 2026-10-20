@@ -146,9 +146,6 @@ pub struct Host<H> {
     loader: Option<modules::Loader<H>>,
     /// The modules the scripts imported.
     modules: Vec<modules::Module<H>>,
-    /// `window` and `document` outside a browser.
-    #[cfg(not(target_arch = "wasm32"))]
-    dom: dom::Dom<H>,
     /// When the runtime started, for `performance.now()` outside a browser.
     #[cfg(not(target_arch = "wasm32"))]
     started: Option<std::time::Instant>,
@@ -220,7 +217,6 @@ impl<H> Default for Host<H> {
             loader: None,
             modules: Vec::new(),
             #[cfg(not(target_arch = "wasm32"))]
-            dom: dom::Dom::None,
             #[cfg(not(target_arch = "wasm32"))]
             started: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -295,7 +291,7 @@ impl<E: Engine> Runtime<E> {
         let natives = [
             vec![("print", engine.function("print", print)?), ("ask", engine.function("ask", dialog::ask_native)?)],
             #[cfg(not(target_arch = "wasm32"))]
-            vec![("request", engine.function("request", fetch::request)?)],
+            vec![("request", engine.function("request", fetch::request)?), ("dom", engine.function("dom", dom::load)?)],
             #[cfg(not(target_arch = "wasm32"))]
             web::natives(&mut engine)?,
         ]
@@ -340,9 +336,6 @@ impl<E: Engine> Runtime<E> {
         let paper = engine.with_call(|call| object(call, &global, "paper"))?;
         let load = engine.function("load", modules::load)?;
         let mut runtime = Self { engine, host, paper, load };
-        // After Paper.js, which would take a DOM for a browser's.
-        #[cfg(not(target_arch = "wasm32"))]
-        dom::install(&mut runtime, &global)?;
         clone::install(&mut runtime.engine, &global)?;
         Ok(runtime)
     }

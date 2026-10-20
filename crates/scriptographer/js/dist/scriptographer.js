@@ -1004,6 +1004,17 @@
   }
   __name(getSide, "getSide");
 
+  // src/dom.js
+  var view;
+  var dom = {
+    get window() {
+      return view ??= natives.dom();
+    },
+    get document() {
+      return (view ??= natives.dom()).document;
+    }
+  };
+
   // src/clipboard.js
   var Clipboard = class extends EventTarget {
     static {
@@ -3593,6 +3604,9 @@ ${value}\r
   if (!globalThis.Worker) {
     inject(globalThis, { Worker });
     Object.assign(natives, { setupWorker });
+  }
+  if (natives.dom && !globalThis.document) {
+    inject(globalThis, dom, { configurable: true });
   }
   if (natives.fs) {
     const { getHandlePath: getHandlePath2, ...classes } = file_system_exports;
