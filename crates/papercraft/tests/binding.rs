@@ -397,7 +397,7 @@ macro_rules! engine_tests {
 // In Boa, a move right after the item reloaded leaves its segments where they were although the
 // change is logged; with other reads in between it works. Not understood yet.
 #[cfg(feature = "boa")]
-engine_tests!(boa, vectorcraft_papercraft::Boa, live_sync: ignore = "Boa loses a move right after a reload (under investigation)");
+engine_tests!(boa, vectorcraft_papercraft::Boa, live_sync: ignore = "Boa calls a prototype getter again after it defined an own property, reloading an item over its changes (boa-dev/boa#5600)");
 #[cfg(all(feature = "v8", not(target_arch = "wasm32")))]
 engine_tests!(v8, vectorcraft_papercraft::V8);
 
