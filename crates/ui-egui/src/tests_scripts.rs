@@ -537,18 +537,52 @@ fn init_scripts_run_by_themselves() {
     assert_eq!(names, ["Tools", "a.js"], "and the Tools folder shows no __init__");
 }
 
-/// `script.preferences` keeps what a script puts there for its next run, as in Scriptographer.
+/// `script.preferences` keeps what a script puts there for its next run, as in Scriptographer:
+/// Paper.js's objects too, in the app's storage folder.
 #[test]
 fn script_preferences_last_from_one_run_to_the_next() {
     let (mut app, _) = app();
-    let path = tempfile_path::Path::new("console.log(script.preferences.count || 0)\nscript.preferences.count = (script.preferences.count || 0) + 1");
+    let storage = std::env::temp_dir().join(format!("vectorcraft-preferences-{}", std::process::id()));
+    app.ui.scriptographer_storage = Some(storage.clone());
+    let path = tempfile_path::Path::new(
+        "const kept = script.preferences\n\
+         console.log(kept.count || 0, kept.color instanceof Color && kept.color.red, kept.points && kept.points[1] instanceof Point)\n\
+         kept.count = (kept.count || 0) + 1\n\
+         kept.color = new Color(1, 0, 0)\n\
+         kept.points = [new Point(1, 2), new Point(3, 4)]",
+    );
+    let ctx = egui::Context::default();
     for _ in 0..2 {
         app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
+        // Until it's done: running another script would stop it.
+        let start = std::time::Instant::now();
+        while app.scripts.is_running() && start.elapsed() < std::time::Duration::from_secs(5) {
+            crate::scripts::frame(&mut app, &ctx, start.elapsed().as_secs_f64());
+        }
     }
-    let counts: Vec<&str> = app.scripts.log().iter().map(|l| l.text.as_str()).collect();
-    assert_eq!(counts, ["0", "1"]);
-    assert_eq!(app.ui.scriptographer_preferences[path.0.to_string_lossy().as_ref()], json!({"count": 2}));
-    assert!(app.prefs_changed, "kept with the app's settings");
+    let counts: Vec<&str> = app.scripts.log().iter().map(|l| l.text.as_str()).filter(|l| !l.ends_with("stopped")).collect();
+    assert_eq!(counts, ["0 false undefined", "1 1 true"]);
+    let _ = std::fs::remove_dir_all(&storage);
+}
+
+/// A script that stays open, with a palette, keeps its `script.preferences` for its next run:
+/// running it again stops it, and the new run reads them at once.
+#[test]
+fn an_open_scripts_preferences_reach_its_next_run() {
+    let (mut app, _) = app();
+    let storage = std::env::temp_dir().join(format!("vectorcraft-open-preferences-{}", std::process::id()));
+    app.ui.scriptographer_storage = Some(storage.clone());
+    let path = tempfile_path::Path::new(
+        "console.log(script.preferences.runs || 0)\n\
+         script.preferences.runs = (script.preferences.runs || 0) + 1\n\
+         new Palette('Open', { size: { type: 'number', value: 1 } })",
+    );
+    for _ in 0..3 {
+        app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
+    }
+    let runs: Vec<&str> = app.scripts.log().iter().map(|l| l.text.as_str()).filter(|l| !l.ends_with("stopped")).collect();
+    assert_eq!(runs, ["0", "1", "2"]);
+    let _ = std::fs::remove_dir_all(&storage);
 }
 
 /// A tool script hears when the user picks its tool and another one, as Paper.js's onActivate and

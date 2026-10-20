@@ -196,8 +196,6 @@ pub struct Host<H> {
     next_palette_id: u64,
     /// The language the app gave the script ([`Setup`]), which its workers have too.
     language: Option<String>,
-    /// `script.preferences` as last taken, as JSON.
-    preferences: String,
     /// The [`HANDLERS`] the scripts defined, by name.
     handlers: Vec<(&'static str, H)>,
     /// Why a script with top-level `await` failed, once it did, for the call it happened in.
@@ -270,7 +268,6 @@ impl<H> Default for Host<H> {
             storages: None,
             next_palette_id: 0,
             language: None,
-            preferences: String::new(),
             handlers: Vec::new(),
             failure: None,
         }
@@ -286,13 +283,12 @@ pub struct Runtime<E: Engine> {
     load: E::Handle,
 }
 
-/// What the app gives a script when it starts: its file (none for code typed in the console), its
-/// `script.preferences` as it last left them, the folder the app keeps scripts' `localStorage`
-/// in, and the language the app's UI is in, as `navigator.language`.
+/// What the app gives a script when it starts: its file (none for code typed in the console), the
+/// folder the app keeps scripts' `localStorage` and `script.preferences` in, and the language the
+/// app's UI is in, as `navigator.language`.
 #[derive(Clone, Debug, Default)]
 pub struct Setup {
     pub file: Option<String>,
-    pub preferences: serde_json::Value,
     pub storage: Option<std::path::PathBuf>,
     pub language: Option<String>,
 }
@@ -519,7 +515,7 @@ impl<E: Engine> Runtime<E> {
     /// Its `localStorage` is kept in the app's folder for them, when it has one and the script a
     /// file; `navigator.language` is the app's.
     pub fn set_script(&mut self, setup: &Setup) -> Result<(), Error> {
-        let Setup { file, preferences, storage, language } = setup;
+        let Setup { file, storage, language } = setup;
         let file = file.as_deref();
         let global = self.engine.global()?;
         let directory = file.and_then(|f| std::path::Path::new(f).parent()).map(std::path::Path::to_path_buf);
@@ -528,7 +524,6 @@ impl<E: Engine> Runtime<E> {
             if let (Some(folder), Some(file)) = (storage, file) {
                 host.local_storage = storage::Storage::kept_in(storage::Storage::file_for(folder, std::path::Path::new(file)));
             }
-            host.preferences = preferences.to_string();
             host.language.clone_from(language);
             host.file = file.map(std::path::PathBuf::from);
             host.directory = directory.clone();
@@ -552,12 +547,13 @@ impl<E: Engine> Runtime<E> {
             call.set(&script, "file", &file)?;
             call.set(&script, "directory", &directory)?;
             call.set(&script, "keepAlive", &Value::Bool(false))?;
-            let preferences = match preferences {
-                serde_json::Value::Object(_) => preferences.clone(),
+            let preferences = match &self.host.borrow().local_storage.preferences {
+                kept @ serde_json::Value::Object(_) => kept.clone(),
                 _ => serde_json::json!({}),
             };
-            let globals = dialog::globals(call)?;
-            let preferences = dialog::from_json(call, &globals, &preferences)?;
+            // As Paper.js serializes them, so they come back as Colors, Points…
+            let base = object(call, &self.paper, "Base")?;
+            let preferences = method(call, &base, "importJSON", &[Value::String(preferences.to_string())])?;
             call.set(&script, "preferences", &preferences)?;
             call.set(&global, "script", &Value::Js(script))?;
             if let (Some(language), Value::Js(navigator)) = (language, call.get(&global, "navigator")?) {
@@ -567,24 +563,21 @@ impl<E: Engine> Runtime<E> {
         })
     }
 
-    /// `script.preferences` as JSON, when it changed since the last call (or [`Runtime::set_script`]).
-    pub fn take_preferences(&mut self) -> Result<Option<serde_json::Value>, Error> {
+    /// Keeps `script.preferences` with the script's `localStorage`, when they changed.
+    pub fn keep_preferences(&mut self) -> Result<(), Error> {
         let global = self.engine.global()?;
         let preferences = self.engine.with_call(|call| {
             let Value::Js(script) = call.get(&global, "script")? else {
-                return Ok(serde_json::Value::Null);
+                return Ok(None);
             };
             let preferences = call.get(&script, "preferences")?;
             let globals = dialog::globals(call)?;
-            dialog::to_json(call, &globals, &preferences)
+            dialog::to_json(call, &globals, &preferences).map(Some)
         })?;
-        let text = preferences.to_string();
-        let mut host = self.host.borrow_mut();
-        if host.preferences == text {
-            return Ok(None);
+        if let Some(preferences) = preferences {
+            self.host.borrow_mut().local_storage.keep_preferences(preferences);
         }
-        host.preferences = text;
-        Ok(Some(preferences))
+        Ok(())
     }
 
     /// Whether the script set `script.keepAlive`.

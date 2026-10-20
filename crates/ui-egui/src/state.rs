@@ -444,11 +444,9 @@ pub struct UiState {
     /// The folders the Scriptographer panel lists scripts from, in order (Scriptographer's
     /// repositories).
     pub scriptographer_folders: Vec<ScriptFolder>,
-    /// Scriptographer scripts' `script.preferences`, by script file.
-    pub scriptographer_preferences: std::collections::BTreeMap<String, Value>,
-    /// The folder Scriptographer scripts keep their `localStorage` in, next to the preferences; none
-    /// in runs without preferences, whose scripts keep it while they run. Not saved: the app sets
-    /// it at launch.
+    /// The folder Scriptographer scripts keep their `localStorage` and `script.preferences` in, next
+    /// to the preferences; none in runs without preferences, whose scripts keep them while they
+    /// run. Not saved: the app sets it at launch.
     #[serde(skip)]
     pub scriptographer_storage: Option<std::path::PathBuf>,
     /// Where the user put Scriptographer scripts' palettes, by script and palette title
@@ -900,7 +898,6 @@ impl Default for UiState {
             action_set: None,
             scriptographer_folders: Vec::new(),
             scriptographer_palettes: Default::default(),
-            scriptographer_preferences: Default::default(),
             scriptographer_storage: None,
             recording: None,
             shortcut_overrides: Default::default(),

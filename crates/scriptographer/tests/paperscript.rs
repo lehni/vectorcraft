@@ -834,7 +834,7 @@ fn geometry_classes_are_the_browsers<E: Engine>() {
     );
 }
 
-fn local_storage_lasts_and_session_storage_doesnt<E: Engine>(name: &str) {
+fn local_storage_and_preferences_last_and_session_storage_doesnt<E: Engine>(name: &str) {
     let folder = std::env::temp_dir().join(format!("scriptographer-storage-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&folder);
     let (script, storage) = (folder.join("script.js").to_string_lossy().into_owned(), folder.join("storage"));
@@ -843,6 +843,7 @@ fn local_storage_lasts_and_session_storage_doesnt<E: Engine>(name: &str) {
         runtime.set_script(&Setup { file: Some(script.clone()), storage: Some(storage.clone()), ..Setup::default() }).unwrap();
         let scope = runtime.create_scope(800.0, 600.0).unwrap();
         runtime.execute(&scope, source).unwrap();
+        runtime.keep_preferences().unwrap();
         runtime.take_output()
     };
     let first = run("localStorage.setItem('a', 1); localStorage.b = { toString: () => 'two' }; sessionStorage.c = 'gone'\n\
@@ -851,7 +852,8 @@ fn local_storage_lasts_and_session_storage_doesnt<E: Engine>(name: &str) {
          localStorage.getItem = 'item'; delete localStorage.a\n\
          console.log(localStorage.getItem('getItem'), localStorage.length)\n\
          const thrown = f => { try { f() } catch (e) { return e.name } }\n\
-         console.log(thrown(() => localStorage.setItem('big', 'x'.repeat(6 * 1024 * 1024))))");
+         console.log(thrown(() => localStorage.setItem('big', 'x'.repeat(6 * 1024 * 1024))))\n\
+         script.preferences.point = new Point(1, 2)");
     assert_eq!(
         first,
         [
@@ -862,9 +864,14 @@ fn local_storage_lasts_and_session_storage_doesnt<E: Engine>(name: &str) {
             "QuotaExceededError",
         ]
     );
-    // The next run of the script has its local items, not its session ones.
-    let second = run("console.log(localStorage.length, localStorage.b, localStorage.getItem('getItem'), sessionStorage.length)");
-    assert_eq!(second, ["2 two item 0"]);
+    // The next run of the script has its local items, not its session ones, and its preferences.
+    let second = run(
+        "console.log(localStorage.length, localStorage.b, localStorage.getItem('getItem'), sessionStorage.length, script.preferences.point instanceof Point)\n\
+         localStorage.clear()",
+    );
+    assert_eq!(second, ["2 two item 0 true"]);
+    let third = run("console.log(localStorage.length, script.preferences.point.y)");
+    assert_eq!(third, ["0 2"], "clear() leaves the preferences");
     std::fs::remove_dir_all(&folder).unwrap();
 }
 
@@ -1320,8 +1327,8 @@ macro_rules! engine_tests {
             }
 
             #[test]
-            fn local_storage_lasts_and_session_storage_doesnt() {
-                super::local_storage_lasts_and_session_storage_doesnt::<$engine>(stringify!($module));
+            fn local_storage_and_preferences_last_and_session_storage_doesnt() {
+                super::local_storage_and_preferences_last_and_session_storage_doesnt::<$engine>(stringify!($module));
             }
 
             #[test]

@@ -61,19 +61,9 @@ pub enum Reply {
     Changes { patch: Option<Json>, base: Arc<Document>, before: BTreeSet<NodeId>, selected: BTreeSet<NodeId> },
     /// The work is done: what the script printed, its error if it threw, whether it has timers
     /// left, whether it made a tool, whether that tool handles keys, the palettes that are new or
-    /// changed (as [`crate::Runtime::take_palettes`] has them), whether it has palettes open,
-    /// whether it set `script.keepAlive`, and its `script.preferences` when they changed.
-    Done {
-        output: Vec<String>,
-        error: Option<String>,
-        running: bool,
-        tool: bool,
-        keys: bool,
-        palettes: Vec<Json>,
-        open: bool,
-        keep_alive: bool,
-        preferences: Option<Json>,
-    },
+    /// changed (as [`crate::Runtime::take_palettes`] has them), whether it has palettes open, and
+    /// whether it set `script.keepAlive`.
+    Done { output: Vec<String>, error: Option<String>, running: bool, tool: bool, keys: bool, palettes: Vec<Json>, open: bool, keep_alive: bool },
 }
 
 /// One script's runtime, and the patch waiting for its ids.
@@ -167,11 +157,11 @@ impl<E: Engine> Script<E> {
         };
         let (running, open) = (self.runtime.is_running(), self.runtime.has_palettes());
         let keep_alive = self.runtime.keep_alive().unwrap_or(false);
-        let (preferences, error) = match self.runtime.take_preferences() {
-            Ok(preferences) => (preferences, error),
-            Err(e) => (None, error.or(Some(e.to_string()))),
+        let error = match self.runtime.keep_preferences() {
+            Ok(()) => error,
+            Err(e) => error.or(Some(e.to_string())),
         };
-        Reply::Done { output: self.runtime.take_output(), error, running, tool, keys, palettes, open, keep_alive, preferences }
+        Reply::Done { output: self.runtime.take_output(), error, running, tool, keys, palettes, open, keep_alive }
     }
 }
 
@@ -214,7 +204,6 @@ impl Worker {
                             palettes: Vec::new(),
                             open: false,
                             keep_alive: false,
-                            preferences: None,
                         });
                         return;
                     }

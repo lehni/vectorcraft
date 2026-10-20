@@ -1,10 +1,10 @@
 //! `localStorage` and `sessionStorage` for scripts outside a browser. A script's `localStorage` is
 //! its own, as a web page's is its origin's, and lasts: it's kept in a JSON file in the folder the
 //! app gives ([`Runtime::set_script`](crate::Runtime::set_script)), named for the script's path,
-//! written when it changed, at most once a second while the script runs and when it ends. A script
-//! without a file or a folder, and `sessionStorage`, keep theirs while the script runs. Each holds
-//! up to 5 MB, as browsers allow. Items read and write as properties too (`localStorage.size =
-//! '10'`), through a `Proxy`.
+//! with its `script.preferences`, written when either changed, at most once a second while the
+//! script runs and when it ends. A script without a file or a folder, and `sessionStorage`, keep
+//! theirs while the script runs. Each holds up to 5 MB, as browsers allow. Items read and write as
+//! properties too (`localStorage.size = '10'`), through a `Proxy`.
 
 use std::path::{Path, PathBuf};
 
@@ -20,10 +20,21 @@ const SESSION: &str = "__scriptographerSessionStorage";
 /// The least time between writes of a script's `localStorage`, in milliseconds.
 const WRITE_INTERVAL: f64 = 1000.0;
 
-/// A storage's items, in the order they were added, and where they're kept.
+/// What a script's file keeps.
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+struct Kept {
+    #[serde(rename = "localStorage", default)]
+    items: Vec<(String, String)>,
+    #[serde(default)]
+    preferences: serde_json::Value,
+}
+
+/// A storage's items, in the order they were added, and where they're kept; `localStorage`'s
+/// with the script's `script.preferences`.
 #[derive(Default)]
 pub(crate) struct Storage {
     items: Vec<(String, String)>,
+    pub(crate) preferences: serde_json::Value,
     /// The file it's kept in, if it's kept.
     file: Option<PathBuf>,
     /// Whether it changed since it was last written.
@@ -35,8 +46,16 @@ pub(crate) struct Storage {
 impl Storage {
     /// The storage kept in `file`, with what's there: none when it can't be read.
     pub(crate) fn kept_in(file: PathBuf) -> Storage {
-        let items = std::fs::read(&file).ok().and_then(|bytes| serde_json::from_slice::<Vec<(String, String)>>(&bytes).ok()).unwrap_or_default();
-        Storage { items, file: Some(file), changed: false, written: f64::NEG_INFINITY }
+        let Kept { items, preferences } = std::fs::read(&file).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
+        Storage { items, preferences, file: Some(file), changed: false, written: f64::NEG_INFINITY }
+    }
+
+    /// Keeps `preferences`, when they changed.
+    pub(crate) fn keep_preferences(&mut self, preferences: serde_json::Value) {
+        if self.preferences != preferences {
+            self.preferences = preferences;
+            self.changed = true;
+        }
     }
 
     /// The file for the script at `script`'s storage in `folder`: its path's hash.
@@ -51,7 +70,7 @@ impl Storage {
         self.items.iter().map(|(k, v)| k.encode_utf16().count() + v.encode_utf16().count()).sum()
     }
 
-    /// Writes the items to their file, when they changed and (unless `now` is `None`, at the end)
+    /// Writes the items and preferences to their file, when they changed and (unless `now` is `None`, at the end)
     /// the last write is long enough ago. The script goes on with its items when that fails.
     pub(crate) fn write(&mut self, now: Option<f64>) -> Result<(), String> {
         let Some(file) = &self.file else {
@@ -60,7 +79,8 @@ impl Storage {
         if !self.changed || now.is_some_and(|now| now - self.written < WRITE_INTERVAL) {
             return Ok(());
         }
-        let result = serde_json::to_vec(&self.items).map_err(|e| e.to_string()).and_then(|json| {
+        let kept = Kept { items: self.items.clone(), preferences: self.preferences.clone() };
+        let result = serde_json::to_vec(&kept).map_err(|e| e.to_string()).and_then(|json| {
             if let Some(folder) = file.parent() {
                 std::fs::create_dir_all(folder).map_err(|e| e.to_string())?;
             }
