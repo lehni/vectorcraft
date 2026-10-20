@@ -536,6 +536,18 @@ fn runtimes_live_side_by_side<E: Engine>() {
     assert_eq!(second.take_output(), ["second again"]);
 }
 
+fn runtimes_share_nothing<E: Engine>() {
+    // Each starts as Paper.js left it after loading (in V8, from one snapshot), whatever another
+    // did to its own.
+    let mut first = Runtime::<E>::new().unwrap();
+    let first_scope = first.create_scope(100.0, 100.0).unwrap();
+    first.execute(&first_scope, "globalThis.left = 1; Point.prototype.left = 1; new Path.Circle([50, 50], 10)").unwrap();
+    let mut second = Runtime::<E>::new().unwrap();
+    let second_scope = second.create_scope(100.0, 100.0).unwrap();
+    second.execute(&second_scope, "console.log(typeof left, new Point().left, project.activeLayer.children.length)").unwrap();
+    assert_eq!(second.take_output(), ["undefined undefined 0"]);
+}
+
 macro_rules! engine_tests {
     ($module:ident, $engine:ty) => {
         mod $module {
@@ -637,6 +649,11 @@ macro_rules! engine_tests {
             #[test]
             fn runtimes_live_side_by_side() {
                 super::runtimes_live_side_by_side::<$engine>();
+            }
+
+            #[test]
+            fn runtimes_share_nothing() {
+                super::runtimes_share_nothing::<$engine>();
             }
 
             #[test]

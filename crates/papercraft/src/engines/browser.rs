@@ -12,7 +12,7 @@ use js_sys::{Array, Function, Object, Proxy, Reflect};
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::{JsCast, JsValue};
 
-use crate::{Call, Engine, Error, Host, HostFunction, Value};
+use crate::{Call, Engine, Error, Host, HostFunction, Prelude, Value};
 
 type BrowserHost = Rc<RefCell<Host<JsValue>>>;
 
@@ -27,14 +27,16 @@ pub struct Browser {
 impl Engine for Browser {
     type Handle = JsValue;
 
-    fn new(host: BrowserHost) -> Result<Self, Error> {
+    fn new(host: BrowserHost, prelude: Prelude<Self>) -> Result<Self, Error> {
         let no_dom = || Error::Script("scripts need a browser window".into());
         let document = web_sys::window().and_then(|window| window.document()).ok_or_else(no_dom)?;
         let frame: web_sys::HtmlIFrameElement = document.create_element("iframe").map_err(js_error)?.dyn_into().map_err(|_| no_dom())?;
         frame.set_hidden(true);
         document.body().ok_or_else(no_dom)?.append_child(&frame).map_err(js_error)?;
         let global: Object = frame.content_window().ok_or_else(no_dom)?.into();
-        Ok(Self { host, global, _frame: frame })
+        let mut engine = Self { host, global, _frame: frame };
+        prelude(&mut engine)?;
+        Ok(engine)
     }
 
     fn eval(&mut self, source: &str) -> Result<Value<JsValue>, Error> {

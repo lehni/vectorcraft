@@ -7,7 +7,7 @@ use boa_engine::object::FunctionObjectBuilder;
 use boa_engine::object::builtins::{JsArray, JsArrayBuffer, JsDataView, JsFloat64Array, JsTypedArray, JsUint8Array, JsUint16Array};
 use boa_engine::{Context, JsError, JsNativeError, JsObject, JsResult, JsString, JsValue, NativeFunction, Source};
 
-use crate::{Call, Engine, Error, Host, HostFunction, Value};
+use crate::{Call, Engine, Error, Host, HostFunction, Prelude, Value};
 
 type BoaHost = Rc<RefCell<Host<JsValue>>>;
 
@@ -18,10 +18,12 @@ pub struct Boa {
 impl Engine for Boa {
     type Handle = JsValue;
 
-    fn new(host: BoaHost) -> Result<Self, Error> {
+    fn new(host: BoaHost, prelude: Prelude<Self>) -> Result<Self, Error> {
         let mut context = Context::default();
         context.insert_data(host);
-        Ok(Self { context })
+        let mut engine = Self { context };
+        prelude(&mut engine)?;
+        Ok(engine)
     }
 
     fn eval(&mut self, source: &str) -> Result<Value<JsValue>, Error> {

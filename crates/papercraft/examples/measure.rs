@@ -31,6 +31,13 @@ fn measure<E: Engine>(name: &str) -> Result<(), Error> {
     println!("{name}:");
     let (mut runtime, load) = time(Runtime::<E>::new)?;
     println!("  create engine + load Paper.js:      {load:?}");
+    // V8 starts later runtimes from a snapshot it made with the first. The app runs each script
+    // on a thread of its own.
+    let (_, load) = time(Runtime::<E>::new)?;
+    println!("  another engine:                     {load:?}");
+    let thread = std::thread::spawn(|| time(Runtime::<E>::new).map(|(_, load)| load));
+    let load = thread.join().map_err(|_| Error::Script("the thread failed".into()))??;
+    println!("  another engine, on a new thread:    {load:?}");
 
     let (scope, setup) = time(|| runtime.create_scope(800.0, 600.0))?;
     println!("  first PaperScope + setup:           {setup:?}");

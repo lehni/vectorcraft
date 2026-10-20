@@ -5,13 +5,17 @@
 //! runtimes that start and stop in any order (running scripts) can't keep: so they share one,
 //! made on first use and kept for the thread's lifetime. A context keeps its runtime's host state
 //! in a slot.
+//!
+//! The first engine of a process runs the prelude in an isolate of its own and keeps a snapshot of
+//! its heap, which every isolate then starts from: a context begins with the prelude done, without
+//! running it again.
 
 use std::cell::RefCell;
 use std::pin::pin;
 use std::rc::Rc;
-use std::sync::Once;
+use std::sync::{Once, OnceLock};
 
-use crate::{Call, Engine, Error, Host, HostFunction, Interrupt, Value};
+use crate::{Call, Engine, Error, Host, HostFunction, Interrupt, Prelude, Value};
 
 type Handle = v8::Global<v8::Value>;
 type V8Host = Rc<RefCell<Host<Handle>>>;
@@ -20,6 +24,10 @@ thread_local! {
     /// The thread's isolate, shared by its runtimes.
     static ISOLATE: RefCell<Option<v8::OwnedIsolate>> = const { RefCell::new(None) };
 }
+
+/// The snapshot of the prelude, made with the first engine; none when V8 couldn't make one, and
+/// each context runs the prelude itself then.
+static SNAPSHOT: OnceLock<Option<Vec<u8>>> = OnceLock::new();
 
 /// What a context keeps for its runtime: the host state, and the host functions, each function's
 /// data its index here.
@@ -39,18 +47,55 @@ pub struct V8 {
     context: v8::Global<v8::Context>,
 }
 
-/// Runs `f` with the thread's isolate, made on first use.
-fn with_isolate<R>(f: impl FnOnce(&mut v8::OwnedIsolate) -> Result<R, Error>) -> Result<R, Error> {
+/// Starts V8, once per process.
+fn initialize() {
     static INITIALIZE: Once = Once::new();
     INITIALIZE.call_once(|| {
         v8::V8::initialize_platform(v8::new_default_platform(0, false).make_shared());
         v8::V8::initialize();
     });
+}
+
+/// Runs `f` with the thread's isolate, made on first use, from the snapshot when there is one.
+fn with_isolate<R>(f: impl FnOnce(&mut v8::OwnedIsolate) -> Result<R, Error>) -> Result<R, Error> {
+    initialize();
     ISOLATE.with(|cell| {
         // A runtime's call into V8 never makes another one, so the isolate is never in use here.
         let mut cell = cell.try_borrow_mut().map_err(|_| Error::Script("the V8 isolate is in use".into()))?;
-        f(cell.get_or_insert_with(|| v8::Isolate::new(v8::CreateParams::default())))
+        f(cell.get_or_insert_with(|| {
+            let params = match SNAPSHOT.get() {
+                Some(Some(snapshot)) => v8::CreateParams::default().snapshot_blob(snapshot.as_slice().into()),
+                _ => v8::CreateParams::default(),
+            };
+            v8::Isolate::new(params)
+        }))
     })
+}
+
+/// A snapshot of an isolate whose default context ran `prelude`, made on a thread of its own, whose
+/// isolate is the snapshot's.
+fn snapshot(prelude: Prelude<V8>) -> Option<Vec<u8>> {
+    let thread = std::thread::spawn(move || {
+        initialize();
+        ISOLATE.with(|cell| cell.replace(Some(v8::Isolate::snapshot_creator(None, None))));
+        let mut engine = V8::with_context(Rc::new(RefCell::new(Host::default()))).ok()?;
+        prelude(&mut engine).ok()?;
+        with_isolate(|isolate| {
+            let scope = pin!(v8::HandleScope::new(isolate));
+            let scope = &mut scope.init();
+            let context = v8::Local::new(scope, &engine.context);
+            // Slots hold Rust values, which a snapshot can't.
+            context.clear_all_slots();
+            scope.set_default_context(context);
+            Ok(())
+        })
+        .ok()?;
+        // The blob is made without handles into the heap.
+        drop(engine);
+        let isolate = ISOLATE.with(|cell| cell.borrow_mut().take())?;
+        isolate.create_blob(v8::FunctionCodeHandling::Keep).map(|blob| blob.to_vec())
+    });
+    thread.join().ok().flatten()
 }
 
 /// Opens a handle scope in `$isolate`, enters `$context` and catches exceptions in `$scope`.
@@ -68,14 +113,13 @@ macro_rules! enter {
 impl Engine for V8 {
     type Handle = Handle;
 
-    fn new(host: V8Host) -> Result<Self, Error> {
-        with_isolate(|isolate| {
-            let scope = pin!(v8::HandleScope::new(isolate));
-            let scope = &mut scope.init();
-            let context = v8::Context::new(scope, Default::default());
-            context.set_slot(Rc::new(ContextData { host, functions: RefCell::new(Vec::new()) }));
-            Ok(Self { context: v8::Global::new(scope, context) })
-        })
+    fn new(host: V8Host, prelude: Prelude<Self>) -> Result<Self, Error> {
+        let snapshot = SNAPSHOT.get_or_init(|| snapshot(prelude));
+        let mut engine = Self::with_context(host)?;
+        if snapshot.is_none() {
+            prelude(&mut engine)?;
+        }
+        Ok(engine)
     }
 
     fn eval(&mut self, source: &str) -> Result<Value<Handle>, Error> {
@@ -121,6 +165,17 @@ impl Engine for V8 {
 }
 
 impl V8 {
+    /// An engine with a new context of the thread's isolate.
+    fn with_context(host: V8Host) -> Result<Self, Error> {
+        with_isolate(|isolate| {
+            let scope = pin!(v8::HandleScope::new(isolate));
+            let scope = &mut scope.init();
+            let context = v8::Context::new(scope, Default::default());
+            context.set_slot(Rc::new(ContextData { host, functions: RefCell::new(Vec::new()) }));
+            Ok(Self { context: v8::Global::new(scope, context) })
+        })
+    }
+
     fn host_function(&mut self, name: &str, function: HostFunction<Handle>, constructor: bool) -> Result<Handle, Error> {
         with_isolate(|isolate| {
             enter!(isolate, &self.context, scope);

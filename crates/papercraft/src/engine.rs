@@ -27,6 +27,9 @@ pub type Interrupt = Box<dyn Fn() + Send + Sync>;
 /// script as `Error`s.
 pub type HostFunction<H> = fn(&mut dyn Call<H>, &Value<H>, &[Value<H>]) -> Result<Value<H>, Error>;
 
+/// Sets up a new engine's realm, before the host's functions are added.
+pub type Prelude<E> = fn(&mut E) -> Result<(), Error>;
+
 /// What Rust can do with the engine's values: inside a [`HostFunction`] while a script calls it,
 /// and outside scripts through [`Engine::with_call`]. Exceptions a script throws come back as
 /// errors.
@@ -68,8 +71,10 @@ pub trait Engine: Sized {
     /// A handle to a value that stays in the engine.
     type Handle: Clone;
 
-    /// Creates the engine. Host functions reach `host` through [`Call::host`].
-    fn new(host: Rc<RefCell<Host<Self::Handle>>>) -> Result<Self, Error>;
+    /// Creates the engine, its realm set up by `prelude`. Host functions reach `host` through
+    /// [`Call::host`]. A process passes the same `prelude` every time, and it makes no host
+    /// functions, so an engine may run it once and start later realms from a snapshot of it.
+    fn new(host: Rc<RefCell<Host<Self::Handle>>>, prelude: Prelude<Self>) -> Result<Self, Error>;
 
     /// Runs `source` as a classic script in the global scope and returns its completion value.
     fn eval(&mut self, source: &str) -> Result<Value<Self::Handle>, Error>;

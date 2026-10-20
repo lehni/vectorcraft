@@ -36,7 +36,7 @@ use vectorcraft_doc::Document;
 
 pub use binding::Patch;
 pub use dialog::Ask;
-pub use engine::{Call, Engine, HostFunction, Interrupt, Value};
+pub use engine::{Call, Engine, HostFunction, Interrupt, Prelude, Value};
 #[cfg(feature = "boa")]
 pub use engines::boa::Boa;
 #[cfg(target_arch = "wasm32")]
@@ -203,10 +203,8 @@ pub struct Scope<H>(H);
 impl<E: Engine> Runtime<E> {
     pub fn new() -> Result<Self, Error> {
         let host = Rc::new(RefCell::new(Host::default()));
-        let mut engine = E::new(host.clone())?;
+        let mut engine = E::new(host.clone(), prelude)?;
         install_globals(&mut engine)?;
-        engine.eval(ACORN)?;
-        engine.eval(PAPER_JS)?;
         let global = engine.global()?;
         let paper = engine.with_call(|call| object(call, &global, "paper"))?;
         let load = engine.function("load", modules::load)?;
@@ -578,9 +576,25 @@ fn method<H: Clone>(call: &mut dyn Call<H>, owner: &H, key: &str, args: &[Value<
     call.call(&function, &Value::Js(owner.clone()), args)
 }
 
-/// The globals Paper.js expects in a web worker: `self` (the global object), `navigator`,
-/// `console`, the timers (`setInterval` for its frame loop) and `OffscreenCanvas` for CSS colours;
-/// Scriptographer's `print()`, which logs as `console.log()` does; and the browser's `atob` and
+/// What every runtime starts with: the plain globals Paper.js reads as it loads, Acorn and
+/// Paper.js. It makes no host functions, so V8 can start runtimes from a snapshot of it.
+fn prelude<E: Engine>(engine: &mut E) -> Result<(), Error> {
+    let global = engine.global()?;
+    engine.with_call(|call| {
+        call.set(&global, "self", &Value::Js(global.clone()))?;
+        // Paper.js reads the platform from the user agent, for its key modifiers.
+        let navigator = call.new_object()?;
+        let user_agent = format!("VectorCraft ({})", std::env::consts::OS);
+        call.set(&navigator, "userAgent", &Value::String(user_agent))?;
+        call.set(&global, "navigator", &Value::Js(navigator))
+    })?;
+    engine.eval(ACORN)?;
+    engine.eval(PAPER_JS)?;
+    Ok(())
+}
+
+/// The host's globals Paper.js expects in a web worker, after the prelude: `console`, the timers
+/// (`setInterval` for its frame loop) and `OffscreenCanvas` for CSS colours; Scriptographer's `print()`, which logs as `console.log()` does; and the browser's `atob` and
 /// `btoa`.
 fn install_globals<E: Engine>(engine: &mut E) -> Result<(), Error> {
     let global = engine.global()?;
@@ -591,12 +605,6 @@ fn install_globals<E: Engine>(engine: &mut E) -> Result<(), Error> {
     let atob = engine.function("atob", atob)?;
     let btoa = engine.function("btoa", btoa)?;
     engine.with_call(|call| {
-        call.set(&global, "self", &Value::Js(global.clone()))?;
-        // Paper.js reads the platform from the user agent, for its key modifiers.
-        let navigator = call.new_object()?;
-        let user_agent = format!("VectorCraft ({})", std::env::consts::OS);
-        call.set(&navigator, "userAgent", &Value::String(user_agent))?;
-        call.set(&global, "navigator", &Value::Js(navigator))?;
         let console = call.new_object()?;
         for name in ["log", "info", "warn", "error"] {
             call.set(&console, name, &Value::Js(log.clone()))?;
