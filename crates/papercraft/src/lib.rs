@@ -12,6 +12,7 @@ mod canvas;
 mod dialog;
 mod engine;
 mod engines;
+mod file;
 pub mod host;
 mod palette;
 pub mod worker;
@@ -90,6 +91,10 @@ pub struct Host<H> {
     palettes: Vec<palette::Palette<H>>,
     /// The `reset()` of every palette.
     palette_reset: Option<H>,
+    /// What `File` objects share.
+    files: Option<file::Files<H>>,
+    /// The script's folder, which relative paths of `File`s are in.
+    directory: Option<std::path::PathBuf>,
     next_palette_id: u64,
     /// `script.preferences` as last taken, as JSON.
     preferences: String,
@@ -121,6 +126,8 @@ impl<H> Default for Host<H> {
             dialog_globals: None,
             palettes: Vec::new(),
             palette_reset: None,
+            files: None,
+            directory: None,
             next_palette_id: 0,
             preferences: String::new(),
             handlers: Vec::new(),
@@ -149,6 +156,7 @@ impl<E: Engine> Runtime<E> {
         let mut runtime = Self { engine, host, paper };
         dialog::install(&mut runtime, &global)?;
         palette::install(&mut runtime.engine, &global)?;
+        file::install(&mut runtime, &global)?;
         Ok(runtime)
     }
 
@@ -281,13 +289,24 @@ impl<E: Engine> Runtime<E> {
     /// ([`Runtime::take_preferences`]).
     pub fn set_script(&mut self, file: Option<&str>, preferences: &serde_json::Value) -> Result<(), Error> {
         let global = self.engine.global()?;
-        self.host.borrow_mut().preferences = preferences.to_string();
+        let directory = file.and_then(|f| std::path::Path::new(f).parent()).map(std::path::Path::to_path_buf);
+        {
+            let mut host = self.host.borrow_mut();
+            host.preferences = preferences.to_string();
+            host.directory = directory.clone();
+        }
         self.engine.with_call(|call| {
             let script = call.new_object()?;
-            let path = |p: Option<&str>| p.map_or(Value::Null, |p| Value::String(p.to_owned()));
-            let directory = file.and_then(|f| std::path::Path::new(f).parent()).map(|d| d.to_string_lossy().into_owned());
-            call.set(&script, "file", &path(file))?;
-            call.set(&script, "directory", &path(directory.as_deref()))?;
+            let file = match file {
+                Some(file) => file::new_file(call, std::path::Path::new(file))?,
+                None => Value::Null,
+            };
+            let directory = match &directory {
+                Some(directory) => file::new_file(call, directory)?,
+                None => Value::Null,
+            };
+            call.set(&script, "file", &file)?;
+            call.set(&script, "directory", &directory)?;
             call.set(&script, "keepAlive", &Value::Bool(false))?;
             let preferences = match preferences {
                 serde_json::Value::Object(_) => preferences.clone(),

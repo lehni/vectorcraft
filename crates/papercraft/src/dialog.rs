@@ -11,7 +11,7 @@
 //! value from `values` or the definition, or `{type: 'fileOpen' | 'fileSave' | 'chooseDirectory',
 //! path}` with the file or folder to start from. It answers `true` (OK) or `false`, for a prompt
 //! the values by name, for a file dialog the path, or `null` (Cancel). The file dialogs return
-//! the path as a string, and show every kind of file: the filters aren't used yet.
+//! a `File`, and show every kind of file: the filters aren't used yet.
 //! `chooseColor` is a prompt with one colour.
 
 use serde_json::{Map, Value as Json, json};
@@ -96,17 +96,17 @@ fn confirm<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Re
     Ok(Value::Bool(answer == Json::Bool(true)))
 }
 
-/// A file dialog of `kind`, starting from `path` when the script gives one: the path picked, or
-/// `null` when the user cancelled.
-fn file<H>(call: &mut dyn Call<H>, kind: &str, path: Option<&Value<H>>) -> Result<Value<H>, Error> {
+/// A file dialog of `kind`, starting from `path` when the script gives one (a path or a `File`):
+/// the `File` picked, or `null` when the user cancelled.
+fn file<H: Clone>(call: &mut dyn Call<H>, kind: &str, path: Option<&Value<H>>) -> Result<Value<H>, Error> {
     let path = match path {
         None | Some(Value::Undefined | Value::Null) => Json::Null,
         Some(path) => Json::String(call.to_string(path)?),
     };
-    Ok(match ask(call, json!({ "type": kind, "path": path }))? {
-        Json::String(path) => Value::String(path),
-        _ => Value::Null,
-    })
+    match ask(call, json!({ "type": kind, "path": path }))? {
+        Json::String(path) => crate::file::new_file(call, std::path::Path::new(&path)),
+        _ => Ok(Value::Null),
+    }
 }
 
 /// `Dialog.chooseColor([color])`: a prompt with one colour, the colour picked or `null`.

@@ -104,6 +104,42 @@ fn timeouts_run_once<E: Engine>() {
     assert!(!runtime.is_running(), "nothing is left once the timeouts ran");
 }
 
+fn files_read_write_and_list<E: Engine>(name: &str) {
+    let folder = std::env::temp_dir().join(format!("papercraft-files-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).unwrap();
+    let mut runtime = Runtime::<E>::new().unwrap();
+    runtime.set_script(Some(&folder.join("script.js").to_string_lossy()), &serde_json::json!({})).unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "var notes = new File('notes.txt')\n\
+             console.log(notes.exists(), notes.name, notes.extension, notes.parent.path == script.directory.path)\n\
+             notes.open()\n\
+             notes.writeln('one')\n\
+             notes.write('two')\n\
+             notes.close()\n\
+             try { notes.write('three') } catch (e) { console.log(e.message) }\n\
+             notes.open({ append: true })\n\
+             notes.writeln('')\n\
+             notes.close()\n\
+             console.log(notes.exists(), notes.size, notes.readLines().join('|'))\n\
+             var sub = new File(script.directory, 'sub')\n\
+             sub.makeDirectory()\n\
+             notes.copyTo(new File(sub, 'copy.txt'))\n\
+             console.log(script.directory.list(/\\.txt$/).map(function(f) { return f.name }).join())\n\
+             console.log(script.directory.list(null, true).length, sub.list(function(f) { return f.isFile() })[0].readAll())\n\
+             console.log(sub.remove(), sub.remove(true), sub.exists(), String(notes) == notes.path)",
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.take_output(),
+        ["false notes.txt txt true", "File: not opened", "true 8 one|two", "notes.txt", "3 one\ntwo\n", "false true false true"]
+    );
+    std::fs::remove_dir_all(&folder).unwrap();
+}
+
 fn css_colors_resolve_without_a_canvas<E: Engine>() {
     let mut runtime = Runtime::<E>::new().unwrap();
     let scope = runtime.create_scope(800.0, 600.0).unwrap();
@@ -162,6 +198,11 @@ macro_rules! engine_tests {
             #[test]
             fn intervals_run_when_due() {
                 super::intervals_run_when_due::<$engine>();
+            }
+
+            #[test]
+            fn files_read_write_and_list() {
+                super::files_read_write_and_list::<$engine>(stringify!($module));
             }
 
             #[test]
