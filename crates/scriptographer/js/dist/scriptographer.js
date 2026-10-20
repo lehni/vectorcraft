@@ -794,6 +794,61 @@ ${stack}` : ""));
     }
   }
 
+  // src/dom-exception.js
+  var constants = [
+    ["IndexSizeError", "INDEX_SIZE_ERR"],
+    ["DOMStringSizeError", "DOMSTRING_SIZE_ERR"],
+    ["HierarchyRequestError", "HIERARCHY_REQUEST_ERR"],
+    ["WrongDocumentError", "WRONG_DOCUMENT_ERR"],
+    ["InvalidCharacterError", "INVALID_CHARACTER_ERR"],
+    ["NoDataAllowedError", "NO_DATA_ALLOWED_ERR"],
+    ["NoModificationAllowedError", "NO_MODIFICATION_ALLOWED_ERR"],
+    ["NotFoundError", "NOT_FOUND_ERR"],
+    ["NotSupportedError", "NOT_SUPPORTED_ERR"],
+    ["InUseAttributeError", "INUSE_ATTRIBUTE_ERR"],
+    ["InvalidStateError", "INVALID_STATE_ERR"],
+    ["SyntaxError", "SYNTAX_ERR"],
+    ["InvalidModificationError", "INVALID_MODIFICATION_ERR"],
+    ["NamespaceError", "NAMESPACE_ERR"],
+    ["InvalidAccessError", "INVALID_ACCESS_ERR"],
+    ["ValidationError", "VALIDATION_ERR"],
+    ["TypeMismatchError", "TYPE_MISMATCH_ERR"],
+    ["SecurityError", "SECURITY_ERR"],
+    ["NetworkError", "NETWORK_ERR"],
+    ["AbortError", "ABORT_ERR"],
+    ["URLMismatchError", "URL_MISMATCH_ERR"],
+    ["QuotaExceededError", "QUOTA_EXCEEDED_ERR"],
+    ["TimeoutError", "TIMEOUT_ERR"],
+    ["InvalidNodeTypeError", "INVALID_NODE_TYPE_ERR"],
+    ["DataCloneError", "DATA_CLONE_ERR"]
+  ];
+  var codes = new Map(constants.map(([name], index) => [name, index + 1]));
+  var DOMException2 = class extends Error {
+    #name;
+    constructor(message = "", name = "Error") {
+      super(message);
+      this.#name = String(name);
+    }
+    get name() {
+      return this.#name;
+    }
+    get code() {
+      return codes.get(this.#name) ?? 0;
+    }
+  };
+  for (const [index, [, constant]] of constants.entries()) {
+    for (const target of [DOMException2, DOMException2.prototype]) {
+      Object.defineProperty(target, constant, {
+        value: index + 1,
+        enumerable: true
+      });
+    }
+  }
+  Object.defineProperty(DOMException2.prototype, Symbol.toStringTag, {
+    value: "DOMException",
+    configurable: true
+  });
+
   // src/fetch.js
   var fetch_exports = {};
   __export(fetch_exports, {
@@ -1700,6 +1755,9 @@ ${value}\r
   var { print } = natives;
   var console2 = createConsole(print);
   setGlobals({ console: console2, print: console2.log });
+  if (!globalThis.DOMException) {
+    setGlobals({ DOMException: DOMException2 });
+  }
   if (!globalThis.EventTarget) {
     setGlobals(events_exports);
   }

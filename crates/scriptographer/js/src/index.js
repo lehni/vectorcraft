@@ -5,6 +5,7 @@ import * as abort from './abort.js'
 import * as blob from './blob.js'
 import { createConsole } from './console.js'
 import { setupFileDialogs } from './dialog.js'
+import { DOMException } from './dom-exception.js'
 import * as events from './events.js'
 import * as fetch from './fetch.js'
 import * as geometry from './geometry.js'
@@ -17,6 +18,9 @@ const console = createConsole(print)
 setGlobals({ console, print: console.log })
 
 // What a browser's realm has already, it keeps:
+if (!globalThis.DOMException) {
+  setGlobals({ DOMException })
+}
 if (!globalThis.EventTarget) {
   setGlobals(events)
 }

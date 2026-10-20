@@ -321,7 +321,6 @@ impl<E: Engine> Runtime<E> {
         let mut engine = E::new(host.clone(), prelude)?;
         let global = engine.global()?;
         host.borrow_mut().global = Some(global.clone());
-        exception::install(&mut engine, &global)?;
         // What's written in JavaScript, before the classes that build on it (`LocalFile` on
         // `File`), with the natives it needs: `print()` for the script's output, on desktop
         // `request()` for `fetch()` and `readFile()` for a `LocalFile`'s bytes, and on the web the
@@ -343,6 +342,8 @@ impl<E: Engine> Runtime<E> {
         #[cfg(target_arch = "wasm32")]
         engine.eval(SCRIPTOGRAPHER_WEB_JS)?;
         engine.eval(SCRIPTOGRAPHER_JS)?;
+        // After `DOMException`.
+        exception::install(&mut engine, &global)?;
         storage::install(&mut engine, &global)?;
         install_globals(&mut engine)?;
         let paper = engine.with_call(|call| object(call, &global, "paper"))?;
