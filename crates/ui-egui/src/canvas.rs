@@ -195,10 +195,11 @@ fn pen_pressure(ui: &Ui, app: &VectorcraftApp, pressed: bool) -> f32 {
 
 /// The positions this frame's pointer moves passed through before its last one, each with the
 /// pen force a touch event gave just before it, or the pressure the host's feed kept for that move
-/// ([`StylusFeed::take_moves`], macOS), if any. The last move is the pointer's position. Only for
-/// pens and fingers (frames with touch events or with the feed's moves): a mouse's moves are left
-/// as they were.
-fn frame_moves(ui: &Ui, stylus: Option<&StylusFeed>) -> Vec<(Pos2, Option<f32>)> {
+/// ([`StylusFeed::take_moves`], macOS), if any. The last move is the pointer's position. For pens
+/// and fingers (frames with touch events or with the feed's moves), and for a mouse when `mouse` (a
+/// PaperCraft tool script has it: scripts get every move, as in browsers); else a mouse's moves are
+/// left as they were.
+fn frame_moves(ui: &Ui, stylus: Option<&StylusFeed>, mouse: bool) -> Vec<(Pos2, Option<f32>)> {
     let pressures = stylus.map(StylusFeed::take_moves).unwrap_or_default();
     ui.input(|i| {
         let mut moves = vec![];
@@ -218,6 +219,8 @@ fn frame_moves(ui: &Ui, stylus: Option<&StylusFeed>) -> Vec<(Pos2, Option<f32>)>
             let forces = pressures.iter().rev().map(|f| (*f > 0.0).then_some(*f)).chain(std::iter::repeat(None));
             moves = points.into_iter().rev().zip(forces).collect();
             moves.reverse();
+        } else if mouse {
+            moves = i.events.iter().filter_map(|e| if let egui::Event::PointerMoved(p) = e { Some((*p, None)) } else { None }).collect();
         }
         moves.pop();
         // A burst of events (a stalled frame) is thinned to a bounded count.
@@ -1179,7 +1182,7 @@ fn handle_input(app: &mut VectorcraftApp, ui: &Ui, resp: &egui::Response, rect: 
                         // stroke keeps its curve (a pen reports far more often than frames come).
                         // Mouse events, a pen's on X11 among them, give the last position only, with
                         // the host's latest pressure.
-                        for (at, force) in frame_moves(ui, app.services.stylus.as_ref()) {
+                        for (at, force) in frame_moves(ui, app.services.stylus.as_ref(), app.scripts.active_tool().is_some()) {
                             let pressure = force.unwrap_or_else(|| pen_pressure(ui, app, false));
                             dispatch(app, &PointerEvent { kind: PointerKind::Drag, pos: xf.to_doc(at), mods: mods(m, space), pressure }, view);
                         }
@@ -1269,6 +1272,10 @@ fn handle_input(app: &mut VectorcraftApp, ui: &Ui, resp: &egui::Response, rect: 
     } else if let Some(p) = hover_tool
         && (pointer.is_moving() || mods_changed || !was_over || tool_switched || (context_changed && app.session.tool_wants_rehover()))
     {
+        // A tool script gets every move this frame, the app's tools the last one.
+        for (at, _) in if app.scripts.active_tool().is_some() { frame_moves(ui, None, true) } else { vec![] } {
+            dispatch(app, &PointerEvent { kind: PointerKind::Move, pos: xf.to_doc(at), mods: mods(m, space), pressure: 1.0 }, view);
+        }
         let ev = PointerEvent { kind: PointerKind::Move, pos: xf.to_doc(p), mods: mods(m, space), pressure: 1.0 };
         dispatch(app, &ev, view);
     }
@@ -8718,28 +8725,32 @@ mod tests {
         let c = pos2(30.0, 40.0);
         let events = vec![egui::Event::PointerMoved(a), egui::Event::PointerMoved(b), egui::Event::PointerMoved(c)];
         let mut mouse = vec![];
-        let mut out = ctx.run_ui(egui::RawInput { events: events.clone(), ..Default::default() }, |ui| mouse = frame_moves(ui, None));
+        let mut out = ctx.run_ui(egui::RawInput { events: events.clone(), ..Default::default() }, |ui| mouse = frame_moves(ui, None, false));
         out.textures_delta.clear();
         assert!(mouse.is_empty());
+        let mut every = vec![];
+        let mut out = ctx.run_ui(egui::RawInput { events: events.clone(), ..Default::default() }, |ui| every = frame_moves(ui, None, true));
+        out.textures_delta.clear();
+        assert_eq!(every, [(a, None), (b, None)], "every mouse move for a tool script, the last one following");
         // A macOS pen: the feed kept a pressure for each move, the last for the last.
         let feed = StylusFeed::default();
         for p in [0.9, 0.3, 0.0, 0.5] {
             feed.set_move(crate::stylus::PenSample { pressure: p, eraser: false });
         }
         let mut samples = vec![];
-        let mut out = ctx.run_ui(egui::RawInput { events: events.clone(), ..Default::default() }, |ui| samples = frame_moves(ui, Some(&feed)));
+        let mut out = ctx.run_ui(egui::RawInput { events: events.clone(), ..Default::default() }, |ui| samples = frame_moves(ui, Some(&feed), false));
         out.textures_delta.clear();
         assert_eq!(samples, [(a, Some(0.3)), (b, None)], "paired from the end; a lift's 0 is no pressure");
-        let mut out = ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| samples = frame_moves(ui, Some(&feed)));
+        let mut out = ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| samples = frame_moves(ui, Some(&feed), false));
         out.textures_delta.clear();
         assert!(samples.is_empty(), "the moves were taken: a mouse's moves again");
         let events = [pen(egui::TouchPhase::Move, a, 0.2), pen(egui::TouchPhase::Move, b, 0.8), pen(egui::TouchPhase::Move, c, 0.6)].concat();
         let mut samples = vec![];
-        let mut out = ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| samples = frame_moves(ui, None));
+        let mut out = ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| samples = frame_moves(ui, None, false));
         out.textures_delta.clear();
         assert_eq!(samples, [(a, Some(0.2)), (b, Some(0.8))], "the last sample follows the normal pointer path");
         let events = (0..200).flat_map(|n| pen(egui::TouchPhase::Move, pos2(n as f32, 0.0), 0.5)).collect();
-        let mut out = ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| samples = frame_moves(ui, None));
+        let mut out = ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| samples = frame_moves(ui, None, false));
         out.textures_delta.clear();
         assert!(samples.len() <= 64, "a stalled frame stays bounded");
     }
