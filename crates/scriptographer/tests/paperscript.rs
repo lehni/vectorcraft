@@ -532,6 +532,26 @@ fn scripts_measure_text<E: Engine>() {
     assert_eq!(runtime.take_output(), ["10px sans-serif", "true true true true", "true 0", "true"], "bold is wider than twice the size alone");
 }
 
+/// Matrices read CSS's transform functions, as a window's do.
+fn matrices_read_css<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "const thrown = f => { try { return f() } catch (e) { return e.name } }\n\
+             const m = new DOMMatrix('scale(2) translateX(calc(2 * 2.5px)) translateY(5px) rotate(0.25turn) rotate(-90deg)')\n\
+             console.log(m.a, m.d, m.e, m.f, m.is2D, new DOMMatrix('').isIdentity, new DOMMatrix(' NONE /**/ ').isIdentity)\n\
+             console.log(new DOMMatrix('translateZ(0)').is2D, String(new DOMMatrix(m)) === String(m), new DOMMatrix().setMatrixValue('skewX(45deg)').c.toFixed(3))\n\
+             console.log(['translateX(5em)', 'rotate(5)', 'scale(2 2)', 'scale(2), translateX(1px)', ' ', 'inherit', null].map(text => thrown(() => new DOMMatrix(text))).join())",
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.take_output(),
+        ["2 2 10 10 true true true", "false true 1.000", "SyntaxError,SyntaxError,SyntaxError,SyntaxError,SyntaxError,SyntaxError,SyntaxError"]
+    );
+}
+
 /// The canvas and its context as WebIDL has them: one 2D context, known names, sizes converted,
 /// required arguments.
 fn canvas_contexts_are_the_browsers<E: Engine>() {
@@ -943,7 +963,7 @@ fn geometry_classes_are_the_browsers<E: Engine>() {
              m.m13 = 1\n\
              console.log(m.is2D, String(DOMMatrix.fromMatrix({ a: 2, m22: 3 })))\n\
              const thrown = f => { try { f() } catch (e) { return e.name } }\n\
-             console.log(thrown(() => DOMMatrix.fromMatrix({ a: 1, m11: 2 })), thrown(() => new DOMMatrix('matrix(1, 0, 0, 1, 0, 0)')), thrown(() => String(new DOMMatrix([NaN, 0, 0, 1, 0, 0]))))\n\
+             console.log(thrown(() => DOMMatrix.fromMatrix({ a: 1, m11: 2 })), thrown(() => new DOMMatrix('matrix(1, 0, 0)')), thrown(() => String(new DOMMatrix([NaN, 0, 0, 1, 0, 0]))))\n\
              const rect = new DOMRect(10, 10, -5, 20)\n\
              console.log(rect.left, rect.right, rect.top, rect.bottom, JSON.stringify(new DOMQuad({ x: 1, y: 2 }, { x: 5 }).getBounds()))\n\
              const ctx = new OffscreenCanvas(1, 1).getContext('2d')\n\
@@ -959,7 +979,7 @@ fn geometry_classes_are_the_browsers<E: Engine>() {
             "1 -1 false",
             "false matrix(2, 0, 0, 3, 0, 0)",
             // `a` and `m11` disagree; no CSS outside a window; a matrix that isn't finite has no string.
-            "TypeError TypeError InvalidStateError",
+            "TypeError SyntaxError InvalidStateError",
             "5 10 10 30 {\"x\":0,\"y\":0,\"width\":5,\"height\":2,\"top\":0,\"right\":5,\"bottom\":2,\"left\":0}",
             "true 3 4 true",
         ]
@@ -1421,6 +1441,11 @@ macro_rules! engine_tests {
             #[test]
             fn canvas_contexts_are_the_browsers() {
                 super::canvas_contexts_are_the_browsers::<$engine>();
+            }
+
+            #[test]
+            fn matrices_read_css() {
+                super::matrices_read_css::<$engine>();
             }
 
             #[test]

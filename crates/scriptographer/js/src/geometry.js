@@ -1,8 +1,10 @@
+import { parseTransformList } from './css-transform.js'
 import { inject, setToStringTag } from './define.js'
 
 // The Geometry Interfaces, for scripts outside a browser: `DOMPoint`,
-// `DOMRect`, `DOMQuad` and `DOMMatrix`, with their read-only versions. As in a
-// worker, there's no CSS to parse a matrix from.
+// `DOMRect`, `DOMQuad` and `DOMMatrix`, with their read-only versions. A
+// script has a window, so a matrix reads CSS's transform functions, as a
+// window's does.
 
 const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
 
@@ -165,15 +167,19 @@ export class DOMMatrixReadOnly {
   #m
   #is2D
 
-  // From 6 numbers (2D) or 16. As in a worker, there's no CSS to parse.
+  // From a list of 6 numbers (2D) or 16, or else, as WebIDL converts it, from
+  // text: CSS's transform functions (another matrix as it writes itself).
   constructor(init) {
     if (init === undefined) {
       this.#m = [...identity]
       this.#is2D = true
-    } else if (typeof init === 'string') {
-      throw new TypeError('Unable to parse a matrix from CSS outside a window.')
-    } else {
+    } else if (
+      typeof init?.[Symbol.iterator] === 'function' &&
+      typeof init !== 'string'
+    ) {
       ;[this.#m, this.#is2D] = getMatrixFromList(init)
+    } else {
+      ;[this.#m, this.#is2D] = getMatrixFromCSS(String(init))
     }
   }
 
@@ -346,8 +352,8 @@ export class DOMMatrix extends DOMMatrixReadOnly {
     return setMatrix(this, invert(getMatrix(this)))
   }
 
-  setMatrixValue() {
-    throw new TypeError('Unable to parse a matrix from CSS outside a window.')
+  setMatrixValue(transformList) {
+    return setMatrix(this, getMatrixFromCSS(String(transformList)))
   }
 }
 
@@ -437,6 +443,50 @@ function multiply([a, is2DA], [b, is2DB]) {
     m.push(value)
   }
   return [m, is2DA && is2DB]
+}
+
+// The functions of a CSS transform list, one after the other; the identity for
+// none, as for the empty string.
+function getMatrixFromCSS(text) {
+  return (text === '' ? [] : parseTransformList(text))
+    .map(({ name, args }) => getTransform(name, args))
+    .reduce(multiply, [[...identity], true])
+}
+
+// The matrix of the CSS transform function `name`: a 3D function makes a 3D
+// matrix, whatever its values.
+function getTransform(name, args) {
+  const [a, b, c, d] = args
+  const tan = degrees => Math.tan(toRadians(degrees))
+  const [m, is2D] = {
+    matrix: () => get2D(args),
+    matrix3d: () => [args, false],
+    translate: () => translation(a, b ?? 0, 0),
+    translatex: () => translation(a, 0, 0),
+    translatey: () => translation(0, a, 0),
+    translatez: () => translation(0, 0, a),
+    translate3d: () => translation(a, b, c),
+    scale: () => scaling(a, b ?? a, 1),
+    scalex: () => scaling(a, 1, 1),
+    scaley: () => scaling(1, a, 1),
+    scalez: () => scaling(1, 1, a),
+    scale3d: () => scaling(a, b, c),
+    rotate: () => rotation(0, 0, 1, a),
+    rotatex: () => rotation(1, 0, 0, a),
+    rotatey: () => rotation(0, 1, 0, a),
+    rotatez: () => rotation(0, 0, 1, a),
+    rotate3d: () => rotation(a, b, c, d),
+    skew: () => get2D([1, tan(b ?? 0), tan(a), 1, 0, 0]),
+    skewx: () => get2D([1, 0, tan(a), 1, 0, 0]),
+    skewy: () => get2D([1, tan(a), 0, 1, 0, 0]),
+    // `m34`, of a distance of 1 at least:
+    perspective: () => {
+      const m = [...identity]
+      m[11] = -1 / Math.max(a, 1)
+      return [m, false]
+    }
+  }[name]()
+  return [m, is2D && !/3d$|z$|^rotate[xy]$|^perspective$/.test(name)]
 }
 
 function get2D([a, b, c, d, e, f]) {

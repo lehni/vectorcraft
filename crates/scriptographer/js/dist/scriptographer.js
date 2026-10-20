@@ -2537,6 +2537,187 @@ ${value}\r
     DOMRect: () => DOMRect,
     DOMRectReadOnly: () => DOMRectReadOnly
   });
+
+  // src/css-transform.js
+  var functions = {
+    matrix: Array(6).fill("number"),
+    matrix3d: Array(16).fill("number"),
+    translate: ["length", "length?"],
+    translatex: ["length"],
+    translatey: ["length"],
+    translatez: ["length"],
+    translate3d: ["length", "length", "length"],
+    scale: ["scale", "scale?"],
+    scalex: ["scale"],
+    scaley: ["scale"],
+    scalez: ["scale"],
+    scale3d: ["scale", "scale", "scale"],
+    rotate: ["angle"],
+    rotatex: ["angle"],
+    rotatey: ["angle"],
+    rotatez: ["angle"],
+    rotate3d: ["number", "number", "number", "angle"],
+    skew: ["angle", "angle?"],
+    skewx: ["angle"],
+    skewy: ["angle"],
+    perspective: ["length"]
+  };
+  var units = {
+    "": ["number", 1],
+    "%": ["percentage", 1],
+    "px": ["length", 1],
+    "cm": ["length", 96 / 2.54],
+    "mm": ["length", 96 / 25.4],
+    "q": ["length", 96 / 101.6],
+    "in": ["length", 96],
+    "pc": ["length", 16],
+    "pt": ["length", 4 / 3],
+    "deg": ["angle", 1],
+    "rad": ["angle", 180 / Math.PI],
+    "grad": ["angle", 0.9],
+    "turn": ["angle", 360]
+  };
+  function parseTransformList(text) {
+    let rest = String(text).replace(/\/\*[^]*?\*\//g, "").trim();
+    if (/^none$/i.test(rest)) return [];
+    const list = [];
+    do {
+      const match = /^([a-z0-9]+)\(/i.exec(rest);
+      const name = match?.[1].toLowerCase();
+      const types2 = functions[name];
+      if (!types2) throw syntaxError(text);
+      const end = getClosing(rest, match[0].length, text);
+      const args = split(rest.slice(match[0].length, end)).map(
+        (arg) => parseValue(arg, text)
+      );
+      list.push({ name, args: getArguments(args, types2, text) });
+      rest = rest.slice(end + 1).trimStart();
+    } while (rest);
+    return list;
+  }
+  __name(parseTransformList, "parseTransformList");
+  function getArguments(args, types2, text) {
+    const needed = types2.filter((type) => !type.endsWith("?")).length;
+    if (args.length < needed || args.length > types2.length) {
+      throw syntaxError(text);
+    }
+    return args.map(({ type, value }, index) => {
+      const wanted = types2[index].replace("?", "");
+      if (type === wanted || // A length or an angle may be a plain 0:
+      type === "number" && value === 0 && wanted !== "number") {
+        return value;
+      } else if (wanted === "scale" && (type === "number" || type === "percentage")) {
+        return type === "percentage" ? value / 100 : value;
+      } else {
+        throw syntaxError(text);
+      }
+    });
+  }
+  __name(getArguments, "getArguments");
+  function parseValue(source, text) {
+    const tokens = tokenize(source.trim(), text);
+    let at = 0;
+    const peek = /* @__PURE__ */ __name(() => tokens[at], "peek");
+    const next = /* @__PURE__ */ __name(() => tokens[at++], "next");
+    const sum = /* @__PURE__ */ __name(() => {
+      let left = product();
+      while (peek() === "+" || peek() === "-") {
+        const sign = next() === "+" ? 1 : -1;
+        const right = product();
+        if (left.type !== right.type) throw syntaxError(text);
+        left = { type: left.type, value: left.value + sign * right.value };
+      }
+      return left;
+    }, "sum");
+    const product = /* @__PURE__ */ __name(() => {
+      let left = term();
+      while (peek() === "*" || peek() === "/") {
+        const operator = next();
+        const right = term();
+        if (operator === "*" && left.type === "number") {
+          left = { type: right.type, value: left.value * right.value };
+        } else if (right.type === "number") {
+          left = {
+            type: left.type,
+            value: operator === "*" ? left.value * right.value : left.value / right.value
+          };
+        } else {
+          throw syntaxError(text);
+        }
+      }
+      return left;
+    }, "product");
+    const term = /* @__PURE__ */ __name(() => {
+      const token = next();
+      if (token === "(" || token === "calc(") {
+        const value2 = sum();
+        if (next() !== ")") throw syntaxError(text);
+        return value2;
+      } else if (token?.type) {
+        return token;
+      } else {
+        throw syntaxError(text);
+      }
+    }, "term");
+    const value = tokens[0] === "calc(" ? term() : next();
+    if (!value?.type || at !== tokens.length) throw syntaxError(text);
+    return value;
+  }
+  __name(parseValue, "parseValue");
+  function tokenize(source, text) {
+    const tokens = [];
+    const pattern = /\s*(?:([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)([a-z%]*)|(calc\()|([()*/])|(\s[+-]\s))/iy;
+    while (pattern.lastIndex < source.length) {
+      const match = pattern.exec(source);
+      if (!match) throw syntaxError(text);
+      const [, number, unit, calc, symbol, operator] = match;
+      if (number !== void 0) {
+        const known = units[unit.toLowerCase()];
+        if (!known) throw syntaxError(text);
+        const [type, factor] = known;
+        tokens.push({ type, value: Number(number) * factor });
+      } else {
+        tokens.push(calc?.toLowerCase() ?? symbol ?? operator.trim());
+      }
+    }
+    return tokens;
+  }
+  __name(tokenize, "tokenize");
+  function getClosing(source, start, text) {
+    let depth = 1;
+    for (let index = start; index < source.length; index++) {
+      if (source[index] === "(") depth++;
+      else if (source[index] === ")" && --depth === 0) return index;
+    }
+    throw syntaxError(text);
+  }
+  __name(getClosing, "getClosing");
+  function split(source) {
+    const args = [];
+    let depth = 0;
+    let start = 0;
+    for (let index = 0; index < source.length; index++) {
+      const char = source[index];
+      if (char === "(") depth++;
+      else if (char === ")") depth--;
+      else if (char === "," && depth === 0) {
+        args.push(source.slice(start, index));
+        start = index + 1;
+      }
+    }
+    args.push(source.slice(start));
+    return args;
+  }
+  __name(split, "split");
+  function syntaxError(text) {
+    return new DOMException(
+      `Invalid transform list: '${text}'.`,
+      "SyntaxError"
+    );
+  }
+  __name(syntaxError, "syntaxError");
+
+  // src/geometry.js
   var identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
   var aliases = [
     ["a", "m11", 0],
@@ -2697,16 +2878,18 @@ ${value}\r
     }
     #m;
     #is2D;
-    // From 6 numbers (2D) or 16. As in a worker, there's no CSS to parse.
+    // From a list of 6 numbers (2D) or 16, or else, as WebIDL converts it, from
+    // text: CSS's transform functions (another matrix as it writes itself).
     constructor(init) {
       if (init === void 0) {
         this.#m = [...identity];
         this.#is2D = true;
-      } else if (typeof init === "string") {
-        throw new TypeError("Unable to parse a matrix from CSS outside a window.");
-      } else {
+      } else if (typeof init?.[Symbol.iterator] === "function" && typeof init !== "string") {
         ;
         [this.#m, this.#is2D] = getMatrixFromList(init);
+      } else {
+        ;
+        [this.#m, this.#is2D] = getMatrixFromCSS(String(init));
       }
     }
     static {
@@ -2843,8 +3026,8 @@ ${value}\r
     invertSelf() {
       return setMatrix(this, invert(getMatrix(this)));
     }
-    setMatrixValue() {
-      throw new TypeError("Unable to parse a matrix from CSS outside a window.");
+    setMatrixValue(transformList) {
+      return setMatrix(this, getMatrixFromCSS(String(transformList)));
     }
   };
   defineAttributes(
@@ -2930,6 +3113,44 @@ ${value}\r
     return [m, is2DA && is2DB];
   }
   __name(multiply, "multiply");
+  function getMatrixFromCSS(text) {
+    return (text === "" ? [] : parseTransformList(text)).map(({ name, args }) => getTransform(name, args)).reduce(multiply, [[...identity], true]);
+  }
+  __name(getMatrixFromCSS, "getMatrixFromCSS");
+  function getTransform(name, args) {
+    const [a, b, c, d] = args;
+    const tan = /* @__PURE__ */ __name((degrees) => Math.tan(toRadians(degrees)), "tan");
+    const [m, is2D] = {
+      matrix: /* @__PURE__ */ __name(() => get2D(args), "matrix"),
+      matrix3d: /* @__PURE__ */ __name(() => [args, false], "matrix3d"),
+      translate: /* @__PURE__ */ __name(() => translation(a, b ?? 0, 0), "translate"),
+      translatex: /* @__PURE__ */ __name(() => translation(a, 0, 0), "translatex"),
+      translatey: /* @__PURE__ */ __name(() => translation(0, a, 0), "translatey"),
+      translatez: /* @__PURE__ */ __name(() => translation(0, 0, a), "translatez"),
+      translate3d: /* @__PURE__ */ __name(() => translation(a, b, c), "translate3d"),
+      scale: /* @__PURE__ */ __name(() => scaling(a, b ?? a, 1), "scale"),
+      scalex: /* @__PURE__ */ __name(() => scaling(a, 1, 1), "scalex"),
+      scaley: /* @__PURE__ */ __name(() => scaling(1, a, 1), "scaley"),
+      scalez: /* @__PURE__ */ __name(() => scaling(1, 1, a), "scalez"),
+      scale3d: /* @__PURE__ */ __name(() => scaling(a, b, c), "scale3d"),
+      rotate: /* @__PURE__ */ __name(() => rotation(0, 0, 1, a), "rotate"),
+      rotatex: /* @__PURE__ */ __name(() => rotation(1, 0, 0, a), "rotatex"),
+      rotatey: /* @__PURE__ */ __name(() => rotation(0, 1, 0, a), "rotatey"),
+      rotatez: /* @__PURE__ */ __name(() => rotation(0, 0, 1, a), "rotatez"),
+      rotate3d: /* @__PURE__ */ __name(() => rotation(a, b, c, d), "rotate3d"),
+      skew: /* @__PURE__ */ __name(() => get2D([1, tan(b ?? 0), tan(a), 1, 0, 0]), "skew"),
+      skewx: /* @__PURE__ */ __name(() => get2D([1, 0, tan(a), 1, 0, 0]), "skewx"),
+      skewy: /* @__PURE__ */ __name(() => get2D([1, tan(a), 0, 1, 0, 0]), "skewy"),
+      // `m34`, of a distance of 1 at least:
+      perspective: /* @__PURE__ */ __name(() => {
+        const m2 = [...identity];
+        m2[11] = -1 / Math.max(a, 1);
+        return [m2, false];
+      }, "perspective")
+    }[name]();
+    return [m, is2D && !/3d$|z$|^rotate[xy]$|^perspective$/.test(name)];
+  }
+  __name(getTransform, "getTransform");
   function get2D([a, b, c, d, e, f]) {
     const m = [...identity];
     [m[0], m[1], m[4], m[5], m[12], m[13]] = [a, b, c, d, e, f];

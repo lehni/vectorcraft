@@ -7,7 +7,7 @@
 //! fails when another one fails, or when a listed one passes, so the list stays the truth.
 //! `WPT_UPDATE=1` writes the list anew. The pass rate by folder prints with `--nocapture`.
 //!
-//! What fails, by cause (2026-10-21: 1445 of 1821 pass; the canvas 870 of 1093, geometry 575
+//! What fails, by cause (2026-10-21: 1553 of 1821 pass; the canvas 870 of 1093, geometry 683
 //! of 728), to come back to; most of it rarely matters to a script:
 //!
 //! - Text (canvas/text, about 70): WPT loads its test font with `FontFace`, which scripts don't
@@ -16,9 +16,10 @@
 //!   `getIndexFromOffset()`, `getSelectionRects()`, tentative); `direction: 'rtl'` in measuring;
 //!   `letterSpacing`, `wordSpacing`, `fontKerning`, `fontStretch`, `fontVariantCaps` and
 //!   `textRendering` are kept but don't change the text yet; `maxWidth` of NaN.
-//! - CSS strings for matrices (css/geometry, about 110): `new DOMMatrix('translate(10px)')`
-//!   throws, as in a worker; supporting it needs a parser of CSS transform functions.
-//!   `structured-serialization` needs `structuredClone()`/`postMessage` of geometry objects.
+//! - A worker's matrices (css/geometry, 12): a script has a window, so `new DOMMatrix(text)`
+//!   reads CSS's transform functions, `setMatrixValue()` is there and a matrix writes itself as
+//!   CSS, as a window's do, which the worker tests expect not to. `structured-serialization` needs
+//!   `structuredClone()`/`postMessage` of geometry objects.
 //! - `roundRect()` radii as `DOMPointInit`s (about 24): elliptical corners; a radius list's points
 //!   read as 0 now.
 //! - Colours the canvas should reject (about 20): the color crate accepts some invalid legacy
