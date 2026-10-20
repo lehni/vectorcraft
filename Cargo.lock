@@ -5739,6 +5739,7 @@ dependencies = [
  "vectorcraft-format",
  "vectorcraft-geom",
  "vectorcraft-text",
+ "vello_cpu 0.2.0",
  "wasm-bindgen",
  "web-sys",
 ]

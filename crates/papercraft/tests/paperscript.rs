@@ -382,6 +382,37 @@ fn scripts_measure_text<E: Engine>() {
     assert_eq!(runtime.take_output(), ["10px sans-serif", "true true true true", "true 0", "true"], "bold is wider than twice the size alone");
 }
 
+fn canvases_have_pixels<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "const canvas = new OffscreenCanvas(4, 3)\n\
+             const ctx = canvas.getContext('2d')\n\
+             ctx.fillStyle = 'rgba(255, 0, 0, 0.5)'\n\
+             ctx.fillRect(1, 1, 2, 5)\n\
+             const data = ctx.getImageData(0, 0, 4, 3).data\n\
+             console.log(data.length, [...data.slice(0, 4)], [...data.slice(20, 24)], data instanceof Uint8ClampedArray)\n\
+             const image = new ImageData(new Uint8ClampedArray([0, 255, 0, 255]), 1)\n\
+             ctx.putImageData(image, 3, 0)\n\
+             ctx.clearRect(1, 1, 1, 1)\n\
+             console.log([...ctx.getImageData(3, 0, 1, 1).data], [...ctx.getImageData(1, 1, 1, 1).data], [...ctx.getImageData(-1, -1, 1, 1).data])\n\
+             canvas.width = 2\n\
+             console.log(canvas.width, canvas.height, [...ctx.getImageData(1, 1, 1, 1).data])\n\
+             const raster = new Raster(new Size(3, 2))\n\
+             raster.setPixel(1, 1, new Color(0, 0, 1))\n\
+             console.log(raster.getPixel(1, 1).toCSS(true), raster.getPixel(0, 0).alpha)\n\
+             canvas.convertToBlob().then(blob => blob.bytes()).then(png => console.log(png[1], png[2], png[3]))",
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.take_output(),
+        ["48 0,0,0,0 255,0,0,128 true", "0,255,0,255 0,0,0,0 0,0,0,0", "2 3 0,0,0,0", "#0000ff 0", "80 78 71"],
+        "a half red stays half red, cleared and outside is transparent, resizing clears, PNG's signature"
+    );
+}
+
 fn fetch_classes_work_alone<E: Engine>() {
     let mut runtime = Runtime::<E>::new().unwrap();
     let scope = runtime.create_scope(800.0, 600.0).unwrap();
@@ -519,6 +550,11 @@ macro_rules! engine_tests {
             #[test]
             fn scripts_measure_text() {
                 super::scripts_measure_text::<$engine>();
+            }
+
+            #[test]
+            fn canvases_have_pixels() {
+                super::canvases_have_pixels::<$engine>();
             }
 
             #[test]

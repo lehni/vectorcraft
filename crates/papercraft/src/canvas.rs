@@ -1,78 +1,429 @@
-//! A minimal `OffscreenCanvas`, for what Paper.js needs a canvas for without a DOM: resolving
-//! CSS colours (`new Color('red')`: Paper.js paints a pixel with the colour as `fillStyle` and
-//! reads it back), and measuring text (`ctx.font`, `ctx.measureText()`) for `PointText`, with the
-//! app's fonts and shaping (VectorCraft's text crate, harfrust).
+//! `OffscreenCanvas` for scripts outside a browser, with pixels: a vello_cpu pixmap per canvas,
+//! kept in Rust and freed when the script drops the canvas (through a `FinalizationRegistry`,
+//! where the engine has one). A canvas is its own 2D context (`getContext('2d')` returns it), with
+//! `fillRect`, `clearRect`, `getImageData`, `putImageData`, `createImageData` and the `ImageData`
+//! class, `convertToBlob()` (PNG), and text measuring (`font`, `measureText()`) with the app's fonts
+//! and shaping (VectorCraft's text crate, harfrust). Paths, transforms, gradients and images come
+//! with the drawing step; until then the drawing calls do nothing and rectangles fill untransformed.
 //!
-//! The canvas holds no pixels yet. It is its own 2D context, `getImageData()` returns the current
-//! `fillStyle` as the pixel, and the drawing calls do nothing. Rasters and drawing come with
-//! VectorCraft's renderer behind it.
+//! Paper.js resolves CSS colours with it (it fills a pixel with the colour and reads it back), and
+//! measures `PointText` with it.
 
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::str::FromStr;
 
-use crate::{Call, Engine, Error, Host, HostFunction, Value};
+use vello_cpu::Pixmap;
+use vello_cpu::color::PremulRgba8;
 
-/// Sets `OffscreenCanvas` on `global`, and the methods every canvas gets on `host`.
-pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle, host: &Rc<RefCell<Host<E::Handle>>>) -> Result<(), Error> {
-    let methods: [(&str, HostFunction<E::Handle>); 7] = [
-        ("getContext", get_context),
+use crate::{Call, Engine, Error, HostFunction, Value, define_accessor, method, object};
+
+/// The largest side of a canvas, and the most pixels one has, as browsers cap them.
+const SIDE: f64 = 16384.0;
+const AREA: f64 = 16384.0 * 16384.0 / 4.0;
+
+/// What canvases share: their prototype, `ImageData`'s, the realm's `Object`,
+/// `Uint8ClampedArray` and `FinalizationRegistry` (when it has one, to free a dropped canvas's
+/// pixels), and the pixels of every canvas, by its number.
+pub(crate) struct Canvases<H> {
+    prototype: H,
+    image_data: H,
+    object: H,
+    clamped: H,
+    promise: H,
+    registry: Option<H>,
+    pixmaps: Vec<Option<Pixmap>>,
+}
+
+/// Sets `OffscreenCanvas` and `ImageData` on `global`, unless it has them.
+pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(), Error> {
+    let methods: [(&str, HostFunction<E::Handle>); 10] = [
+        ("getContext", |_, this, _| Ok(this.clone())),
         ("getImageData", get_image_data),
+        ("putImageData", put_image_data),
+        ("createImageData", create_image_data),
+        ("fillRect", |call, this, args| fill_rect(call, this, args, false)),
+        ("clearRect", |call, this, args| fill_rect(call, this, args, true)),
         ("measureText", measure_text),
-        ("fillRect", nothing),
-        ("clearRect", nothing),
+        ("convertToBlob", convert_to_blob),
         ("save", nothing),
         ("restore", nothing),
     ];
-    let mut handles = Vec::with_capacity(methods.len());
-    for (name, method) in methods {
-        handles.push((name, engine.function(name, method)?));
-    }
-    host.borrow_mut().canvas_methods = handles;
+    let methods = methods.into_iter().map(|(name, f)| Ok((name, engine.function(name, f)?))).collect::<Result<Vec<_>, Error>>()?;
+    let width = engine.function("width", |call, this, _| Ok(Value::Number(f64::from(with_pixmap(call, this, |p| p.width())?))))?;
+    let height = engine.function("height", |call, this, _| Ok(Value::Number(f64::from(with_pixmap(call, this, |p| p.height())?))))?;
+    let set_width = engine.function("width", |call, this, args| resize(call, this, args.first(), None))?;
+    let set_height = engine.function("height", |call, this, args| resize(call, this, None, args.first()))?;
+    let release = engine.function("release", release)?;
     let constructor = engine.constructor("OffscreenCanvas", offscreen_canvas)?;
-    engine.with_call(|call| call.set(global, "OffscreenCanvas", &Value::Js(constructor)))
+    let image_data = engine.constructor("ImageData", construct_image_data)?;
+    engine.with_call(|call| {
+        if !matches!(call.get(global, "OffscreenCanvas")?, Value::Undefined) {
+            return Ok(());
+        }
+        let prototype = call.new_object()?;
+        for (name, function) in methods {
+            call.set(&prototype, name, &Value::Js(function))?;
+        }
+        define_accessor(call, global, &prototype, "width", width, Some(set_width))?;
+        define_accessor(call, global, &prototype, "height", height, Some(set_height))?;
+        call.set(&constructor, "prototype", &Value::Js(prototype.clone()))?;
+        call.set(global, "OffscreenCanvas", &Value::Js(constructor))?;
+        let image_data_prototype = call.new_object()?;
+        call.set(&image_data, "prototype", &Value::Js(image_data_prototype.clone()))?;
+        call.set(global, "ImageData", &Value::Js(image_data))?;
+        let registry = match call.get(global, "FinalizationRegistry")? {
+            Value::Js(class) => match call.construct(&class, &[Value::Js(release)])? {
+                Value::Js(registry) => Some(registry),
+                _ => None,
+            },
+            _ => None,
+        };
+        call.host()?.borrow_mut().canvases = Some(Canvases {
+            prototype,
+            image_data: image_data_prototype,
+            object: object(call, global, "Object")?,
+            clamped: object(call, global, "Uint8ClampedArray")?,
+            promise: object(call, global, "Promise")?,
+            registry,
+            pixmaps: Vec::new(),
+        });
+        Ok(())
+    })
 }
 
-/// `new OffscreenCanvas(width, height)`.
+/// A canvas's or image's side from a script: whole, within the caps.
+fn side<H>(value: Option<&Value<H>>) -> Result<u16, Error> {
+    match value {
+        Some(Value::Number(n)) => pixels(*n),
+        None | Some(Value::Undefined) => Ok(0),
+        _ => Err(Error::Script("not a size".into())),
+    }
+}
+
+fn pixels(n: f64) -> Result<u16, Error> {
+    if n.is_finite() && (0.0..=SIDE).contains(&n) {
+        Ok(n.trunc() as u16)
+    } else {
+        Err(Error::Script(format!("a canvas can't be {n} pixels wide or high")))
+    }
+}
+
+/// `new OffscreenCanvas(width, height)`: transparent black, with a context's defaults.
 fn offscreen_canvas<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let canvas = call.new_object()?;
-    let size = |index: usize| match args.get(index) {
-        Some(Value::Number(size)) => *size,
-        _ => 0.0,
+    let (width, height) = (side(args.first())?, side(args.get(1))?);
+    if f64::from(width) * f64::from(height) > AREA {
+        return Err(Error::Script(format!("a canvas can't have {width} × {height} pixels")));
+    }
+    let (object_class, prototype, registry) = {
+        let host = call.host()?;
+        let host = host.borrow();
+        let canvases = host.canvases.as_ref().ok_or_else(|| Error::Script("OffscreenCanvas is not set up".into()))?;
+        (canvases.object.clone(), canvases.prototype.clone(), canvases.registry.clone())
     };
-    call.set(&canvas, "width", &Value::Number(size(0)))?;
-    call.set(&canvas, "height", &Value::Number(size(1)))?;
-    call.set(&canvas, "canvas", &Value::Js(canvas.clone()))?;
-    call.set(&canvas, "fillStyle", &Value::String("#000000".into()))?;
-    call.set(&canvas, "font", &Value::String(DEFAULT_FONT.into()))?;
-    let methods = call.host()?.borrow().canvas_methods.clone();
-    for (name, method) in methods {
-        call.set(&canvas, name, &Value::Js(method))?;
+    let Value::Js(canvas) = method(call, &object_class, "create", &[Value::Js(prototype)])? else {
+        return Err(Error::Script("Object.create made nothing".into()));
+    };
+    let number = {
+        let host = call.host()?;
+        let mut host = host.borrow_mut();
+        let canvases = host.canvases.as_mut().ok_or_else(|| Error::Script("OffscreenCanvas is not set up".into()))?;
+        let pixmap = Some(Pixmap::new(width, height));
+        match canvases.pixmaps.iter().position(Option::is_none) {
+            Some(free) => {
+                if let Some(slot) = canvases.pixmaps.get_mut(free) {
+                    *slot = pixmap;
+                }
+                free
+            }
+            None => {
+                canvases.pixmaps.push(pixmap);
+                canvases.pixmaps.len() - 1
+            }
+        }
+    };
+    call.set(&canvas, "_canvas", &Value::Number(number as f64))?;
+    if let Some(registry) = registry {
+        method(call, &registry, "register", &[Value::Js(canvas.clone()), Value::Number(number as f64)])?;
+    }
+    for (key, value) in [
+        ("canvas", Value::Js(canvas.clone())),
+        ("fillStyle", Value::String("#000000".into())),
+        ("globalAlpha", Value::Number(1.0)),
+        ("font", Value::String(DEFAULT_FONT.into())),
+    ] {
+        call.set(&canvas, key, &value)?;
     }
     Ok(Value::Js(canvas))
 }
 
-/// `canvas.getContext('2d')`: the canvas itself.
-fn get_context<H: Clone>(_call: &mut dyn Call<H>, this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
-    Ok(this.clone())
+/// Frees the pixels of the canvas numbered `args[0]`, which the script dropped.
+fn release<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    if let Some(Value::Number(number)) = args.first()
+        && let Some(canvases) = call.host()?.borrow_mut().canvases.as_mut()
+        && let Some(slot) = canvases.pixmaps.get_mut(*number as usize)
+    {
+        *slot = None;
+    }
+    Ok(Value::Undefined)
 }
 
-/// `context.getImageData()`: one pixel of the current `fillStyle`, `{ data: [r, g, b, a] }`. A
-/// colour CSS doesn't know is transparent black, as on a canvas cleared to `rgba(0,0,0,0)`.
-fn get_image_data<H>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let Value::Js(context) = this else {
-        return Err(Error::Script("getImageData: not called on a canvas".into()));
+/// The number of the canvas `this` is.
+fn number<H>(call: &mut dyn Call<H>, this: &Value<H>) -> Result<usize, Error> {
+    let Value::Js(canvas) = this else {
+        return Err(Error::Script("not a canvas".into()));
     };
-    let color = match call.get(context, "fillStyle")? {
-        Value::String(style) => svgtypes::Color::from_str(&style).ok(),
-        _ => None,
+    match call.get(canvas, "_canvas")? {
+        Value::Number(n) if n.is_finite() && n >= 0.0 => Ok(n as usize),
+        _ => Err(Error::Script("not a canvas".into())),
+    }
+}
+
+/// `f` with the pixels of the canvas `this` is.
+fn with_pixmap<H, R>(call: &mut dyn Call<H>, this: &Value<H>, f: impl FnOnce(&mut Pixmap) -> R) -> Result<R, Error> {
+    let number = number(call, this)?;
+    let host = call.host()?;
+    let mut host = host.borrow_mut();
+    let pixmap = host
+        .canvases
+        .as_mut()
+        .and_then(|c| c.pixmaps.get_mut(number))
+        .and_then(Option::as_mut)
+        .ok_or_else(|| Error::Script("the canvas is gone".into()))?;
+    Ok(f(pixmap))
+}
+
+/// Setting `canvas.width` or `height`: the canvas is cleared to that size, as in browsers.
+fn resize<H>(call: &mut dyn Call<H>, this: &Value<H>, width: Option<&Value<H>>, height: Option<&Value<H>>) -> Result<Value<H>, Error> {
+    let (width, height) = (width.map(|w| side(Some(w))).transpose()?, height.map(|h| side(Some(h))).transpose()?);
+    with_pixmap(call, this, |pixmap| {
+        let (width, height) = (width.unwrap_or(pixmap.width()), height.unwrap_or(pixmap.height()));
+        if f64::from(width) * f64::from(height) <= AREA {
+            *pixmap = Pixmap::new(width, height);
+        }
+    })?;
+    Ok(Value::Undefined)
+}
+
+/// A rectangle from a script's numbers, as whole pixels inside `width` × `height`: `(x0, y0, x1,
+/// y1)`, empty when it misses. Negative sizes extend left or up, as in browsers.
+fn pixel_rect(x: f64, y: f64, w: f64, h: f64, width: u16, height: u16) -> (usize, usize, usize, usize) {
+    if ![x, y, w, h].iter().all(|n| n.is_finite()) {
+        return (0, 0, 0, 0);
+    }
+    let (x0, x1) = if w < 0.0 { (x + w, x) } else { (x, x + w) };
+    let (y0, y1) = if h < 0.0 { (y + h, y) } else { (y, y + h) };
+    let clamp = |v: f64, max: u16| v.round().clamp(0.0, f64::from(max)) as usize;
+    (clamp(x0, width), clamp(y0, height), clamp(x1, width), clamp(y1, height))
+}
+
+fn numbers<H>(args: &[Value<H>]) -> [f64; 4] {
+    let n = |i: usize| match args.get(i) {
+        Some(Value::Number(n)) => *n,
+        _ => f64::NAN,
     };
-    let color = color.unwrap_or(svgtypes::Color::new_rgba(0, 0, 0, 0));
-    let pixel: Vec<_> = [color.red, color.green, color.blue, color.alpha].into_iter().map(|c| Value::Number(f64::from(c))).collect();
-    let data = call.new_array(&pixel)?;
-    let image = call.new_object()?;
-    call.set(&image, "data", &Value::Js(data))?;
+    [n(0), n(1), n(2), n(3)]
+}
+
+/// `fillRect(x, y, w, h)` with the `fillStyle` (a colour) and `globalAlpha`, over what's there; or
+/// `clearRect(x, y, w, h)`: transparent black.
+fn fill_rect<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>], clear: bool) -> Result<Value<H>, Error> {
+    let [x, y, w, h] = numbers(args);
+    let color = if clear {
+        None
+    } else {
+        let Value::Js(context) = this else {
+            return Err(Error::Script("not a canvas".into()));
+        };
+        let alpha = match call.get(context, "globalAlpha")? {
+            Value::Number(a) if a.is_finite() => a.clamp(0.0, 1.0),
+            _ => 1.0,
+        };
+        match call.get(context, "fillStyle")? {
+            Value::String(style) => {
+                svgtypes::Color::from_str(&style).ok().map(|c| premultiply([c.red, c.green, c.blue, (f64::from(c.alpha) * alpha).round() as u8]))
+            }
+            // Gradients and patterns come with drawing.
+            _ => return Ok(Value::Undefined),
+        }
+    };
+    with_pixmap(call, this, |pixmap| {
+        let (x0, y0, x1, y1) = pixel_rect(x, y, w, h, pixmap.width(), pixmap.height());
+        let stride = usize::from(pixmap.width());
+        let data = pixmap.data_mut();
+        for row in y0..y1 {
+            for pixel in data.get_mut(row * stride + x0..row * stride + x1).into_iter().flatten() {
+                *pixel = match color {
+                    None => PremulRgba8 { r: 0, g: 0, b: 0, a: 0 },
+                    Some(color) => over(color, *pixel),
+                };
+            }
+        }
+    })?;
+    Ok(Value::Undefined)
+}
+
+/// `[r, g, b, a]` premultiplied.
+fn premultiply([r, g, b, a]: [u8; 4]) -> PremulRgba8 {
+    let p = |c: u8| ((u16::from(c) * u16::from(a) + 127) / 255) as u8;
+    PremulRgba8 { r: p(r), g: p(g), b: p(b), a }
+}
+
+/// `[r, g, b, a]` of a premultiplied pixel.
+fn unpremultiply(p: PremulRgba8) -> [u8; 4] {
+    if p.a == 0 {
+        return [0, 0, 0, 0];
+    }
+    let u = |c: u8| ((u16::from(c) * 255 + u16::from(p.a) / 2) / u16::from(p.a)).min(255) as u8;
+    [u(p.r), u(p.g), u(p.b), p.a]
+}
+
+/// `source` over `destination`, both premultiplied.
+fn over(source: PremulRgba8, destination: PremulRgba8) -> PremulRgba8 {
+    let rest = 255 - u16::from(source.a);
+    let c = |s: u8, d: u8| (u16::from(s) + (u16::from(d) * rest + 127) / 255).min(255) as u8;
+    PremulRgba8 { r: c(source.r, destination.r), g: c(source.g, destination.g), b: c(source.b, destination.b), a: c(source.a, destination.a) }
+}
+
+/// An `ImageData` of `width` × `height` with `bytes` (RGBA, not premultiplied).
+fn image_data<H: Clone>(call: &mut dyn Call<H>, width: u16, height: u16, bytes: &[u8]) -> Result<Value<H>, Error> {
+    let (object_class, prototype, clamped) = {
+        let host = call.host()?;
+        let host = host.borrow();
+        let canvases = host.canvases.as_ref().ok_or_else(|| Error::Script("ImageData is not set up".into()))?;
+        (canvases.object.clone(), canvases.image_data.clone(), canvases.clamped.clone())
+    };
+    let Value::Js(image) = method(call, &object_class, "create", &[Value::Js(prototype)])? else {
+        return Err(Error::Script("Object.create made nothing".into()));
+    };
+    let array = call.new_uint8_array(bytes)?;
+    let buffer = call.get(&array, "buffer")?;
+    let data = call.construct(&clamped, &[buffer])?;
+    for (key, value) in [
+        ("width", Value::Number(f64::from(width))),
+        ("height", Value::Number(f64::from(height))),
+        ("data", data),
+        ("colorSpace", Value::String("srgb".into())),
+    ] {
+        call.set(&image, key, &value)?;
+    }
     Ok(Value::Js(image))
+}
+
+/// `new ImageData(width, height)` or `new ImageData(data, width[, height])`.
+fn construct_image_data<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    match args.first() {
+        Some(Value::Js(data)) => {
+            let bytes = call.bytes(data)?;
+            let width = side(args.get(1))?;
+            let rows = bytes.len() / 4 / usize::from(width.max(1));
+            let height = match args.get(2) {
+                Some(Value::Number(_)) => side(args.get(2))?,
+                _ => u16::try_from(rows).map_err(|_| Error::Script("ImageData: too many rows".into()))?,
+            };
+            if width == 0 || bytes.len() != usize::from(width) * usize::from(height) * 4 {
+                return Err(Error::Script("ImageData: the data isn't width × height × 4 bytes".into()));
+            }
+            image_data(call, width, height, &bytes)
+        }
+        _ => {
+            let (width, height) = (side(args.first())?, side(args.get(1))?);
+            if f64::from(width) * f64::from(height) > AREA {
+                return Err(Error::Script("ImageData: too large".into()));
+            }
+            image_data(call, width, height, &vec![0; usize::from(width) * usize::from(height) * 4])
+        }
+    }
+}
+
+/// `createImageData(width, height)` or `createImageData(imageData)`: transparent black.
+fn create_image_data<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let (width, height) = match args.first() {
+        Some(Value::Js(other)) => {
+            let (w, h) = (call.get(other, "width")?, call.get(other, "height")?);
+            (side(Some(&w))?, side(Some(&h))?)
+        }
+        _ => (side(args.first())?, side(args.get(1))?),
+    };
+    construct_image_data(call, &Value::Undefined, &[Value::Number(f64::from(width)), Value::Number(f64::from(height))])
+}
+
+/// `getImageData(x, y, width, height)`: the pixels there, not premultiplied; outside the canvas
+/// transparent black.
+fn get_image_data<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let [x, y, w, h] = numbers(args);
+    if !(w.is_finite() && h.is_finite()) || w == 0.0 || h == 0.0 {
+        return Err(Error::Script("getImageData: the width and height must not be 0".into()));
+    }
+    let (sw, sh) = (pixels(w.abs())?, pixels(h.abs())?);
+    let (left, top) = ((if w < 0.0 { x + w } else { x }).round(), (if h < 0.0 { y + h } else { y }).round());
+    let bytes = with_pixmap(call, this, |pixmap| {
+        let mut bytes = vec![0u8; usize::from(sw) * usize::from(sh) * 4];
+        for row in 0..usize::from(sh) {
+            for column in 0..usize::from(sw) {
+                let (px, py) = (left + column as f64, top + row as f64);
+                if px >= 0.0 && py >= 0.0 && px < f64::from(pixmap.width()) && py < f64::from(pixmap.height()) {
+                    let pixel = unpremultiply(pixmap.sample(px as u16, py as u16));
+                    let at = (row * usize::from(sw) + column) * 4;
+                    if let Some(target) = bytes.get_mut(at..at + 4) {
+                        target.copy_from_slice(&pixel);
+                    }
+                }
+            }
+        }
+        bytes
+    })?;
+    image_data(call, sw, sh, &bytes)
+}
+
+/// `putImageData(imageData, x, y[, dirtyX, dirtyY, dirtyWidth, dirtyHeight])`: the pixels replace
+/// those there, unblended, as in browsers.
+fn put_image_data<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let Some(Value::Js(image)) = args.first() else {
+        return Err(Error::Script("putImageData: not an ImageData".into()));
+    };
+    let (w, h) = (call.get(image, "width")?, call.get(image, "height")?);
+    let (width, height) = (side(Some(&w))?, side(Some(&h))?);
+    let Value::Js(data) = call.get(image, "data")? else {
+        return Err(Error::Script("putImageData: not an ImageData".into()));
+    };
+    let bytes = call.bytes(&data)?;
+    let [dx, dy, ..] = numbers(args.get(1..).unwrap_or_default());
+    let dirty = numbers(args.get(3..).unwrap_or_default());
+    let (x0, y0, x1, y1) = if dirty.iter().all(|n| n.is_finite()) {
+        pixel_rect(dirty[0], dirty[1], dirty[2], dirty[3], width, height)
+    } else {
+        (0, 0, usize::from(width), usize::from(height))
+    };
+    if !(dx.is_finite() && dy.is_finite()) {
+        return Ok(Value::Undefined);
+    }
+    let (dx, dy) = (dx.round() as i64, dy.round() as i64);
+    with_pixmap(call, this, |pixmap| {
+        for row in y0..y1 {
+            for column in x0..x1 {
+                let (px, py) = (dx + column as i64, dy + row as i64);
+                if px < 0 || py < 0 || px >= i64::from(pixmap.width()) || py >= i64::from(pixmap.height()) {
+                    continue;
+                }
+                let at = (row * usize::from(width) + column) * 4;
+                if let Some(&[r, g, b, a]) = bytes.get(at..at + 4) {
+                    pixmap.set_pixel(px as u16, py as u16, premultiply([r, g, b, a]));
+                }
+            }
+        }
+    })?;
+    Ok(Value::Undefined)
+}
+
+/// `convertToBlob()`: a Promise of the canvas as a PNG `Blob`.
+fn convert_to_blob<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let png = with_pixmap(call, this, |pixmap| pixmap.clone().into_png())?.map_err(|e| Error::Script(format!("convertToBlob: {e}")))?;
+    #[cfg(not(target_arch = "wasm32"))]
+    let blob = crate::fetch::new_blob(call, &png, "image/png")?;
+    #[cfg(target_arch = "wasm32")]
+    let blob = Value::Js(call.new_uint8_array(&png)?);
+    let promise =
+        call.host()?.borrow().canvases.as_ref().map(|c| c.promise.clone()).ok_or_else(|| Error::Script("OffscreenCanvas is not set up".into()))?;
+    method(call, &promise, "resolve", &[blob])
 }
 
 /// A context's font until a script sets one, as in browsers.

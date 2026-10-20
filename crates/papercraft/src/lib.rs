@@ -96,7 +96,7 @@ pub struct Host<H> {
     /// Paper.js's `Rectangle`, for `project.artboards`.
     rectangle: Option<H>,
     /// The methods of every `OffscreenCanvas`, by name.
-    canvas_methods: Vec<(&'static str, H)>,
+    canvases: Option<canvas::Canvases<H>>,
     /// Answers the script's dialogs ([`Runtime::set_ask`]).
     ask: Option<dialog::Ask>,
     /// What `Dialog` uses of the script's realm.
@@ -158,7 +158,7 @@ impl<H> Default for Host<H> {
             bound: None,
             artboard: 0,
             rectangle: None,
-            canvas_methods: Vec::new(),
+            canvases: None,
             ask: None,
             dialog_globals: None,
             palettes: Vec::new(),
@@ -203,7 +203,7 @@ impl<E: Engine> Runtime<E> {
     pub fn new() -> Result<Self, Error> {
         let host = Rc::new(RefCell::new(Host::default()));
         let mut engine = E::new(host.clone())?;
-        install_globals(&mut engine, &host)?;
+        install_globals(&mut engine)?;
         engine.eval(ACORN)?;
         engine.eval(PAPER_JS)?;
         let global = engine.global()?;
@@ -581,7 +581,7 @@ fn method<H: Clone>(call: &mut dyn Call<H>, owner: &H, key: &str, args: &[Value<
 /// `console`, the timers (`setInterval` for its frame loop) and `OffscreenCanvas` for CSS colours;
 /// Scriptographer's `print()`, which logs as `console.log()` does; and the browser's `atob` and
 /// `btoa`.
-fn install_globals<E: Engine>(engine: &mut E, host: &Rc<RefCell<Host<E::Handle>>>) -> Result<(), Error> {
+fn install_globals<E: Engine>(engine: &mut E) -> Result<(), Error> {
     let global = engine.global()?;
     let log = engine.function("log", console_log)?;
     let set_interval = engine.function("setInterval", |call, _, args| set_timer(call, args, true))?;
@@ -610,7 +610,7 @@ fn install_globals<E: Engine>(engine: &mut E, host: &Rc<RefCell<Host<E::Handle>>
         call.set(&global, "atob", &Value::Js(atob))?;
         call.set(&global, "btoa", &Value::Js(btoa))
     })?;
-    canvas::install(engine, &global, host)
+    canvas::install(engine, &global)
 }
 
 fn console_log<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {

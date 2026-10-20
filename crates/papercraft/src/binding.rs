@@ -86,9 +86,9 @@ impl<E: Engine> Runtime<E> {
                 let flags = number(call.get(&entry, "flags")?) as u32;
                 list.push(Change::read(call, item, flags)?);
             }
-            let bound = host.borrow();
-            let doc = bound.bound.as_ref().map(|b| &b.doc).ok_or_else(|| Error::Script("no document is bound".into()))?;
-            writeback::patch(call, doc, list)
+            // Not borrowed while the write-back calls into the script, which may need the host.
+            let doc = host.borrow().bound.as_ref().map(|b| b.doc.clone()).ok_or_else(|| Error::Script("no document is bound".into()))?;
+            writeback::patch(call, &doc, list)
         })
     }
 

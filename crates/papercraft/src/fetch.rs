@@ -585,7 +585,7 @@ fn json_text(value: &serde_json::Value) -> String {
 }
 
 /// A `Blob` of `bytes`, of MIME type `kind`.
-fn new_blob<H: Clone>(call: &mut dyn Call<H>, bytes: &[u8], kind: &str) -> Result<Value<H>, Error> {
+pub(crate) fn new_blob<H: Clone>(call: &mut dyn Call<H>, bytes: &[u8], kind: &str) -> Result<Value<H>, Error> {
     let blob = create(call, |c| &c.blob)?;
     let array = call.new_uint8_array(bytes)?;
     call.set(&blob, "_bytes", &Value::Js(array))?;

@@ -21,6 +21,8 @@ vectorcraft-doc = { workspace = true }
 vectorcraft-geom = { workspace = true }
 # Text measuring on the canvas, with the app's fonts and shaping.
 vectorcraft-text = { workspace = true }
+# The canvas's pixels, and drawing on them, as the app's renderer draws.
+vello_cpu = { workspace = true }
 # `atob` and `btoa`.
 vectorcraft-format = { workspace = true }
 # Resolving `import` specifiers against modules from the web.
