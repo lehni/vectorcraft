@@ -313,7 +313,7 @@ fn write<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -
     let written = (|| {
         let data = args.first().cloned().unwrap_or(Value::Undefined);
         let command = match &data {
-            Value::Js(object) if !crate::fetch::is_blob(call, object)? && call.bytes(object).is_err() => match call.get(object, "type")? {
+            Value::Js(object) if !crate::blob::is_blob(call, object)? && call.bytes(object).is_err() => match call.get(object, "type")? {
                 Value::String(kind) => Some((object.clone(), kind)),
                 _ => None,
             },
@@ -341,7 +341,7 @@ fn write<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -
                 if matches!(data, Value::Undefined | Value::Null) {
                     return Err(Error::Dom("SyntaxError", "write needs data".into()));
                 }
-                let (bytes, _) = crate::fetch::body_bytes(call, &data)?;
+                let (bytes, _) = crate::blob::body_bytes(call, &data)?;
                 let (_, _, at) = open_stream(call, this)?;
                 let start = count(position.unwrap_or(at))?;
                 count((start + bytes.len()) as f64)?;

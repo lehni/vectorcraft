@@ -82,8 +82,8 @@ fn not_set_up() -> Error {
 /// The pixels of a `Blob`'s image, an `ImageData`, a canvas or an `ImageBitmap`.
 fn pixels<H: Clone>(call: &mut dyn Call<H>, source: &H) -> Result<Arc<Pixmap>, Error> {
     #[cfg(not(target_arch = "wasm32"))]
-    if crate::fetch::is_blob(call, source)? {
-        let bytes = crate::fetch::blob_bytes(call, &Value::Js(source.clone()))?;
+    if crate::blob::is_blob(call, source)? {
+        let bytes = crate::blob::blob_bytes(call, &Value::Js(source.clone()))?;
         return decode(&bytes).map(Arc::new).map_err(|e| Error::Dom("InvalidStateError", format!("createImageBitmap: {e}")));
     }
     if let Value::Js(data) = call.get(source, "data")? {

@@ -235,7 +235,7 @@ impl<H: Clone> Serializer<H> {
             }
             #[cfg(not(target_arch = "wasm32"))]
             "Blob" => {
-                let bytes = crate::fetch::blob_bytes(call, value)?;
+                let bytes = crate::blob::blob_bytes(call, value)?;
                 let kind = call.get(original, "type")?;
                 Data::Blob(bytes, call.to_string(&kind)?)
             }
@@ -366,7 +366,7 @@ fn make<H: Clone>(call: &mut dyn Call<H>, global: &H, data: &Data, made: &mut Ve
             return Ok(image);
         }
         #[cfg(not(target_arch = "wasm32"))]
-        Data::Blob(bytes, kind) => crate::fetch::new_blob(call, bytes, kind)?,
+        Data::Blob(bytes, kind) => crate::blob::new_blob(call, bytes, kind)?,
         Data::Geometry(class, values) => geometry_object(call, class, values)?.ok_or_else(|| data_clone_error(class))?,
     };
     made.push(value.clone());

@@ -5,11 +5,487 @@
       __defProp(target, name, { get: all[name], enumerable: true });
   };
 
+  // src/natives.js
+  var natives = globalThis.__scriptographer;
+
+  // src/abort.js
+  var abort_exports = {};
+  __export(abort_exports, {
+    AbortController: () => AbortController,
+    AbortSignal: () => AbortSignal
+  });
+
+  // src/events.js
+  var events_exports = {};
+  __export(events_exports, {
+    CloseEvent: () => CloseEvent,
+    CustomEvent: () => CustomEvent,
+    ErrorEvent: () => ErrorEvent,
+    Event: () => Event,
+    EventTarget: () => EventTarget,
+    MessageEvent: () => MessageEvent
+  });
+
   // src/format-error.js
   function formatError(err) {
     const text = String(err);
     const stack = err?.stack;
     return typeof stack === "string" && stack.startsWith(text) ? stack : text;
+  }
+
+  // src/events.js
+  var phases = { NONE: 0, CAPTURING_PHASE: 1, AT_TARGET: 2, BUBBLING_PHASE: 3 };
+  var listenersByTarget = /* @__PURE__ */ new WeakMap();
+  var states = /* @__PURE__ */ new WeakMap();
+  var EventTarget = class {
+    addEventListener(type, callback, options) {
+      if (callback && typeof callback === "object" || typeof callback === "function") {
+        const { capture, once, passive, signal } = getOptions(options);
+        if (!signal?.aborted) {
+          type = String(type);
+          let listeners = listenersByTarget.get(this);
+          if (!listeners) {
+            listeners = [];
+            listenersByTarget.set(this, listeners);
+          }
+          if (!find(listeners, type, callback, capture)) {
+            const listener = {
+              type,
+              callback,
+              capture,
+              once,
+              passive,
+              removed: false
+            };
+            listeners.push(listener);
+            signal?.addEventListener("abort", () => remove(this, listener));
+          }
+        }
+      }
+    }
+    removeEventListener(type, callback, options) {
+      const { capture } = getOptions(options);
+      const listener = find(
+        listenersByTarget.get(this),
+        String(type),
+        callback,
+        capture
+      );
+      if (listener) remove(this, listener);
+    }
+    dispatchEvent(event) {
+      const state = states.get(event);
+      if (!state) {
+        throw new TypeError(`Invalid event: '${event}', not an Event.`);
+      }
+      if (state.dispatching) {
+        throw new DOMException(
+          "Unable to dispatch an event that is being dispatched.",
+          "InvalidStateError"
+        );
+      }
+      Object.assign(state, {
+        dispatching: true,
+        target: this,
+        currentTarget: this,
+        eventPhase: phases.AT_TARGET
+      });
+      for (const listener of [...listenersByTarget.get(this) ?? []]) {
+        if (!listener.removed && listener.type === state.type) {
+          if (listener.once) remove(this, listener);
+          const { callback } = listener;
+          state.passive = listener.passive;
+          try {
+            if (typeof callback === "function") {
+              callback.call(this, event);
+            } else if (typeof callback.handleEvent === "function") {
+              callback.handleEvent(event);
+            } else {
+              throw new TypeError("Invalid listener: it has no handleEvent().");
+            }
+          } catch (err) {
+            console.error(`Uncaught ${formatError(err)}`);
+          }
+          state.passive = false;
+          if (state.stopImmediately) break;
+        }
+      }
+      Object.assign(state, {
+        dispatching: false,
+        stop: false,
+        stopImmediately: false,
+        currentTarget: null,
+        eventPhase: phases.NONE
+      });
+      return !state.defaultPrevented;
+    }
+  };
+  var Event = class {
+    constructor(type, init) {
+      if (arguments.length === 0) {
+        throw new TypeError("Invalid event: its type is missing.");
+      }
+      const { bubbles, cancelable, composed } = init ?? {};
+      states.set(this, {
+        type: String(type),
+        bubbles: !!bubbles,
+        cancelable: !!cancelable,
+        composed: !!composed,
+        defaultPrevented: false,
+        eventPhase: phases.NONE,
+        target: null,
+        currentTarget: null,
+        timeStamp: globalThis.performance?.now() ?? 0,
+        isTrusted: false
+      });
+    }
+    get srcElement() {
+      return getState(this).target;
+    }
+    get returnValue() {
+      return !getState(this).defaultPrevented;
+    }
+    set returnValue(value) {
+      if (!value) this.preventDefault();
+    }
+    get cancelBubble() {
+      return !!getState(this).stop;
+    }
+    set cancelBubble(value) {
+      if (value) getState(this).stop = true;
+    }
+    // A passive listener can't cancel an event:
+    preventDefault() {
+      const state = getState(this);
+      if (state.cancelable && !state.passive) state.defaultPrevented = true;
+    }
+    stopPropagation() {
+      getState(this).stop = true;
+    }
+    stopImmediatePropagation() {
+      Object.assign(getState(this), { stop: true, stopImmediately: true });
+    }
+    // The target while the event is dispatched, as there's no tree around it.
+    composedPath() {
+      const { currentTarget } = getState(this);
+      return currentTarget ? [currentTarget] : [];
+    }
+    // The legacy way, before the event is dispatched.
+    initEvent(type, bubbles = false, cancelable = false) {
+      const state = getState(this);
+      if (!state.dispatching) {
+        Object.assign(state, {
+          type: String(type),
+          bubbles: !!bubbles,
+          cancelable: !!cancelable,
+          stop: false,
+          stopImmediately: false,
+          defaultPrevented: false
+        });
+      }
+    }
+  };
+  var CustomEvent = class extends Event {
+    constructor(type, init) {
+      super(...arguments);
+      setMembers(this, init, { detail: null });
+    }
+    initCustomEvent(type, bubbles, cancelable, detail = null) {
+      this.initEvent(type, bubbles, cancelable);
+      const state = getState(this);
+      if (!state.dispatching) state.detail = detail;
+    }
+  };
+  var MessageEvent = class extends Event {
+    constructor(type, init) {
+      super(...arguments);
+      setMembers(this, init, {
+        data: null,
+        origin: "",
+        lastEventId: "",
+        source: null,
+        ports: []
+      });
+    }
+  };
+  var CloseEvent = class extends Event {
+    constructor(type, init) {
+      super(...arguments);
+      setMembers(this, init, { wasClean: false, code: 0, reason: "" });
+    }
+  };
+  var ErrorEvent = class extends Event {
+    constructor(type, init) {
+      super(...arguments);
+      setMembers(this, init, {
+        message: "",
+        filename: "",
+        lineno: 0,
+        colno: 0,
+        error: null
+      });
+    }
+  };
+  var fields = {
+    [Event.name]: [
+      "type",
+      "bubbles",
+      "cancelable",
+      "composed",
+      "defaultPrevented",
+      "eventPhase",
+      "target",
+      "currentTarget",
+      "timeStamp",
+      "isTrusted"
+    ],
+    [CustomEvent.name]: ["detail"],
+    [MessageEvent.name]: ["data", "origin", "lastEventId", "source", "ports"],
+    [CloseEvent.name]: ["wasClean", "code", "reason"],
+    [ErrorEvent.name]: ["message", "filename", "lineno", "colno", "error"]
+  };
+  for (const Class of [
+    Event,
+    CustomEvent,
+    MessageEvent,
+    CloseEvent,
+    ErrorEvent
+  ]) {
+    for (const name of fields[Class.name]) {
+      Object.defineProperty(Class.prototype, name, {
+        get() {
+          return getState(this)[name];
+        },
+        configurable: true,
+        enumerable: true
+      });
+    }
+  }
+  for (const [name, value] of Object.entries(phases)) {
+    for (const target of [Event, Event.prototype]) {
+      Object.defineProperty(target, name, { value, enumerable: true });
+    }
+  }
+  for (const Class of [
+    EventTarget,
+    Event,
+    CustomEvent,
+    MessageEvent,
+    CloseEvent,
+    ErrorEvent
+  ]) {
+    Object.defineProperty(Class.prototype, Symbol.toStringTag, {
+      value: Class.name,
+      configurable: true
+    });
+  }
+  function getState(event) {
+    const state = states.get(event);
+    if (!state) {
+      throw new TypeError(`Invalid event: '${event}', not an Event.`);
+    }
+    return state;
+  }
+  function setMembers(event, init, defaults) {
+    const state = getState(event);
+    for (const [name, value] of Object.entries(defaults)) {
+      const given = init?.[name];
+      state[name] = given === void 0 ? Array.isArray(value) ? [] : value : typeof value === "string" ? String(given) : typeof value === "number" ? Number(given) : typeof value === "boolean" ? !!given : given;
+    }
+  }
+  function getOptions(options) {
+    if (options && typeof options === "object") {
+      const { capture, once, passive, signal } = options;
+      return { capture: !!capture, once: !!once, passive: !!passive, signal };
+    } else {
+      return { capture: !!options, once: false, passive: false, signal: null };
+    }
+  }
+  function find(listeners, type, callback, capture) {
+    return listeners?.find(
+      (listener) => listener.type === type && listener.capture === capture && Object.is(listener.callback, callback)
+    );
+  }
+  function remove(target, listener) {
+    listener.removed = true;
+    const listeners = listenersByTarget.get(target);
+    const index = listeners?.indexOf(listener) ?? -1;
+    if (index >= 0) listeners.splice(index, 1);
+  }
+
+  // src/abort.js
+  var internal = /* @__PURE__ */ Symbol("internal");
+  var abort;
+  var AbortSignal = class _AbortSignal extends EventTarget {
+    #aborted = false;
+    #reason;
+    #onabort = null;
+    constructor(key) {
+      if (key !== internal) {
+        throw new TypeError(
+          "Invalid AbortSignal: AbortController, AbortSignal.abort() and AbortSignal.timeout() make them."
+        );
+      }
+      super();
+    }
+    static {
+      abort = (signal, reason) => {
+        if (!signal.#aborted) {
+          signal.#aborted = true;
+          signal.#reason = reason === void 0 ? new DOMException(
+            "signal is aborted without reason",
+            "AbortError"
+          ) : reason;
+          const event = new Event("abort");
+          try {
+            signal.#onabort?.call(signal, event);
+          } catch (err) {
+            console.error(`Uncaught ${formatError(err)}`);
+          }
+          signal.dispatchEvent(event);
+        }
+      };
+    }
+    get aborted() {
+      return this.#aborted;
+    }
+    get reason() {
+      return this.#reason;
+    }
+    get onabort() {
+      return this.#onabort;
+    }
+    set onabort(handler) {
+      this.#onabort = typeof handler === "function" ? handler : null;
+    }
+    throwIfAborted() {
+      if (this.#aborted) throw this.#reason;
+    }
+    static abort(reason) {
+      const signal = new _AbortSignal(internal);
+      abort(signal, reason);
+      return signal;
+    }
+    static timeout(milliseconds) {
+      const signal = new _AbortSignal(internal);
+      setTimeout(
+        () => abort(signal, new DOMException("signal timed out", "TimeoutError")),
+        milliseconds
+      );
+      return signal;
+    }
+    // A signal that aborts when the first of `signals` does.
+    static any(signals) {
+      const signal = new _AbortSignal(internal);
+      for (const from of signals) {
+        if (from.aborted) {
+          abort(signal, from.reason);
+          break;
+        }
+        from.addEventListener("abort", () => abort(signal, from.reason), {
+          once: true
+        });
+      }
+      return signal;
+    }
+  };
+  var AbortController = class {
+    #signal = new AbortSignal(internal);
+    get signal() {
+      return this.#signal;
+    }
+    abort(reason) {
+      abort(this.#signal, reason);
+    }
+  };
+  for (const Class of [AbortSignal, AbortController]) {
+    Object.defineProperty(Class.prototype, Symbol.toStringTag, {
+      value: Class.name,
+      configurable: true
+    });
+  }
+
+  // src/blob.js
+  var blob_exports = {};
+  __export(blob_exports, {
+    Blob: () => Blob,
+    File: () => File,
+    getBytes: () => getBytes
+  });
+  var bytesByBlob = /* @__PURE__ */ new WeakMap();
+  var Blob = class _Blob {
+    constructor(parts = [], { type = "" } = {}) {
+      bytesByBlob.set(this, { bytes: getPartBytes(parts), type: getType(type) });
+    }
+    get size() {
+      return getBytes(this).length;
+    }
+    get type() {
+      return bytesByBlob.get(this).type;
+    }
+    slice(start = 0, end, type = "") {
+      const bytes = getBytes(this);
+      return new _Blob([bytes.slice(start, end ?? bytes.length)], { type });
+    }
+    async text() {
+      return new TextDecoder().decode(getBytes(this));
+    }
+    async arrayBuffer() {
+      return getBytes(this).slice().buffer;
+    }
+    async bytes() {
+      return getBytes(this).slice();
+    }
+  };
+  var File = class extends Blob {
+    #name;
+    #lastModified;
+    constructor(parts, name, options = {}) {
+      if (arguments.length < 2) {
+        throw new TypeError("Invalid File: its parts and its name are needed.");
+      }
+      super(parts, options);
+      this.#name = String(name);
+      this.#lastModified = Math.trunc(Number(options.lastModified ?? Date.now()));
+    }
+    get name() {
+      return this.#name;
+    }
+    get lastModified() {
+      return this.#lastModified;
+    }
+    get webkitRelativePath() {
+      return "";
+    }
+  };
+  for (const Class of [Blob, File]) {
+    Object.defineProperty(Class.prototype, Symbol.toStringTag, {
+      value: Class.name,
+      configurable: true
+    });
+  }
+  function getBytes(blob) {
+    return bytesByBlob.get(blob)?.bytes ?? natives.readFile(blob);
+  }
+  function getPartBytes(parts) {
+    const encoder = new TextEncoder();
+    const list = Array.from(
+      parts,
+      (part) => part instanceof Blob ? getBytes(part) : part instanceof ArrayBuffer ? new Uint8Array(part) : ArrayBuffer.isView(part) ? new Uint8Array(part.buffer, part.byteOffset, part.byteLength) : encoder.encode(String(part))
+    );
+    const bytes = new Uint8Array(
+      list.reduce((size, part) => size + part.length, 0)
+    );
+    let offset = 0;
+    for (const part of list) {
+      bytes.set(part, offset);
+      offset += part.length;
+    }
+    return bytes;
+  }
+  function getType(type) {
+    type = String(type);
+    return /^[\x20-\x7e]*$/.test(type) ? type.toLowerCase() : "";
   }
 
   // src/console.js
@@ -318,293 +794,360 @@ ${stack}` : ""));
     }
   }
 
-  // src/events.js
-  var events_exports = {};
-  __export(events_exports, {
-    CloseEvent: () => CloseEvent,
-    CustomEvent: () => CustomEvent,
-    ErrorEvent: () => ErrorEvent,
-    Event: () => Event,
-    EventTarget: () => EventTarget,
-    MessageEvent: () => MessageEvent
+  // src/fetch.js
+  var fetch_exports = {};
+  __export(fetch_exports, {
+    FormData: () => FormData,
+    Headers: () => Headers,
+    Request: () => Request,
+    Response: () => Response,
+    fetch: () => fetch,
+    getBody: () => getBody
   });
-  var phases = { NONE: 0, CAPTURING_PHASE: 1, AT_TARGET: 2, BUBBLING_PHASE: 3 };
-  var listenersByTarget = /* @__PURE__ */ new WeakMap();
-  var states = /* @__PURE__ */ new WeakMap();
-  var EventTarget = class {
-    addEventListener(type, callback, options) {
-      if (callback && typeof callback === "object" || typeof callback === "function") {
-        const { capture, once, passive, signal } = getOptions(options);
-        if (!signal?.aborted) {
-          type = String(type);
-          let listeners = listenersByTarget.get(this);
-          if (!listeners) {
-            listeners = [];
-            listenersByTarget.set(this, listeners);
+  var Headers = class _Headers {
+    // The headers as they came, names in lower case:
+    #list = [];
+    constructor(init) {
+      if (init instanceof _Headers) {
+        this.#list = [...init.#list];
+      } else if (init != null) {
+        const pairs = typeof init[Symbol.iterator] === "function" ? Array.from(init, (pair) => {
+          pair = [...pair];
+          if (pair.length !== 2) {
+            throw new TypeError(`Invalid header: '${pair}'.`);
           }
-          if (!find(listeners, type, callback, capture)) {
-            const listener = {
-              type,
-              callback,
-              capture,
-              once,
-              passive,
-              removed: false
-            };
-            listeners.push(listener);
-            signal?.addEventListener("abort", () => remove(this, listener));
-          }
-        }
+          return pair;
+        }) : Object.entries(init);
+        for (const [name, value] of pairs) this.append(name, value);
       }
     }
-    removeEventListener(type, callback, options) {
-      const { capture } = getOptions(options);
-      const listener = find(
-        listenersByTarget.get(this),
-        String(type),
-        callback,
-        capture
+    get(name) {
+      const values = this.#getValues(name);
+      return values.length ? values.join(", ") : null;
+    }
+    getSetCookie() {
+      return this.#getValues("set-cookie");
+    }
+    has(name) {
+      return this.#getValues(name).length > 0;
+    }
+    // In place of the first one of its name:
+    set(name, value) {
+      const header = getHeader(name, value);
+      const index = this.#list.findIndex(([name2]) => name2 === header[0]);
+      this.delete(header[0]);
+      this.#list.splice(index < 0 ? this.#list.length : index, 0, header);
+    }
+    append(name, value) {
+      this.#list.push(getHeader(name, value));
+    }
+    delete(name) {
+      name = getName(name);
+      this.#list = this.#list.filter((header) => header[0] !== name);
+    }
+    forEach(callback, thisArg) {
+      for (const [name, value] of this) {
+        callback.call(thisArg, value, name, this);
+      }
+    }
+    // As scripts see them: sorted by name, the values of a name joined.
+    *entries() {
+      const names2 = [...new Set(this.#list.map(([name]) => name))].sort();
+      for (const name of names2) yield [name, this.get(name)];
+    }
+    *keys() {
+      for (const [name] of this) yield name;
+    }
+    *values() {
+      for (const [, value] of this) yield value;
+    }
+    [Symbol.iterator]() {
+      return this.entries();
+    }
+    #getValues(name) {
+      name = getName(name);
+      return this.#list.filter((header) => header[0] === name).map(([, value]) => value);
+    }
+  };
+  var FormData = class {
+    // `[name, value]`, a value a string or a `File`:
+    #entries = [];
+    append(name, value, filename) {
+      this.#entries.push(getEntry(...arguments));
+    }
+    // In place of the first one of its name:
+    set(name, value, filename) {
+      const entry = getEntry(...arguments);
+      const index = this.#entries.findIndex(([name2]) => name2 === entry[0]);
+      this.delete(entry[0]);
+      this.#entries.splice(index < 0 ? this.#entries.length : index, 0, entry);
+    }
+    get(name) {
+      return this.#entries.find((entry) => entry[0] === String(name))?.[1] ?? null;
+    }
+    getAll(name) {
+      return this.#entries.filter((entry) => entry[0] === String(name)).map(([, value]) => value);
+    }
+    has(name) {
+      return this.#entries.some((entry) => entry[0] === String(name));
+    }
+    delete(name) {
+      this.#entries = this.#entries.filter((entry) => entry[0] !== String(name));
+    }
+    forEach(callback, thisArg) {
+      for (const [name, value] of this) {
+        callback.call(thisArg, value, name, this);
+      }
+    }
+    *entries() {
+      for (const [name, value] of this.#entries) yield [name, value];
+    }
+    *keys() {
+      for (const [name] of this.#entries) yield name;
+    }
+    *values() {
+      for (const [, value] of this.#entries) yield value;
+    }
+    [Symbol.iterator]() {
+      return this.entries();
+    }
+  };
+  var Body = class {
+    #bytes;
+    #isUsed = false;
+    constructor(bytes) {
+      this.#bytes = bytes;
+    }
+    get bodyUsed() {
+      return this.#isUsed;
+    }
+    async text() {
+      return new TextDecoder().decode(this.#take());
+    }
+    async json() {
+      return JSON.parse(await this.text());
+    }
+    async arrayBuffer() {
+      return this.#take().slice().buffer;
+    }
+    async bytes() {
+      return this.#take().slice();
+    }
+    async blob() {
+      const type = this.headers.get("content-type") ?? "";
+      return new Blob([this.#take()], { type });
+    }
+    #take() {
+      if (this.#isUsed) {
+        throw new TypeError("Unable to read the body: it was read already.");
+      }
+      this.#isUsed = true;
+      return this.#bytes ?? new Uint8Array();
+    }
+    // The body, unread, for a copy.
+    static getBytes(body) {
+      if (body.#isUsed) {
+        throw new TypeError("Unable to copy the body: it was read already.");
+      }
+      return body.#bytes;
+    }
+  };
+  var Request = class _Request extends Body {
+    #url;
+    #method;
+    #headers;
+    #signal;
+    #redirect;
+    constructor(input, init = {}) {
+      const from = input instanceof _Request ? input : null;
+      const method = String(init.method ?? from?.method ?? "GET").toUpperCase();
+      const headers = new Headers(init.headers ?? from?.headers);
+      let bytes = from ? Body.getBytes(from) : null;
+      if (init.body != null) {
+        const body = getBody(init.body);
+        bytes = body.bytes;
+        if (body.type && !headers.has("content-type")) {
+          headers.set("content-type", body.type);
+        }
+      }
+      if (bytes && (method === "GET" || method === "HEAD")) {
+        throw new TypeError(`Invalid Request: a ${method} request has no body.`);
+      }
+      super(bytes);
+      this.#url = from ? from.url : String(input);
+      this.#method = method;
+      this.#headers = headers;
+      this.#signal = init.signal ?? from?.signal ?? null;
+      this.#redirect = String(init.redirect ?? from?.redirect ?? "follow");
+    }
+    get url() {
+      return this.#url;
+    }
+    get method() {
+      return this.#method;
+    }
+    get headers() {
+      return this.#headers;
+    }
+    get signal() {
+      return this.#signal;
+    }
+    get redirect() {
+      return this.#redirect;
+    }
+    clone() {
+      return new _Request(this);
+    }
+  };
+  var setResponse;
+  var Response = class _Response extends Body {
+    #status;
+    #statusText;
+    #headers;
+    #url = "";
+    #redirected = false;
+    #type = "default";
+    constructor(body = null, { status = 200, statusText = "", headers } = {}) {
+      status = Number(status);
+      if (!(status >= 200 && status <= 599)) {
+        throw new RangeError(`Invalid Response status: '${status}'.`);
+      }
+      headers = new Headers(headers);
+      let bytes = null;
+      if (body != null) {
+        const { bytes: data, type } = getBody(body);
+        bytes = data;
+        if (type && !headers.has("content-type")) {
+          headers.set("content-type", type);
+        }
+      }
+      super(bytes);
+      this.#status = status;
+      this.#statusText = String(statusText);
+      this.#headers = headers;
+    }
+    static {
+      setResponse = (response, { url, redirected, type }) => {
+        response.#url = url;
+        response.#redirected = redirected;
+        response.#type = type;
+        return response;
+      };
+    }
+    get status() {
+      return this.#status;
+    }
+    get statusText() {
+      return this.#statusText;
+    }
+    get ok() {
+      return this.#status >= 200 && this.#status <= 299;
+    }
+    get headers() {
+      return this.#headers;
+    }
+    get url() {
+      return this.#url;
+    }
+    get redirected() {
+      return this.#redirected;
+    }
+    get type() {
+      return this.#type;
+    }
+    clone() {
+      const { status, statusText, headers } = this;
+      return setResponse(
+        new _Response(Body.getBytes(this), { status, statusText, headers }),
+        this
       );
-      if (listener) remove(this, listener);
-    }
-    dispatchEvent(event) {
-      const state = states.get(event);
-      if (!state) {
-        throw new TypeError(`Invalid event: '${event}', not an Event.`);
-      }
-      if (state.dispatching) {
-        throw new DOMException(
-          "Unable to dispatch an event that is being dispatched.",
-          "InvalidStateError"
-        );
-      }
-      Object.assign(state, {
-        dispatching: true,
-        target: this,
-        currentTarget: this,
-        eventPhase: phases.AT_TARGET
-      });
-      for (const listener of [...listenersByTarget.get(this) ?? []]) {
-        if (!listener.removed && listener.type === state.type) {
-          if (listener.once) remove(this, listener);
-          const { callback } = listener;
-          state.passive = listener.passive;
-          try {
-            if (typeof callback === "function") {
-              callback.call(this, event);
-            } else if (typeof callback.handleEvent === "function") {
-              callback.handleEvent(event);
-            } else {
-              throw new TypeError("Invalid listener: it has no handleEvent().");
-            }
-          } catch (err) {
-            console.error(`Uncaught ${formatError(err)}`);
-          }
-          state.passive = false;
-          if (state.stopImmediately) break;
-        }
-      }
-      Object.assign(state, {
-        dispatching: false,
-        stop: false,
-        stopImmediately: false,
-        currentTarget: null,
-        eventPhase: phases.NONE
-      });
-      return !state.defaultPrevented;
     }
   };
-  var Event = class {
-    constructor(type, init) {
-      if (arguments.length === 0) {
-        throw new TypeError("Invalid event: its type is missing.");
-      }
-      const { bubbles, cancelable, composed } = init ?? {};
-      states.set(this, {
-        type: String(type),
-        bubbles: !!bubbles,
-        cancelable: !!cancelable,
-        composed: !!composed,
-        defaultPrevented: false,
-        eventPhase: phases.NONE,
-        target: null,
-        currentTarget: null,
-        timeStamp: globalThis.performance?.now() ?? 0,
-        isTrusted: false
-      });
-    }
-    get srcElement() {
-      return getState(this).target;
-    }
-    get returnValue() {
-      return !getState(this).defaultPrevented;
-    }
-    set returnValue(value) {
-      if (!value) this.preventDefault();
-    }
-    get cancelBubble() {
-      return !!getState(this).stop;
-    }
-    set cancelBubble(value) {
-      if (value) getState(this).stop = true;
-    }
-    // A passive listener can't cancel an event:
-    preventDefault() {
-      const state = getState(this);
-      if (state.cancelable && !state.passive) state.defaultPrevented = true;
-    }
-    stopPropagation() {
-      getState(this).stop = true;
-    }
-    stopImmediatePropagation() {
-      Object.assign(getState(this), { stop: true, stopImmediately: true });
-    }
-    // The target while the event is dispatched, as there's no tree around it.
-    composedPath() {
-      const { currentTarget } = getState(this);
-      return currentTarget ? [currentTarget] : [];
-    }
-    // The legacy way, before the event is dispatched.
-    initEvent(type, bubbles = false, cancelable = false) {
-      const state = getState(this);
-      if (!state.dispatching) {
-        Object.assign(state, {
-          type: String(type),
-          bubbles: !!bubbles,
-          cancelable: !!cancelable,
-          stop: false,
-          stopImmediately: false,
-          defaultPrevented: false
-        });
-      }
-    }
-  };
-  var CustomEvent = class extends Event {
-    constructor(type, init) {
-      super(...arguments);
-      setMembers(this, init, { detail: null });
-    }
-    initCustomEvent(type, bubbles, cancelable, detail = null) {
-      this.initEvent(type, bubbles, cancelable);
-      const state = getState(this);
-      if (!state.dispatching) state.detail = detail;
-    }
-  };
-  var MessageEvent = class extends Event {
-    constructor(type, init) {
-      super(...arguments);
-      setMembers(this, init, {
-        data: null,
-        origin: "",
-        lastEventId: "",
-        source: null,
-        ports: []
-      });
-    }
-  };
-  var CloseEvent = class extends Event {
-    constructor(type, init) {
-      super(...arguments);
-      setMembers(this, init, { wasClean: false, code: 0, reason: "" });
-    }
-  };
-  var ErrorEvent = class extends Event {
-    constructor(type, init) {
-      super(...arguments);
-      setMembers(this, init, {
-        message: "",
-        filename: "",
-        lineno: 0,
-        colno: 0,
-        error: null
-      });
-    }
-  };
-  var fields = {
-    [Event.name]: [
-      "type",
-      "bubbles",
-      "cancelable",
-      "composed",
-      "defaultPrevented",
-      "eventPhase",
-      "target",
-      "currentTarget",
-      "timeStamp",
-      "isTrusted"
-    ],
-    [CustomEvent.name]: ["detail"],
-    [MessageEvent.name]: ["data", "origin", "lastEventId", "source", "ports"],
-    [CloseEvent.name]: ["wasClean", "code", "reason"],
-    [ErrorEvent.name]: ["message", "filename", "lineno", "colno", "error"]
-  };
-  for (const Class of [
-    Event,
-    CustomEvent,
-    MessageEvent,
-    CloseEvent,
-    ErrorEvent
-  ]) {
-    for (const name of fields[Class.name]) {
-      Object.defineProperty(Class.prototype, name, {
-        get() {
-          return getState(this)[name];
-        },
-        configurable: true,
-        enumerable: true
-      });
-    }
-  }
-  for (const [name, value] of Object.entries(phases)) {
-    for (const target of [Event, Event.prototype]) {
-      Object.defineProperty(target, name, { value, enumerable: true });
-    }
-  }
-  for (const Class of [
-    EventTarget,
-    Event,
-    CustomEvent,
-    MessageEvent,
-    CloseEvent,
-    ErrorEvent
-  ]) {
+  for (const Class of [Headers, FormData, Request, Response]) {
     Object.defineProperty(Class.prototype, Symbol.toStringTag, {
       value: Class.name,
       configurable: true
     });
   }
-  function getState(event) {
-    const state = states.get(event);
-    if (!state) {
-      throw new TypeError(`Invalid event: '${event}', not an Event.`);
+  async function fetch(input, init) {
+    const request = new Request(input, init);
+    const { method, url, headers, signal, redirect } = request;
+    signal?.throwIfAborted();
+    const body = Body.getBytes(request);
+    return new Promise((resolve, reject) => {
+      const abort2 = () => reject(signal.reason);
+      signal?.addEventListener("abort", abort2);
+      natives.request(method, url, [...headers], body, redirect === "follow").then(({ status, statusText, url: url2, redirected, headers: headers2, body: body2 }) => {
+        const response = new Response(body2, { status, statusText, headers: headers2 });
+        resolve(setResponse(response, { url: url2, redirected, type: "basic" }));
+      }, reject).finally(() => signal?.removeEventListener("abort", abort2));
+    });
+  }
+  function getBody(body) {
+    return body instanceof Blob ? { bytes: getBytes(body), type: body.type || null } : body instanceof FormData ? getMultipart(body) : body instanceof ArrayBuffer ? { bytes: new Uint8Array(body), type: null } : ArrayBuffer.isView(body) ? {
+      bytes: new Uint8Array(
+        body.buffer,
+        body.byteOffset,
+        body.byteLength
+      ),
+      type: null
+    } : {
+      bytes: new TextEncoder().encode(String(body)),
+      type: body instanceof URLSearchParams ? "application/x-www-form-urlencoded;charset=UTF-8" : "text/plain;charset=UTF-8"
+    };
+  }
+  function getHeader(name, value) {
+    return [getName(name), String(value).replace(/^[\t\n\r ]+|[\t\n\r ]+$/g, "")];
+  }
+  function getName(name) {
+    return String(name).trim().toLowerCase();
+  }
+  function getEntry(name, value, filename) {
+    if (arguments.length < 2) {
+      throw new TypeError(
+        "Invalid FormData entry: its name and value are needed."
+      );
     }
-    return state;
+    return [
+      String(name),
+      value instanceof Blob ? value instanceof File && filename === void 0 ? value : new File([value], filename ?? value.name ?? "blob", {
+        type: value.type
+      }) : String(value)
+    ];
   }
-  function setMembers(event, init, defaults) {
-    const state = getState(event);
-    for (const [name, value] of Object.entries(defaults)) {
-      const given = init?.[name];
-      state[name] = given === void 0 ? Array.isArray(value) ? [] : value : typeof value === "string" ? String(given) : typeof value === "number" ? Number(given) : typeof value === "boolean" ? !!given : given;
+  function getMultipart(form) {
+    const boundary = `----Scriptographer${Array.from(
+      { length: 24 },
+      () => Math.floor(Math.random() * 16).toString(16)
+    ).join("")}`;
+    const quote = (text) => text.replace(/\r/g, "%0D").replace(/\n/g, "%0A").replace(/"/g, "%22");
+    const parts = [];
+    for (const [name, value] of form) {
+      const disposition = `--${boundary}\r
+Content-Disposition: form-data; name="${quote(name)}"`;
+      if (value instanceof File) {
+        const type = value.type || "application/octet-stream";
+        parts.push(
+          `${disposition}; filename="${quote(value.name)}"\r
+Content-Type: ${type}\r
+\r
+`,
+          value,
+          "\r\n"
+        );
+      } else {
+        parts.push(`${disposition}\r
+\r
+${value}\r
+`);
+      }
     }
-  }
-  function getOptions(options) {
-    if (options && typeof options === "object") {
-      const { capture, once, passive, signal } = options;
-      return { capture: !!capture, once: !!once, passive: !!passive, signal };
-    } else {
-      return { capture: !!options, once: false, passive: false, signal: null };
-    }
-  }
-  function find(listeners, type, callback, capture) {
-    return listeners?.find(
-      (listener) => listener.type === type && listener.capture === capture && Object.is(listener.callback, callback)
-    );
-  }
-  function remove(target, listener) {
-    listener.removed = true;
-    const listeners = listenersByTarget.get(target);
-    const index = listeners?.indexOf(listener) ?? -1;
-    if (index >= 0) listeners.splice(index, 1);
+    parts.push(`--${boundary}--\r
+`);
+    return {
+      bytes: getBytes(new Blob(parts)),
+      type: `multipart/form-data; boundary=${boundary}`
+    };
   }
 
   // src/geometry.js
@@ -1153,12 +1696,18 @@ ${stack}` : ""));
   }
 
   // src/index.js
-  var { print } = globalThis.__scriptographer;
   delete globalThis.__scriptographer;
+  var { print } = natives;
   var console2 = createConsole(print);
   setGlobals({ console: console2, print: console2.log });
   if (!globalThis.EventTarget) {
     setGlobals(events_exports);
+  }
+  if (!globalThis.fetch) {
+    const { Blob: Blob2, File: File2, getBytes: getBytes2 } = blob_exports;
+    const { getBody: getBody2, ...classes } = fetch_exports;
+    setGlobals({ ...abort_exports, Blob: Blob2, File: File2, ...classes });
+    Object.assign(natives, { getBytes: getBytes2, getBody: getBody2 });
   }
   if (!globalThis.DOMMatrix) {
     setGlobals({ ...geometry_exports, WebKitCSSMatrix: DOMMatrix });

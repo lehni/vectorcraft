@@ -251,7 +251,7 @@ fn send<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) ->
         return Err(Error::Dom("InvalidStateError", "the WebSocket isn't open yet".into()));
     }
     let command = match args.first() {
-        Some(Value::Js(data)) if crate::fetch::is_blob(call, data)? => Command::Binary(crate::fetch::blob_bytes(call, &Value::Js(data.clone()))?),
+        Some(Value::Js(data)) if crate::blob::is_blob(call, data)? => Command::Binary(crate::blob::blob_bytes(call, &Value::Js(data.clone()))?),
         Some(Value::Js(data)) => match call.bytes(data) {
             Ok(bytes) => Command::Binary(bytes),
             Err(_) => Command::Text(call.to_string(&Value::Js(data.clone()))?),
@@ -327,7 +327,7 @@ pub(crate) fn poll<H: Clone>(call: &mut dyn Call<H>) -> Result<(), Error> {
                         let array = call.new_uint8_array(&bytes)?;
                         call.get(&array, "buffer")?
                     } else {
-                        crate::fetch::new_blob(call, &bytes, "")?
+                        crate::blob::new_blob(call, &bytes, "")?
                     };
                     message(call, &socket, data)?
                 }

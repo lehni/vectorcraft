@@ -10,6 +10,7 @@
 
 mod binding;
 mod bitmap;
+mod blob;
 mod canvas;
 mod clipboard;
 mod clone;
@@ -165,10 +166,7 @@ pub struct Host<H> {
     /// The browser's everyday APIs outside a browser.
     #[cfg(not(target_arch = "wasm32"))]
     web: Option<web::Web<H>>,
-    /// `fetch` and its classes outside a browser, its requests out, and the `resolve` and
-    /// `reject` of the Promise being made.
-    #[cfg(not(target_arch = "wasm32"))]
-    fetch: Option<fetch::Classes<H>>,
+    /// The requests of `fetch()` outside a browser, out.
     #[cfg(not(target_arch = "wasm32"))]
     fetches: Vec<fetch::Pending<H>>,
     /// The open `WebSocket`s, and the number the next one gets.
@@ -183,8 +181,6 @@ pub struct Host<H> {
     next_child: u32,
     #[cfg(not(target_arch = "wasm32"))]
     parent: Option<web_worker::Parent<H>>,
-    #[cfg(not(target_arch = "wasm32"))]
-    resolvers: Option<(H, H)>,
     /// `URL` and `URLSearchParams` outside a browser.
     #[cfg(not(target_arch = "wasm32"))]
     urls: Option<urls::Classes<H>>,
@@ -192,6 +188,9 @@ pub struct Host<H> {
     exceptions: Option<exception::Classes<H>>,
     /// The realm's global object, for its classes ([`global_class`]).
     global: Option<H>,
+    /// What the runtime and the JavaScript bundle share (`js/src/natives.js`): the natives it
+    /// passes, and the functions the bundle gives back.
+    shared: Option<H>,
     /// The realm's `Promise`, for the clipboard's answers.
     clipboard_promise: Option<H>,
     /// What `structuredClone()` uses of the realm.
@@ -252,7 +251,6 @@ impl<H> Default for Host<H> {
             #[cfg(not(target_arch = "wasm32"))]
             web: None,
             #[cfg(not(target_arch = "wasm32"))]
-            fetch: None,
             #[cfg(not(target_arch = "wasm32"))]
             fetches: Vec::new(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -266,11 +264,11 @@ impl<H> Default for Host<H> {
             #[cfg(not(target_arch = "wasm32"))]
             parent: None,
             #[cfg(not(target_arch = "wasm32"))]
-            resolvers: None,
             #[cfg(not(target_arch = "wasm32"))]
             urls: None,
             exceptions: None,
             global: None,
+            shared: None,
             clipboard_promise: None,
             clone_classes: None,
             local_storage: storage::Storage::default(),
@@ -324,19 +322,24 @@ impl<E: Engine> Runtime<E> {
         let global = engine.global()?;
         host.borrow_mut().global = Some(global.clone());
         exception::install(&mut engine, &global)?;
-        // What's written in JavaScript, before the classes that build on it (`AbortSignal` on
-        // `EventTarget`), with `print()` for the script's output and on the web the app's pickers to
-        // ask, which it takes off the global object.
-        let print = engine.function("print", print)?;
+        // What's written in JavaScript, before the classes that build on it (`LocalFile` on
+        // `File`), with the natives it needs: `print()` for the script's output, on desktop
+        // `request()` for `fetch()` and `readFile()` for a `LocalFile`'s bytes, and on the web the
+        // app's pickers to ask.
+        let mut natives = vec![("print", engine.function("print", print)?)];
+        #[cfg(not(target_arch = "wasm32"))]
+        natives.extend([("request", engine.function("request", fetch::request)?), ("readFile", engine.function("readFile", local_file::read_file)?)]);
         #[cfg(target_arch = "wasm32")]
-        let ask = engine.function("ask", dialog::ask_picker)?;
-        engine.with_call(|call| {
-            let host = call.new_object()?;
-            call.set(&host, "print", &Value::Js(print))?;
-            #[cfg(target_arch = "wasm32")]
-            call.set(&host, "ask", &Value::Js(ask))?;
-            call.set(&global, "__scriptographer", &Value::Js(host))
+        natives.push(("ask", engine.function("ask", dialog::ask_picker)?));
+        let shared = engine.with_call(|call| {
+            let shared = call.new_object()?;
+            for (name, function) in natives {
+                call.set(&shared, name, &Value::Js(function))?;
+            }
+            call.set(&global, "__scriptographer", &Value::Js(shared.clone()))?;
+            Ok(shared)
         })?;
+        host.borrow_mut().shared = Some(shared);
         #[cfg(target_arch = "wasm32")]
         engine.eval(SCRIPTOGRAPHER_WEB_JS)?;
         engine.eval(SCRIPTOGRAPHER_JS)?;
@@ -352,8 +355,6 @@ impl<E: Engine> Runtime<E> {
         dom::install(&mut runtime, &global)?;
         #[cfg(not(target_arch = "wasm32"))]
         web::install(&mut runtime, &global)?;
-        #[cfg(not(target_arch = "wasm32"))]
-        fetch::install(&mut runtime, &global)?;
         // After `File`, which it extends.
         #[cfg(not(target_arch = "wasm32"))]
         local_file::install(&mut runtime, &global)?;

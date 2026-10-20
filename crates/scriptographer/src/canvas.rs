@@ -511,10 +511,7 @@ fn put_image_data<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Val
 /// `convertToBlob()`: a Promise of the canvas as a PNG `Blob`.
 fn convert_to_blob<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
     let png = with_pixmap(call, this, |pixmap| pixmap.clone().into_png())?.map_err(|e| Error::Script(format!("convertToBlob: {e}")))?;
-    #[cfg(not(target_arch = "wasm32"))]
-    let blob = crate::fetch::new_blob(call, &png, "image/png")?;
-    #[cfg(target_arch = "wasm32")]
-    let blob = Value::Js(call.new_uint8_array(&png)?);
+    let blob = crate::blob::new_blob(call, &png, "image/png")?;
     let promise =
         call.host()?.borrow().canvases.as_ref().map(|c| c.promise.clone()).ok_or_else(|| Error::Script("OffscreenCanvas is not set up".into()))?;
     method(call, &promise, "resolve", &[blob])

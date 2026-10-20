@@ -67,7 +67,6 @@ pub(crate) fn install<E: Engine>(runtime: &mut Runtime<E>, global: &E::Handle) -
         let Value::Js(prototype) = method(call, &object_class, "create", &[file_prototype])? else {
             return Err(Error::Script("Object.create made nothing".into()));
         };
-        method(call, &object_class, "setPrototypeOf", &[Value::Js(constructor.clone()), Value::Js(file)])?;
         for (name, function) in methods {
             call.set(&prototype, name, &Value::Js(function))?;
         }
@@ -76,6 +75,8 @@ pub(crate) fn install<E: Engine>(runtime: &mut Runtime<E>, global: &E::Handle) -
         }
         call.set(&prototype, "constructor", &Value::Js(constructor.clone()))?;
         call.set(&constructor, "prototype", &Value::Js(prototype.clone()))?;
+        // After its own `prototype`, which it would take as `File`'s, which can't be set.
+        method(call, &object_class, "setPrototypeOf", &[Value::Js(constructor.clone()), Value::Js(file)])?;
         call.set(&constructor, "from", &Value::Js(from))?;
         call.set(global, "LocalFile", &Value::Js(constructor))?;
         crate::tag(call, global, &prototype, "LocalFile")?;
@@ -193,11 +194,6 @@ pub(crate) fn path<H>(call: &mut dyn Call<H>, this: &Value<H>) -> Result<PathBuf
     }
 }
 
-/// Whether `value` is a `LocalFile`.
-pub(crate) fn is_local_file<H>(call: &mut dyn Call<H>, value: &H) -> Result<bool, Error> {
-    Ok(matches!(call.get(value, "_path")?, Value::String(_)))
-}
-
 /// The path the first of `args` names: a `LocalFile` or a path, from the script's folder.
 fn target<H: Clone>(call: &mut dyn Call<H>, args: &[Value<H>]) -> Result<PathBuf, Error> {
     let first = args.first().ok_or_else(|| Error::Type("no file given".into()))?;
@@ -258,11 +254,17 @@ pub(crate) fn read<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>) -> Result<
     std::fs::read(&path).map_err(|e| io_error(&path, &e, false))
 }
 
+/// `readFile(file)`, which the bundle reads a `LocalFile`'s bytes with (`js/src/blob.js`).
+pub(crate) fn read_file<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let bytes = read(call, args.first().unwrap_or(&Value::Undefined))?;
+    Ok(Value::Js(call.new_uint8_array(&bytes)?))
+}
+
 /// `write(data)` or `append(data)`: the file's contents become, or end with, `data`.
 fn change<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>], append: bool) -> Result<Value<H>, Error> {
     let written = (|| {
         let path = path(call, this)?;
-        let (bytes, _) = crate::fetch::body_bytes(call, args.first().unwrap_or(&Value::String(String::new())))?;
+        let (bytes, _) = crate::blob::body_bytes(call, args.first().unwrap_or(&Value::String(String::new())))?;
         let result = if append {
             use std::io::Write as _;
             std::fs::OpenOptions::new().create(true).append(true).open(&path).and_then(|mut file| file.write_all(&bytes))
