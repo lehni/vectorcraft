@@ -500,7 +500,7 @@ from G14 and the budget run of G15: **~170–270 h** one agent, ~50–80 h wall 
 
 ## G6 Automation and scripting
 
-- **Done (2026-10-20, feature/scripting):** PaperCraft, Paper.js scripting after Scriptographer: PaperScript on the document (threads of their own; V8, the browser's engine, Boa), one undo step per run through `document.patch`, animations that go on while the user edits, tool scripts with mouse and key events, `Dialog` and `Palette`, the PaperCraft panel and console. Not Illustrator's ExtendScript, so the scripting entry below stays open and the estimate is unchanged.
+- **Done (2026-10-20, feature/scripting):** PaperCraft, Paper.js scripting after Scriptographer: PaperScript on the document (threads of their own; V8, the browser's engine, Boa), one undo step per run through `document.patch`, animations that go on while the user edits, tool scripts with mouse and key events (with the system's event times, for `event.velocity`), `Dialog` with its file and colour dialogs, `Palette` with menus, `File`, timers, `project.artboards`, the PaperCraft panel and console. Not Illustrator's ExtendScript, so the scripting entry below stays open and the estimate is unchanged.
 - **Missing:** a scripting surface over the command registry (Illustrator: JavaScript, File › Scripts;
   #1183 is open). Actions, Batch, Variables (text, visibility, image and graph), data set CSV import and
   export, and full agent control over MCP are done.
