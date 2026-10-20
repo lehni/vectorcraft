@@ -361,8 +361,8 @@ impl<E: Engine> Runtime<E> {
     /// Sends a pointer event at `point`, in document coordinates, to the view of `scope`
     /// (`view.dispatchMouseEvent()`): the tool's `onMouseDown`, `onMouseDrag`, `onMouseUp` and
     /// `onMouseMove` run, drags as often as `tool.minDistance`, `maxDistance` and `fixedDistance`
-    /// say, and so do the handlers of the items and the view. `time` is the event's `timeStamp`, in
-    /// milliseconds.
+    /// say, and so do the handlers of the items and the view. `time` is the event's `time`, in
+    /// seconds.
     pub fn mouse_event(
         &mut self,
         scope: &Scope<E::Handle>,
@@ -374,7 +374,7 @@ impl<E: Engine> Runtime<E> {
         let paper = &self.paper;
         self.engine.with_call(|call| {
             let options = event_options(call, modifiers)?;
-            call.set(&options, "timeStamp", &Value::Number(time))?;
+            call.set(&options, "time", &Value::Number(time))?;
             let kind = match event {
                 MouseEvent::Down => "mousedown",
                 MouseEvent::Move => "mousemove",

@@ -28,7 +28,7 @@ pub enum Request {
     Answer(Json),
 }
 
-/// A pointer event for a tool, at a point in document coordinates, and its time in milliseconds.
+/// A pointer event for a tool, at a point in document coordinates, and its time in seconds.
 pub type Pointer = (MouseEvent, (f64, f64), Modifiers, f64);
 
 /// A script's work.

@@ -672,7 +672,7 @@ fn the_console_runs_the_line_return_ends() {
 #[test]
 fn a_tool_script_gets_every_mouse_move() {
     let (mut app, _) = app();
-    let path = tempfile_path::Path::new("function onMouseDrag(event) { console.log('drag', Math.round(event.timeStamp)) }");
+    let path = tempfile_path::Path::new("function onMouseDrag(event) { console.log('drag', Math.round(event.time * 1000)) }");
     app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
     let ctx = egui::Context::default();
     let mut time = 0.97;

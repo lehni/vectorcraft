@@ -883,11 +883,11 @@ fn to_tool(app: &mut VectorcraftApp, active: u64, work: impl IntoIterator<Item =
             return;
         }
     };
-    // Pointer events go by the script's clock, in milliseconds since it started, as its frames do.
+    // Pointer events go by the script's clock, in seconds since it started, as its frames do.
     script.queued.extend(work.into_iter().map(|work| match work {
         Work::Mouse(mut events) => {
             for event in &mut events {
-                event.3 = (event.3 - script.started) * 1000.0;
+                event.3 -= script.started;
             }
             Work::Mouse(events)
         }

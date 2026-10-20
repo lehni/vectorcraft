@@ -209,26 +209,26 @@ fn tool_scripts_get_pointer_events<E: Engine>() {
             &scope,
             "tool.minDistance = 10\n\
              function onMouseDown(event) { console.log('down', event.point.x, event.modifiers.shift) }\n\
-             function onMouseDrag(event) { new Path.Circle({ center: event.point, radius: 2 }) }\n\
-             function onMouseUp(event) { console.log('up', event.point.x, event.timeStamp) }",
+             function onMouseDrag(event) { console.log('drag', Math.round(event.velocity.x)); new Path.Circle({ center: event.point, radius: 2 }) }\n\
+             function onMouseUp(event) { console.log('up', event.point.x, event.time, Math.round(event.elapsed * 1000)) }",
         )
         .unwrap();
     assert!(runtime.has_tool(&scope).unwrap());
     assert!(!runtime.has_key_handlers(&scope).unwrap(), "a tool for the mouse only");
     let shift = Modifiers { shift: true, ..Default::default() };
     runtime.mouse_event(&scope, MouseEvent::Down, (0.0, 0.0), shift, 0.0).unwrap();
-    // Closer than minDistance: no drag event.
-    runtime.mouse_event(&scope, MouseEvent::Move, (5.0, 0.0), Modifiers::default(), 10.0).unwrap();
-    runtime.mouse_event(&scope, MouseEvent::Move, (20.0, 0.0), Modifiers::default(), 20.0).unwrap();
-    runtime.mouse_event(&scope, MouseEvent::Up, (20.0, 0.0), Modifiers::default(), 30.0).unwrap();
+    // Closer than minDistance: no drag event; the next one's velocity spans both moves.
+    runtime.mouse_event(&scope, MouseEvent::Move, (5.0, 0.0), Modifiers::default(), 0.01).unwrap();
+    runtime.mouse_event(&scope, MouseEvent::Move, (20.0, 0.0), Modifiers::default(), 0.02).unwrap();
+    runtime.mouse_event(&scope, MouseEvent::Up, (20.0, 0.0), Modifiers::default(), 0.03).unwrap();
     // A move after the button went up is no drag.
-    runtime.mouse_event(&scope, MouseEvent::Move, (40.0, 0.0), Modifiers::default(), 40.0).unwrap();
+    runtime.mouse_event(&scope, MouseEvent::Move, (40.0, 0.0), Modifiers::default(), 0.04).unwrap();
     // The document is larger than the view: a press outside it is a press too, also after a move
     // there.
-    runtime.mouse_event(&scope, MouseEvent::Move, (-60.0, 500.0), Modifiers::default(), 60.0).unwrap();
-    runtime.mouse_event(&scope, MouseEvent::Down, (-50.0, 500.0), Modifiers::default(), 70.0).unwrap();
-    runtime.mouse_event(&scope, MouseEvent::Up, (-50.0, 500.0), Modifiers::default(), 80.0).unwrap();
-    assert_eq!(runtime.take_output(), ["down 0 true", "up 20 30", "down -50 false", "up -50 80"]);
+    runtime.mouse_event(&scope, MouseEvent::Move, (-60.0, 500.0), Modifiers::default(), 0.06).unwrap();
+    runtime.mouse_event(&scope, MouseEvent::Down, (-50.0, 500.0), Modifiers::default(), 0.07).unwrap();
+    runtime.mouse_event(&scope, MouseEvent::Up, (-50.0, 500.0), Modifiers::default(), 0.08).unwrap();
+    assert_eq!(runtime.take_output(), ["down 0 true", "drag 1000", "up 20 0.03 10", "down -50 false", "up -50 0.08 10"]);
     let patch = runtime.take_patch(&scope).unwrap().unwrap();
     assert_eq!(patch.params["insert"].as_array().unwrap().len(), 1, "one drag event drew one circle");
 }
