@@ -23,6 +23,8 @@ mod events;
 mod exception;
 #[cfg(not(target_arch = "wasm32"))]
 mod fetch;
+#[cfg(not(target_arch = "wasm32"))]
+mod file_system;
 mod geometry;
 pub mod host;
 #[cfg(not(target_arch = "wasm32"))]
@@ -135,6 +137,9 @@ pub struct Host<H> {
     /// What `LocalFile` objects share.
     #[cfg(not(target_arch = "wasm32"))]
     files: Option<local_file::Files<H>>,
+    /// What the file system's handles share.
+    #[cfg(not(target_arch = "wasm32"))]
+    handles: Option<file_system::Handles<H>>,
     /// The script's file, which its imports are relative to.
     file: Option<std::path::PathBuf>,
     /// The script's folder, which relative paths of `LocalFile`s are in.
@@ -226,6 +231,8 @@ impl<H> Default for Host<H> {
             palette_reset: None,
             #[cfg(not(target_arch = "wasm32"))]
             files: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            handles: None,
             file: None,
             directory: None,
             loader: None,
@@ -328,6 +335,8 @@ impl<E: Engine> Runtime<E> {
         // After `File`, which it extends.
         #[cfg(not(target_arch = "wasm32"))]
         local_file::install(&mut runtime, &global)?;
+        #[cfg(not(target_arch = "wasm32"))]
+        file_system::install(&mut runtime, &global)?;
         #[cfg(not(target_arch = "wasm32"))]
         urls::install(&mut runtime, &global)?;
         #[cfg(not(target_arch = "wasm32"))]

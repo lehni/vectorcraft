@@ -743,8 +743,8 @@ fn the_console_shows_when_a_script_prints() {
     assert_eq!(shown(&app), Some(true));
 }
 
-/// `Dialog.openFile` shows the app's file picker, starting where the script says, with its file
-/// types; the path picked answers it, and a picker closed without one answers null.
+/// `Dialog.openFile` shows the app's file picker, starting in the directory the script says, with
+/// its file types; the path picked answers it, and a picker closed without one answers null.
 #[test]
 fn a_script_picks_a_file() {
     let (mut app, _) = app();
@@ -763,9 +763,25 @@ fn a_script_picks_a_file() {
         crate::scripts::frame(&mut app, &ctx, f64::from(frame));
     }
     let types = crate::FilePick::filters([("SVG", &["svg"][..]), ("All Files", &[])]);
-    assert_eq!(*started.borrow(), [(Some("/tmp".to_owned()), "start.svg".to_owned(), types), (None, String::new(), Vec::new())]);
+    assert_eq!(*started.borrow(), [(Some("/tmp".to_owned()), String::new(), types), (None, String::new(), Vec::new())]);
     let log: Vec<&str> = app.scripts.log().iter().map(|l| l.text.as_str()).filter(|l| !l.ends_with("stopped")).collect();
     assert_eq!(log, ["/tmp/picked.svg", "null"]);
+}
+
+/// `showOpenFilePicker({ multiple: true })` shows the app's dialog for several files; the paths
+/// picked answer it.
+#[test]
+fn a_script_picks_several_files() {
+    let (mut app, _) = app();
+    app.services.pick_open_multi = Some(Box::new(|| vec!["/tmp/a.svg".to_owned(), "/tmp/b.svg".to_owned()]));
+    let path = tempfile_path::Path::new("print((await showOpenFilePicker({ multiple: true })).map(h => h.name).join())");
+    app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
+    let ctx = egui::Context::default();
+    for frame in 1..4 {
+        crate::scripts::frame(&mut app, &ctx, f64::from(frame));
+    }
+    let log: Vec<&str> = app.scripts.log().iter().map(|l| l.text.as_str()).filter(|l| !l.ends_with("stopped")).collect();
+    assert_eq!(log, ["a.svg,b.svg"]);
 }
 
 /// A number with `units` shows its points in that unit, or with the unit's sign; with `steppers`

@@ -46,24 +46,99 @@ fn file_dialogs_return_local_files<E: Engine>() {
     assert_eq!(
         questions,
         [
-            json!({"type": "openFile", "path": "/tmp/in.svg", "filters": []}),
+            json!({"type": "openFile", "path": "/tmp", "filters": []}),
             json!({"type": "saveFile", "path": null, "filters": []}),
             json!({"type": "chooseDirectory", "path": "/tmp", "filters": []})
         ]
     );
     assert_eq!(output, ["true /tmp/b.svg", "null", "/tmp/out"], "a cancelled dialog gives null");
+    assert_eq!(questions[0]["path"], "/tmp", "open dialogs start in the file's directory");
 }
 
 fn file_dialogs_take_file_types<E: Engine>() {
     let script = "Dialog.openFile({ types: { Text: ['txt', '*.text'], SVG: 'svg', 'All Files': '*' } })\n\
-        Dialog.saveFile({ types: ['Text Files (*.txt)', '*.txt;*.text', 'All Files', '*.*', '*.svg'] })";
-    let (questions, _) = run::<E>(script, vec![Value::Null, Value::Null]);
+        Dialog.saveFile({ types: ['Text Files (*.txt)', '*.txt;*.text', 'All Files', '*.*', '*.svg'] })\n\
+        Dialog.openFile({ types: { SVG: 'svg' } })";
+    let (questions, _) = run::<E>(script, vec![Value::Null, Value::Null, Value::Null]);
+    assert_eq!(questions[2]["filters"], json!([["SVG", ["svg"]]]), "every file only when the script says");
     assert_eq!(questions[0]["filters"], json!([["Text", ["txt", "text"]], ["SVG", ["svg"]], ["All Files", []]]), "in the order written");
     assert_eq!(
         questions[1]["filters"],
-        json!([["Text Files (*.txt)", ["txt", "text"]], ["All Files", []], ["*.svg", ["svg"]]]),
-        "Scriptographer's pairs, a lone pattern its own label"
+        json!([["Text Files (*.txt)", ["txt", "text"]], ["*.svg", ["svg"]], ["All Files", []]]),
+        "Scriptographer's pairs, a lone pattern its own label, every file last"
     );
+}
+
+fn pickers_give_handles<E: Engine>(name: &str) {
+    let folder = std::env::temp_dir().join(format!("scriptographer-pickers-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("in.txt"), "inside").unwrap();
+    let path = |name: &str| folder.join(name).to_string_lossy().into_owned();
+    let script = "(async () => { try {\n\
+        const [file] = await showOpenFilePicker({ types: [{ description: 'Text', accept: { 'text/plain': ['.txt', '.text'] } }] })\n\
+        const got = await file.getFile()\n\
+        console.log(file instanceof FileSystemFileHandle, file instanceof FileSystemHandle, file.kind, file.name, got instanceof File, got.type, await got.text())\n\
+        console.log((await showOpenFilePicker({ multiple: true })).map(h => h.name).join())\n\
+        try { await showOpenFilePicker() } catch (e) { console.log(e.name) }\n\
+        const directory = await showDirectoryPicker({ startIn: file })\n\
+        console.log(directory.kind, await directory.queryPermission(), await file.isSameEntry(await directory.getFileHandle('in.txt')))\n\
+        const saved = await showSaveFilePicker({ suggestedName: 'out.txt', startIn: directory, excludeAcceptAllOption: true, types: [{ accept: { 'text/plain': '.txt' } }] })\n\
+        const stream = await saved.createWritable()\n\
+        await stream.write('hello')\n\
+        console.log(JSON.stringify(await (await saved.getFile()).text()))\n\
+        await stream.seek(0)\n\
+        await stream.write(new Blob(['J']))\n\
+        await stream.write({ type: 'write', position: 5, data: new TextEncoder().encode('!?') })\n\
+        await stream.truncate(6)\n\
+        await stream.close()\n\
+        try { await stream.write('more') } catch (e) { console.log(e.name) }\n\
+        console.log(await (await saved.getFile()).text())\n\
+        const sub = await directory.getDirectoryHandle('sub', { create: true })\n\
+        const inner = await sub.getFileHandle('inner.txt', { create: true })\n\
+        console.log((await directory.resolve(inner)).join('/'), await sub.resolve(file))\n\
+        const names = []\n\
+        for await (const [name, handle] of directory) names.push(name + ':' + handle.kind)\n\
+        console.log(names.join(), (await directory.keys().next()).value)\n\
+        for (const [method, name] of [['getFileHandle', 'missing'], ['getFileHandle', 'sub'], ['getDirectoryHandle', '../x']])\n\
+            try { await directory[method](name) } catch (e) { console.log(e.name) }\n\
+        try { await directory.removeEntry('sub') } catch (e) { console.log(e.name) }\n\
+        await directory.removeEntry('sub', { recursive: true })\n\
+        console.log(await LocalFile.from(saved).text(), LocalFile.from(directory).isDirectory)\n\
+        try { new FileSystemFileHandle() } catch (e) { console.log(e.name) }\n\
+    } catch (e) { console.log('error', e.name, e.message) } })()";
+    let answers = vec![json!(path("in.txt")), json!([path("in.txt"), path("out.txt")]), Value::Null, json!(path("")), json!(path("out.txt"))];
+    let (questions, output) = run::<E>(script, answers);
+    assert_eq!(
+        questions[0],
+        json!({"type": "openFile", "path": null, "filters": [["Text", ["txt", "text"]], ["All Files", []]]}),
+        "the file types, and every file unless left out"
+    );
+    assert_eq!(questions[1]["type"], "openFiles");
+    assert_eq!(questions[3]["path"], json!(path("").trim_end_matches('/')), "startIn a file: its directory");
+    assert_eq!(questions[4], json!({"type": "saveFile", "path": path("out.txt"), "filters": [[".txt", ["txt"]]]}), "suggestedName in startIn");
+    assert_eq!(
+        output,
+        [
+            "true true file in.txt true text/plain inside",
+            "in.txt,out.txt",
+            "AbortError",
+            "directory granted true",
+            "\"\"",
+            "TypeError",
+            "Jello!",
+            "sub/inner.txt null",
+            "in.txt:file,out.txt:file,sub:directory in.txt",
+            "NotFoundError",
+            "TypeMismatchError",
+            "TypeError",
+            "InvalidModificationError",
+            "Jello! true",
+            "TypeError"
+        ],
+        "the stream writes on close"
+    );
+    std::fs::remove_dir_all(&folder).unwrap();
 }
 
 fn choose_color_is_a_prompt_with_one_color<E: Engine>() {
@@ -202,6 +277,11 @@ macro_rules! engine_tests {
             #[test]
             fn file_dialogs_return_local_files() {
                 super::file_dialogs_return_local_files::<$engine>();
+            }
+
+            #[test]
+            fn pickers_give_handles() {
+                super::pickers_give_handles::<$engine>(stringify!($module));
             }
 
             #[test]

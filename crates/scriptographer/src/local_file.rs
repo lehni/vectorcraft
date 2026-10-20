@@ -2,8 +2,9 @@
 //! `fetch()`, `FormData` and `createImageBitmap()`), which shows the file as it is now, and can
 //! change it. `new LocalFile(...parts)` joins its parts (paths or `LocalFile`s, the last its name;
 //! a relative path is from the script's folder): `new LocalFile(script.directory, 'data',
-//! 'notes.txt')`. `Dialog.openFile()` and the others give them too, and `script.file` and
-//! `script.directory` are ones.
+//! 'notes.txt')`; `LocalFile.from(handle)` is the file or directory of a `FileSystemHandle`.
+//! `Dialog.openFile()` and the others give them too, and `script.file` and `script.directory` are
+//! ones.
 //!
 //! What it is: `name`, `size`, `type` (from its extension), `lastModified`, `path`, `parent`,
 //! `extension`, `isDirectory`, `writable`. What it holds, as a `Blob` does (whose readers read it
@@ -52,6 +53,7 @@ const TYPES: [(&str, &str); 18] = [
 /// Sets `LocalFile` on `global`, extending `File`.
 pub(crate) fn install<E: Engine>(runtime: &mut Runtime<E>, global: &E::Handle) -> Result<(), Error> {
     let constructor = runtime.engine.constructor("LocalFile", construct)?;
+    let from = runtime.engine.function("from", |call, _, args| from_handle(call, args.first().unwrap_or(&Value::Undefined)))?;
     let methods = methods().into_iter().map(|(name, f)| Ok((name, runtime.engine.function(name, f)?))).collect::<Result<Vec<_>, Error>>()?;
     let getters = getters().into_iter().map(|(name, f)| Ok((name, runtime.engine.function(name, f)?))).collect::<Result<Vec<_>, Error>>()?;
     let files = runtime.engine.with_call(|call| {
@@ -70,6 +72,7 @@ pub(crate) fn install<E: Engine>(runtime: &mut Runtime<E>, global: &E::Handle) -
         }
         call.set(&prototype, "constructor", &Value::Js(constructor.clone()))?;
         call.set(&constructor, "prototype", &Value::Js(prototype.clone()))?;
+        call.set(&constructor, "from", &Value::Js(from))?;
         call.set(global, "LocalFile", &Value::Js(constructor))?;
         crate::tag(call, global, &prototype, "LocalFile")?;
         Ok(Files { prototype, object: object_class, promise: object(call, global, "Promise")? })
@@ -114,10 +117,7 @@ fn getters<H: Clone>() -> Vec<(&'static str, HostFunction<H>)> {
         ("path", |call, this, _| Ok(Value::String(display(&path(call, this)?)))),
         ("name", |call, this, _| Ok(Value::String(path(call, this)?.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()))),
         ("extension", |call, this, _| Ok(Value::String(extension(&path(call, this)?)))),
-        ("type", |call, this, _| {
-            let extension = extension(&path(call, this)?).to_ascii_lowercase();
-            Ok(Value::String(TYPES.iter().find(|(e, _)| *e == extension).map_or("", |(_, t)| *t).to_owned()))
-        }),
+        ("type", |call, this, _| Ok(Value::String(type_of(&path(call, this)?).to_owned()))),
         ("parent", |call, this, _| match path(call, this)?.parent().filter(|p| !p.as_os_str().is_empty()) {
             Some(parent) => new_local_file(call, parent),
             None => Ok(Value::Null),
@@ -201,8 +201,24 @@ fn target<H: Clone>(call: &mut dyn Call<H>, args: &[Value<H>]) -> Result<PathBuf
     absolute(call, Path::new(&named))
 }
 
-fn display(path: &Path) -> String {
+pub(crate) fn display(path: &Path) -> String {
     path.to_string_lossy().into_owned()
+}
+
+/// The MIME type of the file at `path`, by its extension, or none.
+pub(crate) fn type_of(path: &Path) -> &'static str {
+    let extension = extension(path).to_ascii_lowercase();
+    TYPES.iter().find(|(e, _)| *e == extension).map_or("", |(_, t)| *t)
+}
+
+/// `LocalFile.from(handle)`: the `LocalFile` of a file or directory handle.
+pub(crate) fn from_handle<H: Clone>(call: &mut dyn Call<H>, handle: &Value<H>) -> Result<Value<H>, Error> {
+    let path = match handle {
+        Value::Js(handle) => crate::file_system::path_of(call, handle)?,
+        _ => None,
+    };
+    let path = path.ok_or_else(|| Error::Type("LocalFile.from() needs a FileSystemHandle".into()))?;
+    new_local_file(call, &path)
 }
 
 fn extension(path: &Path) -> String {
@@ -210,7 +226,7 @@ fn extension(path: &Path) -> String {
 }
 
 /// The `DOMException` browsers give for `error` on `path`: `writing` tells a change from a read.
-fn io_error(path: &Path, error: &std::io::Error, writing: bool) -> Error {
+pub(crate) fn io_error(path: &Path, error: &std::io::Error, writing: bool) -> Error {
     let name = match error.kind() {
         std::io::ErrorKind::NotFound => "NotFoundError",
         std::io::ErrorKind::PermissionDenied => "NotAllowedError",
@@ -230,6 +246,12 @@ pub(crate) fn settled<H: Clone>(call: &mut dyn Call<H>, result: Result<Value<H>,
             method(call, &promise, "reject", &[reason])
         }
     }
+}
+
+/// A Promise rejected with `reason`, as it is.
+pub(crate) fn rejected<H: Clone>(call: &mut dyn Call<H>, reason: Value<H>) -> Result<Value<H>, Error> {
+    let promise = call.host()?.borrow().files.as_ref().map(|f| f.promise.clone()).ok_or_else(|| Error::Script("LocalFile is not set up".into()))?;
+    method(call, &promise, "reject", &[reason])
 }
 
 /// The bytes in the file `this` is, as they are now.

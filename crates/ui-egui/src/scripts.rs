@@ -819,14 +819,14 @@ fn dialogs(app: &mut VectorcraftApp) {
     }
 }
 
-/// Whether `question` is for a file dialog: `Dialog.openFile`, `saveFile` or `chooseDirectory`.
+/// Whether `question` is for a file dialog: a script's file pickers and `Dialog`'s.
 fn is_pick(question: &Value) -> bool {
-    matches!(question["type"].as_str(), Some("openFile" | "saveFile" | "chooseDirectory"))
+    matches!(question["type"].as_str(), Some("openFile" | "openFiles" | "saveFile" | "chooseDirectory"))
 }
 
 /// Shows the file picker the script `id` asks for in `question`, starting from its `path`, with its
-/// file types. The path picked answers it; a picker closed without one answers it as cancelled
-/// ([`dialogs`]).
+/// file types. The path picked answers it (the paths, for several files, whose dialog has no file
+/// types); a picker closed without one answers it as cancelled ([`dialogs`]).
 fn pick(app: &mut VectorcraftApp, id: u64, question: &Value) {
     let kind = question["type"].as_str().unwrap_or_default().to_owned();
     let path = question["path"].as_str().map(PathBuf::from);
@@ -850,12 +850,13 @@ fn pick(app: &mut VectorcraftApp, id: u64, question: &Value) {
     let file = FilePick { name, folder, filters };
     crate::picks::button(app, move |app| {
         let picked = match kind.as_str() {
-            "openFile" => crate::picks::open(app, &file),
-            "saveFile" => crate::picks::save(app, &file),
-            _ => crate::picks::folder(app),
+            "openFile" => crate::picks::open(app, &file).map(|p| json!(p)),
+            "openFiles" => Some(crate::picks::open_many(app)).filter(|p| !p.is_empty()).map(|p| json!(p)),
+            "saveFile" => crate::picks::save(app, &file).map(|p| json!(p)),
+            _ => crate::picks::folder(app).map(|p| json!(p)),
         };
         if let Some(picked) = picked {
-            answer(app, id, json!(picked));
+            answer(app, id, picked);
         }
     });
 }
