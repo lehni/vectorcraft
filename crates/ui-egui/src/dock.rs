@@ -509,7 +509,9 @@ pub(crate) fn panel_width(id: &str) -> f32 {
 /// Panel `id`'s contents in a popped-out or floating panel `width` wide; the tabbed group's panels
 /// fill (Layers) or scroll (Properties) `tall` points.
 pub(crate) fn panel_body(app: &mut VectorcraftApp, ui: &mut Ui, id: &str, width: f32, tall: f32) {
-    egui::Frame::NONE.inner_margin(egui::Margin::same(10)).show(ui, |ui| {
+    // A panel that ends in its bottom bar has it at its bottom edge.
+    let bottom = if panels::FILLS_HEIGHT.contains(&id) { 2 } else { 10 };
+    egui::Frame::NONE.inner_margin(egui::Margin { left: 10, right: 10, top: 10, bottom }).show(ui, |ui| {
         ui.set_width(width - 20.0);
         match DockTab::from_id(id) {
             Some(DockTab::Properties) => {

@@ -11,7 +11,7 @@ use crate::{VectorcraftApp, widgets};
 
 pub const ID: &str = "papercraftConsole";
 
-const INPUT: &str = "papercraft-console-input";
+pub(crate) const INPUT: &str = "papercraft-console-input";
 
 pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
@@ -19,7 +19,12 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     // it ends. The text stays, to run lines again.
     let mut input: String = pstate(ui.ctx(), INPUT);
     let entered = ui.input(|i| i.key_pressed(egui::Key::Enter) && i.modifiers.is_none());
-    let field = egui::TextEdit::multiline(&mut input).font(egui::TextStyle::Monospace).desired_rows(3).desired_width(f32::INFINITY).show(ui);
+    let field = egui::TextEdit::multiline(&mut input)
+        .id(egui::Id::new(INPUT))
+        .font(egui::TextStyle::Monospace)
+        .desired_rows(2)
+        .desired_width(f32::INFINITY)
+        .show(ui);
     if entered
         && field.response.has_focus()
         && let Some(cursor) = field.cursor_range.map(|c| c.primary.index.0)
@@ -34,13 +39,12 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     set_pstate(ui.ctx(), INPUT, input);
     // Laid out from the bottom: the bar stays at the bottom, the log takes the height above it.
     ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-        ui.horizontal(|ui| {
+        super::papercraft::bottom_bar(ui, |ui| {
             // Scriptographer's console cleared with its refresh arrows.
             if widgets::icon_button(ui, "refresh-cw", tl!("Clear Console"), false, 24.0).clicked() {
                 app.scripts.clear_log();
             }
         });
-        widgets::divider(ui);
         ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
             widgets::divider(ui);
             egui::ScrollArea::vertical().id_salt("papercraft-console-log").auto_shrink([false, false]).stick_to_bottom(true).show(ui, |ui| {

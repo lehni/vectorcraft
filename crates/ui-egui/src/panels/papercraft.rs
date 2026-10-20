@@ -51,7 +51,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
         // Scriptographer's buttons, in its groups: execute and stop, edit, new script and folder,
         // and the console on the right.
-        ui.horizontal(|ui| {
+        bottom_bar(ui, |ui| {
             let script = selected.clone().filter(|p| p.is_file());
             // New scripts and folders go in the selected folder, or the selected script's.
             let into = selected.as_ref().and_then(|p| if p.is_dir() { Some(p.clone()) } else { p.parent().map(PathBuf::from) });
@@ -88,7 +88,6 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
                 }
             });
         });
-        widgets::divider(ui);
         ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
             egui::ScrollArea::vertical().id_salt("papercraft-tree").auto_shrink([false, false]).show(ui, |ui| {
                 let entries = app.scripts.tree(&folders, false);
@@ -129,6 +128,16 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     if let Some(path) = edit {
         command(app, "ui.editScript", json!({ "path": path.to_string_lossy() }));
     }
+}
+
+/// A panel's bottom bar, as the app's panels have it: a line on top, the buttons `add` adds in a
+/// row 30 points high.
+pub(super) fn bottom_bar(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
+    let t = Tokens::get(ui.ctx());
+    let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::hover());
+    ui.painter().line_segment([bar.left_top(), bar.right_top()], egui::Stroke::new(1.0, t.divider));
+    let mut row = ui.new_child(egui::UiBuilder::new().max_rect(bar).layout(egui::Layout::left_to_right(egui::Align::Center)));
+    add(&mut row);
 }
 
 /// The panel's (≡) menu: list the folders again, or manage them.
