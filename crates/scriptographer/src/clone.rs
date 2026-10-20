@@ -64,7 +64,7 @@ pub(crate) enum Data {
     Blob(Vec<u8>, String),
     /// An `ImageData`: its pixels, width and height.
     Pixels(Box<Data>, f64, f64),
-    /// A geometry object: its class, as `Object.prototype.toString()` names it, and its numbers.
+    /// A geometry object: its class's name, and its numbers ([`geometry_values`]).
     Geometry(String, Vec<f64>),
 }
 
@@ -239,8 +239,8 @@ impl<H: Clone> Serializer<H> {
                 let kind = call.get(original, "type")?;
                 Data::Blob(bytes, call.to_string(&kind)?)
             }
-            _ => match crate::geometry::serialize(call, value, &class)? {
-                Some(values) => Data::Geometry(class.clone(), values),
+            _ => match geometry_values(call, original, &name)? {
+                Some(values) => Data::Geometry(name.clone(), values),
                 None => return Err(data_clone_error(&class)),
             },
         })
@@ -367,8 +367,75 @@ fn make<H: Clone>(call: &mut dyn Call<H>, global: &H, data: &Data, made: &mut Ve
         }
         #[cfg(not(target_arch = "wasm32"))]
         Data::Blob(bytes, kind) => crate::fetch::new_blob(call, bytes, kind)?,
-        Data::Geometry(class, values) => crate::geometry::deserialize(call, class, values)?.ok_or_else(|| data_clone_error(class))?,
+        Data::Geometry(class, values) => geometry_object(call, class, values)?.ok_or_else(|| data_clone_error(class))?,
     };
     made.push(value.clone());
     Ok(value)
 }
+
+/// The numbers of a geometry object, whose class `class` names (`DOMPoint` …): a point's `x`, `y`,
+/// `z` and `w`, a rect's `x`, `y`, `width` and `height`, a quad's points' sixteen, a matrix's
+/// sixteen and whether it's 2D. None for another class.
+fn geometry_values<H: Clone>(call: &mut dyn Call<H>, original: &H, class: &str) -> Result<Option<Vec<f64>>, Error> {
+    let numbers = |call: &mut dyn Call<H>, object: &H, keys: &[&str]| -> Result<Vec<f64>, Error> {
+        let mut values = Vec::with_capacity(keys.len());
+        for key in keys {
+            let value = call.get(object, key)?;
+            values.push(call.to_number(&value)?);
+        }
+        Ok(values)
+    };
+    Ok(Some(match class {
+        "DOMPoint" | "DOMPointReadOnly" => numbers(call, original, &POINT)?,
+        "DOMRect" | "DOMRectReadOnly" => numbers(call, original, &["x", "y", "width", "height"])?,
+        "DOMQuad" => {
+            let mut values = Vec::with_capacity(16);
+            for key in ["p1", "p2", "p3", "p4"] {
+                let point = crate::handle(call.get(original, key)?, key)?;
+                values.extend(numbers(call, &point, &POINT)?);
+            }
+            values
+        }
+        "DOMMatrix" | "DOMMatrixReadOnly" => {
+            let mut values = numbers(call, original, &MATRIX)?;
+            values.push(if crate::truthy(&call.get(original, "is2D")?) { 1.0 } else { 0.0 });
+            values
+        }
+        _ => return Ok(None),
+    }))
+}
+
+/// The geometry object of class `class` with `values`, as [`geometry_values`] gives them; none for
+/// another class or numbers that don't fit it.
+fn geometry_object<H: Clone>(call: &mut dyn Call<H>, class: &str, values: &[f64]) -> Result<Option<Value<H>>, Error> {
+    let numbers = |values: &[f64]| values.iter().map(|n| Value::Number(*n)).collect::<Vec<_>>();
+    let made = match (class, values.len()) {
+        ("DOMPoint" | "DOMPointReadOnly" | "DOMRect" | "DOMRectReadOnly", 4) => {
+            let constructor = crate::global_class(call, class)?;
+            call.construct(&constructor, &numbers(values))?
+        }
+        ("DOMQuad", 16) => {
+            let point = crate::global_class(call, "DOMPoint")?;
+            let mut points = Vec::with_capacity(4);
+            for chunk in values.chunks(4) {
+                points.push(call.construct(&point, &numbers(chunk))?);
+            }
+            let constructor = crate::global_class(call, class)?;
+            call.construct(&constructor, &points)?
+        }
+        ("DOMMatrix" | "DOMMatrixReadOnly", 17) => {
+            // A 2D matrix from its six values, which keep it 2D.
+            let (m, is_2d) = (values.get(..16).unwrap_or_default(), values.get(16) == Some(&1.0));
+            let list = if is_2d { [0, 1, 4, 5, 12, 13].iter().filter_map(|&i| m.get(i).copied()).collect() } else { m.to_vec() };
+            let list = call.new_float64_array(&list)?;
+            let constructor = crate::global_class(call, class)?;
+            call.construct(&constructor, &[Value::Js(list)])?
+        }
+        _ => return Ok(None),
+    };
+    Ok(Some(made))
+}
+
+/// The values of a point, and of a matrix, by name.
+const POINT: [&str; 4] = ["x", "y", "z", "w"];
+const MATRIX: [&str; 16] = ["m11", "m12", "m13", "m14", "m21", "m22", "m23", "m24", "m31", "m32", "m33", "m34", "m41", "m42", "m43", "m44"];

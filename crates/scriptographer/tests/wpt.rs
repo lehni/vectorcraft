@@ -7,7 +7,7 @@
 //! fails when another one fails, or when a listed one passes, so the list stays the truth.
 //! `WPT_UPDATE=1` writes the list anew. The pass rate by folder prints with `--nocapture`.
 //!
-//! What fails, by cause (2026-10-20: 1400 of 1821 pass; the canvas 829 of 1093, geometry 570
+//! What fails, by cause (2026-10-20: 1405 of 1821 pass; the canvas 829 of 1093, geometry 575
 //! of 728), to come back to; most of it rarely matters to a script:
 //!
 //! - Text (canvas/text, about 70): WPT loads its test font with `FontFace`, which scripts don't

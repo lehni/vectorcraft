@@ -87,7 +87,7 @@ pub(crate) fn add_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: 
     let Some(added) = args.first().map(|a| path_of(call, a)).transpose()?.flatten() else {
         return Err(Error::Type("addPath: not a Path2D".into()));
     };
-    let coefficients = crate::geometry::matrix_init(call, args.get(1), true)?.coefficients();
+    let coefficients = crate::drawing::matrix_coefficients(call, args.get(1))?;
     // A matrix that isn't finite adds nothing, as in browsers.
     if coefficients.iter().any(|c| !c.is_finite()) {
         return Ok(Value::Undefined);

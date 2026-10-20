@@ -766,7 +766,7 @@ pub(crate) fn set_transform<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, a
     let m = match args.first() {
         Some(Value::Number(_)) => finite(args, 0),
         // A `DOMMatrix2DInit`, the identity without one.
-        init => Some(crate::geometry::matrix_init(call, init, true)?.coefficients()).filter(|m| m.iter().all(|n| n.is_finite())),
+        init => Some(matrix_coefficients(call, init)?).filter(|m| m.iter().all(|n| n.is_finite())),
     };
     match m {
         Some(m) => set_transform_to(call, this, |_| Affine::new(m)),
@@ -778,10 +778,24 @@ pub(crate) fn reset_transform<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>,
     set_transform_to(call, this, |_| Affine::IDENTITY)
 }
 
-/// `getTransform()`: `{ a, b, c, d, e, f }`, as a `DOMMatrix` has them.
+/// `getTransform()`: a `DOMMatrix`.
 pub(crate) fn get_transform<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
     let m = surface(call, this, |s| s.transform.as_coeffs())?;
-    crate::geometry::matrix_value(call, &crate::geometry::Matrix::new_2d(m))
+    let values = call.new_float64_array(&m)?;
+    let class = crate::global_class(call, "DOMMatrix")?;
+    call.construct(&class, &[Value::Js(values)])
+}
+
+/// `a` … `f` of a `DOMMatrix2DInit`, as `DOMMatrix.fromMatrix()` checks and completes it.
+pub(crate) fn matrix_coefficients<H: Clone>(call: &mut dyn Call<H>, init: Option<&Value<H>>) -> Result<[f64; 6], Error> {
+    let class = crate::global_class(call, "DOMMatrix")?;
+    let matrix = crate::handle(crate::method(call, &class, "fromMatrix", &[init.cloned().unwrap_or(Value::Undefined)])?, "DOMMatrix")?;
+    let mut m = [0.0; 6];
+    for (value, key) in m.iter_mut().zip(["a", "b", "c", "d", "e", "f"]) {
+        let number = call.get(&matrix, key)?;
+        *value = call.to_number(&number)?;
+    }
+    Ok(m)
 }
 
 // State.

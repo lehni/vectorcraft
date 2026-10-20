@@ -25,7 +25,6 @@ mod exception;
 mod fetch;
 #[cfg(not(target_arch = "wasm32"))]
 mod file_system;
-mod geometry;
 pub mod host;
 #[cfg(not(target_arch = "wasm32"))]
 mod local_file;
@@ -192,8 +191,8 @@ pub struct Host<H> {
     exceptions: Option<exception::Classes<H>>,
     /// What `EventTarget` and `Event` share.
     events: Option<events::Classes<H>>,
-    /// What `DOMMatrix` and the other geometry classes share.
-    geometry: Option<geometry::Classes<H>>,
+    /// The realm's global object, for its classes ([`global_class`]).
+    global: Option<H>,
     /// The realm's `Promise`, for the clipboard's answers.
     clipboard_promise: Option<H>,
     /// What `structuredClone()` uses of the realm.
@@ -275,7 +274,7 @@ impl<H> Default for Host<H> {
             urls: None,
             exceptions: None,
             events: None,
-            geometry: None,
+            global: None,
             clipboard_promise: None,
             clone_classes: None,
             console: None,
@@ -328,8 +327,8 @@ impl<E: Engine> Runtime<E> {
         let host = Rc::new(RefCell::new(Host::default()));
         let mut engine = E::new(host.clone(), prelude)?;
         let global = engine.global()?;
+        host.borrow_mut().global = Some(global.clone());
         exception::install(&mut engine, &global)?;
-        geometry::install(&mut engine, &global)?;
         storage::install(&mut engine, &global)?;
         // Before the classes that are event targets (`AbortSignal`).
         events::install(&mut engine, &global)?;
@@ -812,6 +811,13 @@ fn handle<H>(value: Value<H>, name: &str) -> Result<H, Error> {
         Value::Js(handle) => Ok(handle),
         _ => Err(Error::Script(format!("`{name}` is not an object"))),
     }
+}
+
+/// The realm's class `name`, as scripts see it: one of the engine's, the runtime's, or of what's
+/// written in JavaScript.
+pub(crate) fn global_class<H: Clone>(call: &mut dyn Call<H>, name: &str) -> Result<H, Error> {
+    let global = call.host()?.borrow().global.clone().ok_or_else(|| Error::Script("no global object".into()))?;
+    object(call, &global, name)
 }
 
 /// The object `owner[key]`.

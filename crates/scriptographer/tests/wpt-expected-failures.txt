@@ -112,9 +112,6 @@ css/geometry/DOMMatrix-001.html: new DOMMatrixReadOnly("unset")
 css/geometry/DOMMatrix-001.html: new DOMMatrixReadOnly(matrix)
 css/geometry/DOMMatrix-001.html: new DOMMatrixReadOnly(new DOMMatrixReadOnly())
 css/geometry/DOMMatrix-001.html: new DOMMatrixReadOnly(null)
-css/geometry/DOMMatrix-003.html: test rotateFromVector() with two zeros
-css/geometry/DOMMatrix-003.html: test rotateFromVector() with y being zero
-css/geometry/DOMMatrix-003.html: test scale() with identity scale and nonzero originZ
 css/geometry/DOMMatrix-css-string.worker.js: DOMMatrix setMatrixValue in worker
 css/geometry/DOMMatrix-css-string.worker.js: DOMMatrix stringifier in worker (2d identity)
 css/geometry/DOMMatrix-css-string.worker.js: DOMMatrix stringifier in worker (3d identity)
@@ -124,8 +121,6 @@ css/geometry/DOMMatrix-css-string.worker.js: DOMMatrixReadOnly stringifier in wo
 css/geometry/DOMMatrix-css-string.worker.js: DOMMatrixReadOnly stringifier in worker (non-finite values)
 css/geometry/DOMMatrix2DInit-validate-fixup.html: DOMMatrix2DInit-validate-fixup.html
 css/geometry/DOMRectList.html: DOMRectList.html
-css/geometry/WebKitCSSMatrix.html: Property descriptor for DOMMatrix
-css/geometry/WebKitCSSMatrix.html: Property descriptor for WebKitCSSMatrix
 css/geometry/WebKitCSSMatrix.worker.js: WebKitCSSMatrix.worker.js
 css/geometry/structured-serialization.html: DOMMatrix clone: basic
 css/geometry/structured-serialization.html: DOMMatrix clone: custom property
