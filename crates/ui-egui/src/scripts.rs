@@ -791,14 +791,30 @@ fn is_pick(question: &Value) -> bool {
     matches!(question["type"].as_str(), Some("fileOpen" | "fileSave" | "chooseDirectory"))
 }
 
-/// Shows the file picker the script `id` asks for in `question`, starting from its `path`. The
-/// path picked answers it; a picker closed without one answers it as cancelled ([`dialogs`]).
+/// Shows the file picker the script `id` asks for in `question`, starting from its `path`, with its
+/// file types. The path picked answers it; a picker closed without one answers it as cancelled
+/// ([`dialogs`]).
 fn pick(app: &mut VectorcraftApp, id: u64, question: &Value) {
     let kind = question["type"].as_str().unwrap_or_default().to_owned();
     let path = question["path"].as_str().map(PathBuf::from);
-    let name = path.as_deref().and_then(Path::file_name).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let folder = path.as_deref().and_then(Path::parent).filter(|p| !p.as_os_str().is_empty()).map(|p| p.to_string_lossy().into_owned());
-    let file = crate::FilePick { name, folder, filters: Vec::new() };
+    // A folder to start in, or a file: its folder, and its name to suggest.
+    let (folder, name) = match path {
+        Some(path) if path.is_dir() => (Some(path), String::new()),
+        Some(path) => (
+            path.parent().filter(|p| !p.as_os_str().is_empty()).map(Path::to_path_buf),
+            path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+        ),
+        None => (None, String::new()),
+    };
+    let folder = folder.map(|f| f.to_string_lossy().into_owned());
+    // The script's file types; one without extensions shows every file.
+    let filters = question["filters"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|f| Some((f[0].as_str()?.to_owned(), f[1].as_array()?.iter().filter_map(|e| e.as_str().map(str::to_owned)).collect())))
+        .collect();
+    let file = FilePick { name, folder, filters };
     crate::picks::button(app, move |app| {
         let picked = match kind.as_str() {
             "fileOpen" => crate::picks::open(app, &file),

@@ -43,12 +43,24 @@ fn file_dialogs_return_paths<E: Engine>() {
     assert_eq!(
         questions,
         [
-            json!({"type": "fileOpen", "path": "/tmp/in.svg"}),
-            json!({"type": "fileSave", "path": null}),
-            json!({"type": "chooseDirectory", "path": "/tmp"})
+            json!({"type": "fileOpen", "path": "/tmp/in.svg", "filters": []}),
+            json!({"type": "fileSave", "path": null, "filters": []}),
+            json!({"type": "chooseDirectory", "path": "/tmp", "filters": []})
         ]
     );
     assert_eq!(output, ["/tmp/b.svg", "null", "/tmp/out"], "a cancelled dialog returns null");
+}
+
+fn file_dialogs_take_file_types<E: Engine>() {
+    let script = "Dialog.fileOpen('Open', { Text: ['txt', '*.text'], SVG: 'svg', 'All Files': '*' })\n\
+        Dialog.fileSave('Save', ['Text Files (*.txt)', '*.txt;*.text', 'All Files', '*.*', '*.svg'])";
+    let (questions, _) = run::<E>(script, vec![Value::Null, Value::Null]);
+    assert_eq!(questions[0]["filters"], json!([["Text", ["txt", "text"]], ["SVG", ["svg"]], ["All Files", []]]), "in the order written");
+    assert_eq!(
+        questions[1]["filters"],
+        json!([["Text Files (*.txt)", ["txt", "text"]], ["All Files", []], ["*.svg", ["svg"]]]),
+        "Scriptographer's pairs, a lone pattern its own label"
+    );
 }
 
 fn choose_color_is_a_prompt_with_one_color<E: Engine>() {
@@ -187,6 +199,11 @@ macro_rules! engine_tests {
             #[test]
             fn file_dialogs_return_paths() {
                 super::file_dialogs_return_paths::<$engine>();
+            }
+
+            #[test]
+            fn file_dialogs_take_file_types() {
+                super::file_dialogs_take_file_types::<$engine>();
             }
 
             #[test]

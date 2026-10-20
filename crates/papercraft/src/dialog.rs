@@ -9,9 +9,9 @@
 //! `{type: 'prompt', title, components: [{name, type, label, value, …}]}` with each component's
 //! definition as the script wrote it, its type filled in where the script left it out, and its
 //! value from `values` or the definition, or `{type: 'fileOpen' | 'fileSave' | 'chooseDirectory',
-//! path}` with the file or folder to start from. It answers `true` (OK) or `false`, for a prompt
+//! path, filters}` with the file or folder to start from. It answers `true` (OK) or `false`, for a prompt
 //! the values by name, for a file dialog the path, or `null` (Cancel). The file dialogs return
-//! a `File`, and show every kind of file: the filters aren't used yet.
+//! a `File`; their `filters` come as `[label, [extensions]]`.
 //! `chooseColor` is a prompt with one colour.
 
 use serde_json::{Map, Value as Json, json};
@@ -44,9 +44,9 @@ pub(crate) fn install<E: Engine>(runtime: &mut Runtime<E>, global: &E::Handle) -
     let alert = runtime.engine.function("alert", alert)?;
     let confirm = runtime.engine.function("confirm", confirm)?;
     let prompt = runtime.engine.function("prompt", prompt)?;
-    let file_open = runtime.engine.function("fileOpen", |call, _, args| file(call, "fileOpen", args.get(2)))?;
-    let file_save = runtime.engine.function("fileSave", |call, _, args| file(call, "fileSave", args.get(2)))?;
-    let choose_directory = runtime.engine.function("chooseDirectory", |call, _, args| file(call, "chooseDirectory", args.get(1)))?;
+    let file_open = runtime.engine.function("fileOpen", |call, _, args| file(call, "fileOpen", args.get(1), args.get(2)))?;
+    let file_save = runtime.engine.function("fileSave", |call, _, args| file(call, "fileSave", args.get(1), args.get(2)))?;
+    let choose_directory = runtime.engine.function("chooseDirectory", |call, _, args| file(call, "chooseDirectory", None, args.get(1)))?;
     let choose_color = runtime.engine.function("chooseColor", choose_color)?;
     let paper = runtime.paper.clone();
     let globals = runtime.engine.with_call(|call| {
@@ -98,15 +98,62 @@ fn confirm<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Re
 
 /// A file dialog of `kind`, starting from `path` when the script gives one (a path or a `File`):
 /// the `File` picked, or `null` when the user cancelled.
-fn file<H: Clone>(call: &mut dyn Call<H>, kind: &str, path: Option<&Value<H>>) -> Result<Value<H>, Error> {
+fn file<H: Clone>(call: &mut dyn Call<H>, kind: &str, filters: Option<&Value<H>>, path: Option<&Value<H>>) -> Result<Value<H>, Error> {
     let path = match path {
         None | Some(Value::Undefined | Value::Null) => Json::Null,
         Some(path) => Json::String(call.to_string(path)?),
     };
-    match ask(call, json!({ "type": kind, "path": path }))? {
+    let filters = match filters {
+        Some(Value::Js(filters)) => file_types(call, filters)?,
+        _ => Vec::new(),
+    };
+    match ask(call, json!({ "type": kind, "path": path, "filters": filters }))? {
         Json::String(path) => crate::file::new_file(call, std::path::Path::new(&path)),
         _ => Ok(Value::Null),
     }
+}
+
+/// A file dialog's file types as `[label, [extensions]]`, the first the default, from `filters`:
+/// labels and their extensions in the script's order (`{ Text: ['txt', 'text'], SVG: 'svg',
+/// 'All Files': '*' }`), or Scriptographer's pairs of a label and its patterns (`['Text (*.txt)',
+/// '*.txt;*.text', 'All Files', '*.*']`). A type without extensions (`'*'`) shows every file.
+fn file_types<H: Clone>(call: &mut dyn Call<H>, filters: &H) -> Result<Vec<Json>, Error> {
+    let globals = globals(call)?;
+    let pairs: Vec<(String, Json)> = match to_json(call, &globals, &Value::Js(filters.clone()))? {
+        Json::Array(list) => {
+            let strings: Vec<String> = list.iter().filter_map(|s| s.as_str().map(str::to_owned)).collect();
+            // A pattern without its label labels itself.
+            strings
+                .chunks(2)
+                .filter_map(|pair| match pair {
+                    [label, patterns] => Some((label.clone(), Json::String(patterns.clone()))),
+                    [patterns] => Some((patterns.clone(), Json::String(patterns.clone()))),
+                    _ => None,
+                })
+                .collect()
+        }
+        _ => {
+            let mut pairs = Vec::new();
+            for label in keys(call, &globals, filters)? {
+                let extensions = call.get(filters, &label)?;
+                pairs.push((label, to_json(call, &globals, &extensions)?));
+            }
+            pairs
+        }
+    };
+    Ok(pairs
+        .into_iter()
+        .map(|(label, extensions)| {
+            let patterns: Vec<String> = match extensions {
+                Json::Array(list) => list.iter().filter_map(|e| e.as_str().map(str::to_owned)).collect(),
+                Json::String(patterns) => patterns.split(';').map(str::to_owned).collect(),
+                _ => Vec::new(),
+            };
+            let extensions: Vec<&str> =
+                patterns.iter().map(|p| p.trim().trim_start_matches('*').trim_start_matches('.')).filter(|e| !e.is_empty() && *e != "*").collect();
+            json!([label, extensions])
+        })
+        .collect())
 }
 
 /// `Dialog.chooseColor([color])`: a prompt with one colour, the colour picked or `null`.
