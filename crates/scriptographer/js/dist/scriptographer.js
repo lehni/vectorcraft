@@ -451,8 +451,8 @@
   });
   var bytesByBlob = /* @__PURE__ */ new WeakMap();
   var Blob = class _Blob {
-    constructor(parts = [], { type = "" } = {}) {
-      bytesByBlob.set(this, { bytes: getPartBytes(parts), type: getType(type) });
+    constructor(parts2 = [], { type = "" } = {}) {
+      bytesByBlob.set(this, { bytes: getPartBytes(parts2), type: getType(type) });
     }
     get size() {
       return getBytes(this).length;
@@ -477,11 +477,11 @@
   var File = class extends Blob {
     #name;
     #lastModified;
-    constructor(parts, name, options = {}) {
+    constructor(parts2, name, options = {}) {
       if (arguments.length < 2) {
         throw new TypeError("Invalid File: its parts and its name are needed.");
       }
-      super(parts, options);
+      super(parts2, options);
       this.#name = String(name);
       this.#lastModified = Math.trunc(Number(options.lastModified ?? Date.now()));
     }
@@ -499,10 +499,10 @@
   function getBytes(blob) {
     return bytesByBlob.get(blob)?.bytes ?? natives.readFile(blob);
   }
-  function getPartBytes(parts) {
+  function getPartBytes(parts2) {
     const encoder = new TextEncoder();
     const list = Array.from(
-      parts,
+      parts2,
       (part) => part instanceof Blob ? getBytes(part) : part instanceof ArrayBuffer ? new Uint8Array(part) : ArrayBuffer.isView(part) ? new Uint8Array(part.buffer, part.byteOffset, part.byteLength) : encoder.encode(String(part))
     );
     const bytes = new Uint8Array(
@@ -618,12 +618,12 @@ ${stack}` : ""));
     };
   }
   function format(args) {
-    const parts = [];
+    const parts2 = [];
     let rest = args;
     const [first, ...after] = args;
     if (typeof first === "string" && first.includes("%")) {
       rest = after;
-      parts.push(
+      parts2.push(
         first.replace(/%([sdifoOc%])/g, (match, directive) => {
           if (directive === "%") return "%";
           if (!rest.length) return match;
@@ -647,8 +647,8 @@ ${stack}` : ""));
         })
       );
     }
-    for (const value of rest) parts.push(inspect(value, 0));
-    return parts.join(" ");
+    for (const value of rest) parts2.push(inspect(value, 0));
+    return parts2.join(" ");
   }
   function inspect(value, depth) {
     if (typeof value === "string") {
@@ -1201,13 +1201,13 @@ ${stack}` : ""));
       () => Math.floor(Math.random() * 16).toString(16)
     ).join("")}`;
     const quote = (text) => text.replace(/\r/g, "%0D").replace(/\n/g, "%0A").replace(/"/g, "%22");
-    const parts = [];
+    const parts2 = [];
     for (const [name, value] of form) {
       const disposition = `--${boundary}\r
 Content-Disposition: form-data; name="${quote(name)}"`;
       if (value instanceof File) {
         const type = value.type || "application/octet-stream";
-        parts.push(
+        parts2.push(
           `${disposition}; filename="${quote(value.name)}"\r
 Content-Type: ${type}\r
 \r
@@ -1216,16 +1216,16 @@ Content-Type: ${type}\r
           "\r\n"
         );
       } else {
-        parts.push(`${disposition}\r
+        parts2.push(`${disposition}\r
 \r
 ${value}\r
 `);
       }
     }
-    parts.push(`--${boundary}--\r
+    parts2.push(`--${boundary}--\r
 `);
     return {
-      bytes: getBytes(new Blob(parts)),
+      bytes: getBytes(new Blob(parts2)),
       type: `multipart/form-data; boundary=${boundary}`
     };
   }
@@ -1859,6 +1859,181 @@ ${value}\r
     }
   }
 
+  // src/url.js
+  var parts = [
+    "origin",
+    "protocol",
+    "username",
+    "password",
+    "host",
+    "hostname",
+    "port",
+    "pathname",
+    "search",
+    "hash"
+  ];
+  var setPairs;
+  var setSearch;
+  var URL2 = class _URL {
+    // The parts as the runtime parsed them:
+    #parts;
+    #searchParams = null;
+    constructor(url, base) {
+      this.#parts = parse(url, base);
+      if (!this.#parts) {
+        throw new TypeError(`Invalid URL: '${url}'.`);
+      }
+    }
+    static {
+      setSearch = (url, query) => {
+        url.#parts = natives.url.set(url.#parts.href, "search", query);
+      };
+    }
+    static canParse(url, base) {
+      return !!parse(url, base);
+    }
+    static parse(url, base) {
+      return parse(url, base) ? new _URL(url, base) : null;
+    }
+    get href() {
+      return this.#parts.href;
+    }
+    set href(href) {
+      this.#set("href", href);
+    }
+    get searchParams() {
+      if (!this.#searchParams) {
+        this.#searchParams = new URLSearchParams2(this.#parts.search);
+        linksByParams.set(this.#searchParams, this);
+      }
+      return this.#searchParams;
+    }
+    toString() {
+      return this.#parts.href;
+    }
+    toJSON() {
+      return this.#parts.href;
+    }
+    // Set a part, and the search params follow.
+    #set(part, value) {
+      this.#parts = natives.url.set(this.#parts.href, part, String(value));
+      if (this.#searchParams) {
+        setPairs(this.#searchParams, parseQuery(this.#parts.search));
+      }
+    }
+    static {
+      for (const part of parts) {
+        const accessor = {
+          get() {
+            return this.#parts[part];
+          }
+        };
+        if (part !== "origin") {
+          accessor.set = function(value) {
+            this.#set(part, value);
+          };
+        }
+        defineAccessors(_URL.prototype, { [part]: accessor });
+      }
+    }
+  };
+  var linksByParams = /* @__PURE__ */ new WeakMap();
+  var URLSearchParams2 = class _URLSearchParams {
+    #pairs = [];
+    // A query string (with or without `?`), `[[name, value], …]`,
+    // `{ name: value }` or another `URLSearchParams`.
+    constructor(init = "") {
+      if (init instanceof _URLSearchParams) {
+        this.#pairs = init.#pairs.map((pair) => [...pair]);
+      } else if (init !== null && typeof init === "object") {
+        this.#pairs = typeof init[Symbol.iterator] === "function" ? Array.from(init, (pair) => {
+          pair = Array.from(pair, String);
+          if (pair.length !== 2) {
+            throw new TypeError(`Invalid pair: '${pair}'.`);
+          }
+          return pair;
+        }) : Object.entries(init).map(([name, value]) => [name, String(value)]);
+      } else {
+        this.#pairs = parseQuery(String(init));
+      }
+    }
+    static {
+      setPairs = (params, pairs) => {
+        params.#pairs = pairs;
+      };
+    }
+    get size() {
+      return this.#pairs.length;
+    }
+    append(name, value) {
+      this.#pairs.push([String(name), String(value)]);
+      this.#update();
+    }
+    delete(name, value) {
+      name = String(name);
+      this.#pairs = this.#pairs.filter(
+        (pair) => pair[0] !== name || value !== void 0 && pair[1] !== String(value)
+      );
+      this.#update();
+    }
+    get(name) {
+      return this.#pairs.find((pair) => pair[0] === String(name))?.[1] ?? null;
+    }
+    getAll(name) {
+      return this.#pairs.filter((pair) => pair[0] === String(name)).map(([, value]) => value);
+    }
+    has(name, value) {
+      return this.#pairs.some(
+        (pair) => pair[0] === String(name) && (value === void 0 || pair[1] === String(value))
+      );
+    }
+    // In place of the first one of its name:
+    set(name, value) {
+      const pair = [String(name), String(value)];
+      const index = this.#pairs.findIndex(([name2]) => name2 === pair[0]);
+      this.#pairs = this.#pairs.filter(([name2]) => name2 !== pair[0]);
+      this.#pairs.splice(index < 0 ? this.#pairs.length : index, 0, pair);
+      this.#update();
+    }
+    // By name, in UTF-16 code units, as strings compare: stable.
+    sort() {
+      this.#pairs.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+      this.#update();
+    }
+    forEach(callback, thisArg) {
+      for (const [name, value] of this) {
+        callback.call(thisArg, value, name, this);
+      }
+    }
+    *entries() {
+      for (const [name, value] of this.#pairs) yield [name, value];
+    }
+    *keys() {
+      for (const [name] of this.#pairs) yield name;
+    }
+    *values() {
+      for (const [, value] of this.#pairs) yield value;
+    }
+    [Symbol.iterator]() {
+      return this.entries();
+    }
+    toString() {
+      return natives.url.serializeQuery(this.#pairs);
+    }
+    // The URL they belong to follows.
+    #update() {
+      const url = linksByParams.get(this);
+      if (url) setSearch(url, this.toString());
+    }
+  };
+  setToStringTag(URL2, URLSearchParams2);
+  function parse(url, base) {
+    return base === void 0 ? natives.url.parse(String(url)) : natives.url.parse(String(url), String(base));
+  }
+  function parseQuery(query) {
+    return natives.url.parseQuery(query.replace(/^\?/, ""));
+  }
+
   // src/websocket.js
   var states2 = { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 };
   var schemes = {
@@ -2063,6 +2238,9 @@ ${value}\r
       localStorage: createStorage(false),
       sessionStorage: createStorage(true)
     });
+  }
+  if (!globalThis.URL) {
+    setGlobals({ URL: URL2, URLSearchParams: URLSearchParams2 });
   }
   if (!globalThis.WebSocket) {
     setGlobals({ WebSocket });

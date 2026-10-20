@@ -11,6 +11,7 @@ import * as events from './events.js'
 import * as fetch from './fetch.js'
 import * as geometry from './geometry.js'
 import { Storage, createStorage } from './storage.js'
+import { URL, URLSearchParams } from './url.js'
 import { WebSocket } from './websocket.js'
 import { Worker, setupWorker } from './worker.js'
 
@@ -41,6 +42,9 @@ if (!globalThis.localStorage) {
     localStorage: createStorage(false),
     sessionStorage: createStorage(true)
   })
+}
+if (!globalThis.URL) {
+  setGlobals({ URL, URLSearchParams })
 }
 if (!globalThis.WebSocket) {
   setGlobals({ WebSocket })

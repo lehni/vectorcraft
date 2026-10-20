@@ -179,9 +179,6 @@ pub struct Host<H> {
     next_child: u32,
     #[cfg(not(target_arch = "wasm32"))]
     parent: Option<web_worker::Parent<H>>,
-    /// `URL` and `URLSearchParams` outside a browser.
-    #[cfg(not(target_arch = "wasm32"))]
-    urls: Option<urls::Classes<H>>,
     /// The realm's error classes, for the exceptions host functions throw.
     exceptions: Option<exception::Classes<H>>,
     /// The realm's global object, for its classes ([`global_class`]).
@@ -260,9 +257,6 @@ impl<H> Default for Host<H> {
             next_child: 0,
             #[cfg(not(target_arch = "wasm32"))]
             parent: None,
-            #[cfg(not(target_arch = "wasm32"))]
-            #[cfg(not(target_arch = "wasm32"))]
-            urls: None,
             exceptions: None,
             global: None,
             shared: None,
@@ -320,7 +314,7 @@ impl<E: Engine> Runtime<E> {
         // What's written in JavaScript, before the classes that build on it (`LocalFile` on
         // `File`), with the natives it needs: `print()` for the script's output, on desktop
         // `request()` for `fetch()` and `readFile()` for a `LocalFile`'s bytes, on the web the app's
-        // pickers to ask, the storages' items, and on desktop the sockets and workers.
+        // pickers to ask, the storages' items, and on desktop the sockets, workers and URL parsing.
         let mut natives = vec![("print", engine.function("print", print)?)];
         #[cfg(not(target_arch = "wasm32"))]
         natives.extend([("request", engine.function("request", fetch::request)?), ("readFile", engine.function("readFile", local_file::read_file)?)]);
@@ -332,6 +326,8 @@ impl<E: Engine> Runtime<E> {
             ("socket", websocket::natives(&mut engine)?),
             #[cfg(not(target_arch = "wasm32"))]
             ("worker", web_worker::natives(&mut engine)?),
+            #[cfg(not(target_arch = "wasm32"))]
+            ("url", urls::natives(&mut engine)?),
         ];
         let shared = engine.with_call(|call| {
             let shared = call.new_object()?;
@@ -370,8 +366,6 @@ impl<E: Engine> Runtime<E> {
         local_file::install(&mut runtime, &global)?;
         #[cfg(not(target_arch = "wasm32"))]
         file_system::install(&mut runtime, &global)?;
-        #[cfg(not(target_arch = "wasm32"))]
-        urls::install(&mut runtime, &global)?;
         clone::install(&mut runtime.engine, &global)?;
         clipboard::install(&mut runtime.engine, &global)?;
         Ok(runtime)
