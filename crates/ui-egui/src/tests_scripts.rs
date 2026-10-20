@@ -691,3 +691,25 @@ fn a_tool_script_gets_every_mouse_move() {
     let drags: Vec<&str> = app.scripts.log().iter().map(|l| l.text.as_str()).filter(|l| l.starts_with("drag")).collect();
     assert_eq!(drags, ["drag 1040", "drag 1050", "drag 1060"], "one drag per move, 10 ms apart");
 }
+
+/// Where the platform knows the system's times of the pointer events, a tool script gets them:
+/// the newest ones for its events, as the system may have seen more; else the frame's time.
+#[test]
+fn a_tool_script_gets_the_systems_times() {
+    use crate::canvas::PointerTimes;
+    use vectorcraft_tools::PointerKind::{Down, Drag};
+    let (mut app, _) = app();
+    let path = tempfile_path::Path::new(
+        "function onMouseDown(event) { console.log('down', Math.round(event.time * 1000)) }\n\
+         function onMouseDrag(event) { console.log('drag', Math.round(event.time * 1000)) }",
+    );
+    app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
+    app.pointer_times = PointerTimes { downs: vec![1.0], ..Default::default() };
+    pointer(&mut app, Down, 0.0);
+    app.pointer_times = PointerTimes { moves: vec![0.9, 1.012], ..Default::default() };
+    pointer(&mut app, Drag, 10.0);
+    app.pointer_times = PointerTimes::default();
+    pointer(&mut app, Drag, 20.0);
+    let log: Vec<&str> = app.scripts.log().iter().map(|l| l.text.as_str()).collect();
+    assert_eq!(log, ["down 1000", "drag 1012", "drag 0"]);
+}

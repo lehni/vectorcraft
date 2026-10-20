@@ -540,6 +540,8 @@ pub struct VectorcraftApp {
     pub placing: placing::Placing,
     /// Data Recovery's timer and startup question ([`recovery`]).
     pub recovery: recovery::Timer,
+    /// The system's times of this frame's pointer events, where the platform knows them.
+    pub pointer_times: canvas::PointerTimes,
     /// Modifiers the keyboard holds (from the host's input), given back after synthetic input.
     host_modifiers: egui::Modifiers,
     /// Synthetic input set the modifiers egui holds (see [`Self::raw_input_hook`]).
@@ -673,6 +675,7 @@ impl VectorcraftApp {
             plugin_runs: Default::default(),
             placing: Default::default(),
             recovery: Default::default(),
+            pointer_times: Default::default(),
             host_modifiers: Default::default(),
             synthetic_modifiers: false,
             ime_marked: None,

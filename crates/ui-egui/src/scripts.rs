@@ -798,14 +798,26 @@ pub(crate) fn pointer(app: &mut VectorcraftApp, ev: &vectorcraft_tools::PointerE
 
 /// Sends the active tool script the pointer events of this frame, in one go: it works through them,
 /// and what they changed comes back as one change of the document, as a browser draws once a
-/// frame. The events came in over the `dt` seconds before the frame's time `now`, but egui has no
-/// times of their own: they get times spread evenly over them, the last one `now`.
+/// frame. The events get the system's times where the platform has one for each of a kind
+/// ([`crate::canvas::PointerTimes`]); else they came in over the `dt` seconds before the frame's
+/// time `now`, and get times spread evenly over them, the last one `now`.
 pub(crate) fn flush_pointer(app: &mut VectorcraftApp, now: f64, dt: f64) {
     if let Some((doc, mut events)) = app.scripts.pointer.take() {
         // A stalled frame counts a tenth of a second at most.
         let (dt, count) = (dt.clamp(0.0, 0.1), events.len() as f64);
         for (i, event) in events.iter_mut().enumerate() {
             event.3 = now - dt * (count - 1.0 - i as f64) / count;
+        }
+        let times = &app.pointer_times;
+        for (kind, times) in [(MouseEvent::Move, &times.moves), (MouseEvent::Down, &times.downs), (MouseEvent::Up, &times.ups)] {
+            let mut of_kind: Vec<&mut Pointer> = events.iter_mut().filter(|event| event.0 == kind).collect();
+            // The newest events go with the newest times: the system may have seen more, outside
+            // the canvas.
+            if of_kind.len() <= times.len() {
+                for (event, time) in of_kind.iter_mut().rev().zip(times.iter().rev()) {
+                    event.3 = *time;
+                }
+            }
         }
         to_tool(app, doc, [Work::Mouse(events)]);
     }

@@ -237,6 +237,19 @@ pub fn mods(m: egui::Modifiers, space: bool) -> Mods {
     Mods { shift: m.shift, alt: m.alt, cmd: m.command, ctrl: m.ctrl, space }
 }
 
+/// The system's own times of this frame's pointer events, by egui's clock in seconds, oldest first,
+/// where the platform knows them (macOS): egui leaves them out. The platform sets them before
+/// each frame; a PaperCraft tool script measures the mouse's speed by them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PointerTimes {
+    /// Of the moves and drags.
+    pub moves: Vec<f64>,
+    /// Of the presses of the primary button.
+    pub downs: Vec<f64>,
+    /// Of its releases.
+    pub ups: Vec<f64>,
+}
+
 /// Fit the view (View → Fit Artboard / Fit All / Actual Size).
 pub fn fit(app: &mut VectorcraftApp, how: &str) {
     let Some(rect) = app.canvas_rect else {

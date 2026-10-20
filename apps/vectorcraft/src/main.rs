@@ -38,6 +38,8 @@ mod mac_fonts;
 #[cfg(target_os = "macos")]
 mod mac_menu;
 #[cfg(target_os = "macos")]
+mod mac_pointer_times;
+#[cfg(target_os = "macos")]
 mod mac_save_format;
 #[cfg(target_os = "macos")]
 mod mac_screen_color;
@@ -103,6 +105,10 @@ impl eframe::App for App {
         // A pen contact with the barrel button held presses the secondary button (Windows Ink).
         #[cfg(all(windows, not(target_vendor = "win7")))]
         windows_stylus::raw_input_hook(raw);
+        #[cfg(target_os = "macos")]
+        {
+            self.app.pointer_times = mac_pointer_times::take(raw.time.unwrap_or_default());
+        }
         file_access::unconfined(|| self.app.raw_input_hook(raw));
     }
     #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
@@ -997,6 +1003,8 @@ fn main() -> std::process::ExitCode {
     // Files opened from Finder and the Dock arrive as events, not arguments.
     #[cfg(target_os = "macos")]
     open_documents::install();
+    #[cfg(target_os = "macos")]
+    mac_pointer_times::install();
     #[cfg(feature = "wgpu")]
     let created = startup.clone();
     // A panic that ends the window (egui-wgpu's own, #502) is caught here: never a crash.
