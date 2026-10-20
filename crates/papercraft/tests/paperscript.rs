@@ -11,11 +11,11 @@ fn runs_paperscript_with_console_and_paper_globals<E: Engine>() {
     runtime
         .execute(
             &scope,
-            "console.log('Hello World')\n\
+            "console.log('Hello World', document === project)\n\
              new Path.Circle({ center: view.bounds.center, radius: 100, fillColor: 'red' })",
         )
         .unwrap();
-    assert_eq!(runtime.take_output(), ["Hello World"]);
+    assert_eq!(runtime.take_output(), ["Hello World true"], "`document` is the project");
 
     let project: Value = serde_json::from_str(&runtime.export_json(&scope).unwrap()).unwrap();
     assert_eq!(project[0][0], "Layer");

@@ -22,9 +22,12 @@ fn running() -> (VectorcraftApp, u64, tempfile_path::Path) {
     (app, id, path)
 }
 
+/// A pointer event on the canvas, sent as at the end of a frame.
 fn pointer(app: &mut VectorcraftApp, kind: vectorcraft_tools::PointerKind, x: f64) -> bool {
     let ev = vectorcraft_tools::PointerEvent { kind, pos: vectorcraft_geom::Point::new(x, 100.0), mods: Default::default(), pressure: 1.0 };
-    crate::scripts::pointer(app, &ev)
+    let taken = crate::scripts::pointer(app, &ev);
+    crate::scripts::flush_pointer(app);
+    taken
 }
 
 fn children(app: &VectorcraftApp) -> usize {

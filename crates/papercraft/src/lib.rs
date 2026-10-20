@@ -142,6 +142,11 @@ impl<E: Engine> Runtime<E> {
 
     /// Creates a scope whose view has the given size.
     pub fn create_scope(&mut self, width: f64, height: f64) -> Result<Scope<E::Handle>, Error> {
+        let document = self.engine.function("document", |call, this, _| match this {
+            Value::Js(scope) => call.get(scope, "project"),
+            _ => Ok(Value::Undefined),
+        })?;
+        let global = self.engine.global()?;
         let paper = &self.paper;
         self.engine.with_call(|call| {
             let constructor = object(call, paper, "PaperScope")?;
@@ -149,6 +154,14 @@ impl<E: Engine> Runtime<E> {
             let size = object(call, paper, "Size")?;
             let size = call.construct(&size, &[Value::Number(width), Value::Number(height)])?;
             method(call, &scope, "setup", &[size])?;
+            // In scripts, `document` is the project, as the project is VectorCraft's document: a
+            // getter on the scope, which PaperScript makes a local name. Paper.js's own global
+            // `document` (the DOM's, when there is one) stays as it is.
+            let descriptor = call.new_object()?;
+            call.set(&descriptor, "get", &Value::Js(document))?;
+            call.set(&descriptor, "enumerable", &Value::Bool(true))?;
+            let object_class = object(call, &global, "Object")?;
+            method(call, &object_class, "defineProperty", &[Value::Js(scope.clone()), Value::String("document".into()), Value::Js(descriptor)])?;
             Ok(Scope(scope))
         })
     }

@@ -28,6 +28,9 @@ pub enum Request {
     Answer(Json),
 }
 
+/// A pointer event for a tool, at a point in document coordinates.
+pub type Pointer = (MouseEvent, (f64, f64), Modifiers);
+
 /// A script's work.
 pub enum Work {
     /// Runs PaperScript.
@@ -35,8 +38,8 @@ pub enum Work {
     /// Runs the timers due at `now`, in milliseconds since the script started: its `onFrame` and
     /// intervals.
     Frame(f64),
-    /// A pointer event for the script's tool, at a point in document coordinates.
-    Mouse(MouseEvent, (f64, f64), Modifiers),
+    /// Pointer events for the script's tool: a frame's, in one go.
+    Mouse(Vec<Pointer>),
     /// A key going down (`true`) or up for the script's tool: its name as Paper.js has it, and the
     /// character it types.
     Key(bool, String, Option<String>, Modifiers),
@@ -124,7 +127,9 @@ impl<E: Engine> Script<E> {
         let result = match work {
             Work::Execute(source) => self.runtime.execute(&self.scope, &source),
             Work::Frame(now) => self.runtime.run_timers(now),
-            Work::Mouse(event, point, modifiers) => self.runtime.mouse_event(&self.scope, event, point, modifiers),
+            Work::Mouse(events) => {
+                events.into_iter().try_for_each(|(event, point, modifiers)| self.runtime.mouse_event(&self.scope, event, point, modifiers))
+            }
             Work::Key(down, key, character, modifiers) => self.runtime.key_event(&self.scope, down, &key, character.as_deref(), modifiers),
             Work::Palette(id, event) => self.runtime.palette_event(id, event),
             Work::Activate(active) => self.runtime.activate_tool(&self.scope, active),

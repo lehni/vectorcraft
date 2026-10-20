@@ -23,7 +23,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 use vectorcraft_doc::{Document, NodeId};
-use vectorcraft_papercraft::worker::{Reply, Request, Work, Worker};
+use vectorcraft_papercraft::worker::{Pointer, Reply, Request, Work, Worker};
 use vectorcraft_papercraft::{Modifiers, MouseEvent, PaletteEvent};
 use vectorcraft_tools::Cursor;
 
@@ -61,6 +61,8 @@ pub struct Scripts {
     created: Option<PathBuf>,
     /// Whether the app had the focus at the last frame.
     focused: bool,
+    /// The pointer events for the tool script this frame, and the document they're on.
+    pointer: Option<(u64, Vec<Pointer>)>,
     /// The scripts folders whose `__init__` scripts ran.
     initialized: Option<Vec<ScriptFolder>>,
     /// The tool script the PaperCraft Tool button stands for: the last one run, until it fails.
@@ -563,15 +565,15 @@ fn pump(app: &mut VectorcraftApp, script: &mut Running, mut frame: Option<f64>, 
 fn send(app: &mut VectorcraftApp, script: &mut Running, work: Work) -> Result<(), String> {
     let state = app.session.documents().iter().find(|d| d.uid == script.doc).ok_or("the script's document is closed")?;
     let (doc, selection) = (state.doc.clone(), state.selection.clone());
-    script.busy = Some(match work {
+    script.busy = Some(match &work {
         Work::Execute(_) => Kind::Execute,
         Work::Frame(_) => Kind::Frame,
         Work::Key(..) => Kind::Key,
         Work::Palette(..) => Kind::Palette,
         Work::Activate(_) => Kind::Activate,
         Work::Handler(_) => Kind::Handler,
-        Work::Mouse(event, ..) => {
-            if event == MouseEvent::Down {
+        Work::Mouse(events) => {
+            if events.iter().any(|(event, ..)| *event == MouseEvent::Down) {
                 // A drag starts its own undo step.
                 script.last = None;
             }
@@ -786,8 +788,21 @@ pub(crate) fn pointer(app: &mut VectorcraftApp, ev: &vectorcraft_tools::PointerE
     // `cmd` is Command on macOS, Ctrl elsewhere, as Paper.js's `modifiers.command` is.
     let mac = cfg!(target_os = "macos");
     let modifiers = Modifiers { shift: ev.mods.shift, control: ev.mods.ctrl || (ev.mods.cmd && !mac), alt: ev.mods.alt, meta: ev.mods.cmd && mac };
-    to_tool(app, active, [Work::Mouse(event, (ev.pos.x, ev.pos.y), modifiers)]);
+    // The frame's events go to the script together ([`flush_pointer`]).
+    if app.scripts.pointer.as_ref().is_none_or(|(doc, _)| *doc != active) {
+        flush_pointer(app);
+    }
+    app.scripts.pointer.get_or_insert_with(|| (active, Vec::new())).1.push((event, (ev.pos.x, ev.pos.y), modifiers));
     true
+}
+
+/// Sends the active tool script the pointer events of this frame, in one go: it works through them,
+/// and what they changed comes back as one change of the document, as a browser draws once a
+/// frame.
+pub(crate) fn flush_pointer(app: &mut VectorcraftApp) {
+    if let Some((doc, events)) = app.scripts.pointer.take() {
+        to_tool(app, doc, [Work::Mouse(events)]);
+    }
 }
 
 /// Sends the keys typed on the canvas to the active tool script, when it handles keys: plain keys,
