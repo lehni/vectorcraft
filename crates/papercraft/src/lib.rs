@@ -12,6 +12,7 @@ mod canvas;
 mod dialog;
 #[cfg(not(target_arch = "wasm32"))]
 mod dom;
+mod drawing;
 mod engine;
 mod engines;
 #[cfg(not(target_arch = "wasm32"))]

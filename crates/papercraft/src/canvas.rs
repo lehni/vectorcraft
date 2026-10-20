@@ -9,10 +9,12 @@
 //! Paper.js resolves CSS colours with it (it fills a pixel with the colour and reads it back), and
 //! measures `PointText` with it.
 
-use std::str::FromStr;
+use std::sync::Arc;
 
 use vello_cpu::Pixmap;
 use vello_cpu::color::PremulRgba8;
+
+use crate::drawing::{self, Surface};
 
 use crate::{Call, Engine, Error, HostFunction, Value, define_accessor, method, object};
 
@@ -26,26 +28,60 @@ const AREA: f64 = 16384.0 * 16384.0 / 4.0;
 pub(crate) struct Canvases<H> {
     prototype: H,
     image_data: H,
+    gradient: H,
     object: H,
     clamped: H,
     promise: H,
     registry: Option<H>,
-    pixmaps: Vec<Option<Pixmap>>,
+    surfaces: Vec<Option<Surface<H>>>,
 }
 
 /// Sets `OffscreenCanvas` and `ImageData` on `global`, unless it has them.
 pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(), Error> {
-    let methods: [(&str, HostFunction<E::Handle>); 10] = [
+    let methods: Vec<(&str, HostFunction<E::Handle>)> = vec![
         ("getContext", |_, this, _| Ok(this.clone())),
         ("getImageData", get_image_data),
         ("putImageData", put_image_data),
         ("createImageData", create_image_data),
-        ("fillRect", |call, this, args| fill_rect(call, this, args, false)),
-        ("clearRect", |call, this, args| fill_rect(call, this, args, true)),
         ("measureText", measure_text),
         ("convertToBlob", convert_to_blob),
-        ("save", nothing),
-        ("restore", nothing),
+        ("beginPath", drawing::begin_path),
+        ("closePath", drawing::close_path),
+        ("moveTo", drawing::move_to),
+        ("lineTo", drawing::line_to_method),
+        ("bezierCurveTo", drawing::bezier_curve_to),
+        ("quadraticCurveTo", drawing::quadratic_curve_to),
+        ("arc", drawing::arc),
+        ("arcTo", drawing::arc_to),
+        ("ellipse", drawing::ellipse),
+        ("rect", drawing::rect),
+        ("roundRect", drawing::round_rect),
+        ("fill", drawing::fill),
+        ("stroke", drawing::stroke),
+        ("clip", drawing::clip),
+        ("isPointInPath", drawing::is_point_in_path),
+        ("fillRect", drawing::fill_rect),
+        ("strokeRect", drawing::stroke_rect),
+        ("clearRect", drawing::clear_rect),
+        ("fillText", drawing::fill_text),
+        ("strokeText", drawing::stroke_text),
+        ("drawImage", drawing::draw_image),
+        ("translate", drawing::translate),
+        ("rotate", drawing::rotate),
+        ("scale", drawing::scale),
+        ("transform", drawing::transform),
+        ("setTransform", drawing::set_transform),
+        ("resetTransform", drawing::reset_transform),
+        ("getTransform", drawing::get_transform),
+        ("save", drawing::save),
+        ("restore", drawing::restore),
+        ("reset", drawing::reset),
+        ("setLineDash", drawing::set_line_dash),
+        ("getLineDash", drawing::get_line_dash),
+        ("createLinearGradient", |call, _, args| drawing::create_gradient(call, "linear", args, 4)),
+        ("createRadialGradient", |call, _, args| drawing::create_gradient(call, "radial", args, 6)),
+        ("createConicGradient", |call, _, args| drawing::create_gradient(call, "conic", args, 3)),
+        ("createPattern", drawing::create_pattern),
     ];
     let methods = methods.into_iter().map(|(name, f)| Ok((name, engine.function(name, f)?))).collect::<Result<Vec<_>, Error>>()?;
     let width = engine.function("width", |call, this, _| Ok(Value::Number(f64::from(with_pixmap(call, this, |p| p.width())?))))?;
@@ -53,8 +89,13 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
     let set_width = engine.function("width", |call, this, args| resize(call, this, args.first(), None))?;
     let set_height = engine.function("height", |call, this, args| resize(call, this, None, args.first()))?;
     let release = engine.function("release", release)?;
+    let get_fill = engine.function("fillStyle", |call, this, _| drawing::get_style(call, this, "_fillStyle"))?;
+    let set_fill = engine.function("fillStyle", |call, this, args| drawing::set_style(call, this, "_fillStyle", args.first()))?;
+    let get_stroke = engine.function("strokeStyle", |call, this, _| drawing::get_style(call, this, "_strokeStyle"))?;
+    let set_stroke = engine.function("strokeStyle", |call, this, args| drawing::set_style(call, this, "_strokeStyle", args.first()))?;
     let constructor = engine.constructor("OffscreenCanvas", offscreen_canvas)?;
     let image_data = engine.constructor("ImageData", construct_image_data)?;
+    let add_color_stop = engine.function("addColorStop", drawing::add_color_stop)?;
     engine.with_call(|call| {
         if !matches!(call.get(global, "OffscreenCanvas")?, Value::Undefined) {
             return Ok(());
@@ -64,9 +105,13 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
             call.set(&prototype, name, &Value::Js(function))?;
         }
         define_accessor(call, global, &prototype, "width", width, Some(set_width))?;
+        define_accessor(call, global, &prototype, "fillStyle", get_fill, Some(set_fill))?;
+        define_accessor(call, global, &prototype, "strokeStyle", get_stroke, Some(set_stroke))?;
         define_accessor(call, global, &prototype, "height", height, Some(set_height))?;
         call.set(&constructor, "prototype", &Value::Js(prototype.clone()))?;
         call.set(global, "OffscreenCanvas", &Value::Js(constructor))?;
+        let gradient = call.new_object()?;
+        call.set(&gradient, "addColorStop", &Value::Js(add_color_stop))?;
         let image_data_prototype = call.new_object()?;
         call.set(&image_data, "prototype", &Value::Js(image_data_prototype.clone()))?;
         call.set(global, "ImageData", &Value::Js(image_data))?;
@@ -80,11 +125,12 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
         call.host()?.borrow_mut().canvases = Some(Canvases {
             prototype,
             image_data: image_data_prototype,
+            gradient,
             object: object(call, global, "Object")?,
             clamped: object(call, global, "Uint8ClampedArray")?,
             promise: object(call, global, "Promise")?,
             registry,
-            pixmaps: Vec::new(),
+            surfaces: Vec::new(),
         });
         Ok(())
     })
@@ -126,17 +172,17 @@ fn offscreen_canvas<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[
         let host = call.host()?;
         let mut host = host.borrow_mut();
         let canvases = host.canvases.as_mut().ok_or_else(|| Error::Script("OffscreenCanvas is not set up".into()))?;
-        let pixmap = Some(Pixmap::new(width, height));
-        match canvases.pixmaps.iter().position(Option::is_none) {
+        let surface = Some(Surface::new(width, height));
+        match canvases.surfaces.iter().position(Option::is_none) {
             Some(free) => {
-                if let Some(slot) = canvases.pixmaps.get_mut(free) {
-                    *slot = pixmap;
+                if let Some(slot) = canvases.surfaces.get_mut(free) {
+                    *slot = surface;
                 }
                 free
             }
             None => {
-                canvases.pixmaps.push(pixmap);
-                canvases.pixmaps.len() - 1
+                canvases.surfaces.push(surface);
+                canvases.surfaces.len() - 1
             }
         }
     };
@@ -144,13 +190,9 @@ fn offscreen_canvas<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[
     if let Some(registry) = registry {
         method(call, &registry, "register", &[Value::Js(canvas.clone()), Value::Number(number as f64)])?;
     }
-    for (key, value) in [
-        ("canvas", Value::Js(canvas.clone())),
-        ("fillStyle", Value::String("#000000".into())),
-        ("globalAlpha", Value::Number(1.0)),
-        ("font", Value::String(DEFAULT_FONT.into())),
-    ] {
-        call.set(&canvas, key, &value)?;
+    call.set(&canvas, "canvas", &Value::Js(canvas.clone()))?;
+    for (key, default) in drawing::PROPERTIES {
+        call.set(&canvas, key, &default.value())?;
     }
     Ok(Value::Js(canvas))
 }
@@ -159,7 +201,7 @@ fn offscreen_canvas<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[
 fn release<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     if let Some(Value::Number(number)) = args.first()
         && let Some(canvases) = call.host()?.borrow_mut().canvases.as_mut()
-        && let Some(slot) = canvases.pixmaps.get_mut(*number as usize)
+        && let Some(slot) = canvases.surfaces.get_mut(*number as usize)
     {
         *slot = None;
     }
@@ -177,27 +219,55 @@ fn number<H>(call: &mut dyn Call<H>, this: &Value<H>) -> Result<usize, Error> {
     }
 }
 
-/// `f` with the pixels of the canvas `this` is.
-fn with_pixmap<H, R>(call: &mut dyn Call<H>, this: &Value<H>, f: impl FnOnce(&mut Pixmap) -> R) -> Result<R, Error> {
+/// `f` with the surface of the canvas `this` is.
+pub(crate) fn with_surface<H, R>(call: &mut dyn Call<H>, this: &Value<H>, f: impl FnOnce(&mut Surface<H>) -> R) -> Result<R, Error> {
     let number = number(call, this)?;
     let host = call.host()?;
     let mut host = host.borrow_mut();
-    let pixmap = host
+    let surface = host
         .canvases
         .as_mut()
-        .and_then(|c| c.pixmaps.get_mut(number))
+        .and_then(|c| c.surfaces.get_mut(number))
         .and_then(Option::as_mut)
         .ok_or_else(|| Error::Script("the canvas is gone".into()))?;
-    Ok(f(pixmap))
+    Ok(f(surface))
 }
 
-/// Setting `canvas.width` or `height`: the canvas is cleared to that size, as in browsers.
+/// `f` with the pixels of the canvas `this` is, what was drawn rendered onto them.
+fn with_pixmap<H, R>(call: &mut dyn Call<H>, this: &Value<H>, f: impl FnOnce(&mut Pixmap) -> R) -> Result<R, Error> {
+    with_surface(call, this, |surface| {
+        surface.flush();
+        f(&mut surface.pixmap)
+    })
+}
+
+/// The pixels of `image`, a canvas, as they are now.
+pub(crate) fn image_pixels<H>(call: &mut dyn Call<H>, image: &Value<H>) -> Result<Arc<Pixmap>, Error> {
+    with_pixmap(call, image, |pixmap| Arc::new(pixmap.clone())).map_err(|_| Error::Script("TypeError: the image isn't a canvas".into()))
+}
+
+/// A new `CanvasGradient`.
+pub(crate) fn new_gradient<H: Clone>(call: &mut dyn Call<H>) -> Result<H, Error> {
+    let (object_class, prototype) = {
+        let host = call.host()?;
+        let host = host.borrow();
+        let canvases = host.canvases.as_ref().ok_or_else(|| Error::Script("OffscreenCanvas is not set up".into()))?;
+        (canvases.object.clone(), canvases.gradient.clone())
+    };
+    match method(call, &object_class, "create", &[Value::Js(prototype)])? {
+        Value::Js(made) => Ok(made),
+        _ => Err(Error::Script("Object.create made nothing".into())),
+    }
+}
+
+/// Setting `canvas.width` or `height`: the canvas is cleared to that size and its state reset, as
+/// in browsers.
 fn resize<H>(call: &mut dyn Call<H>, this: &Value<H>, width: Option<&Value<H>>, height: Option<&Value<H>>) -> Result<Value<H>, Error> {
     let (width, height) = (width.map(|w| side(Some(w))).transpose()?, height.map(|h| side(Some(h))).transpose()?);
-    with_pixmap(call, this, |pixmap| {
-        let (width, height) = (width.unwrap_or(pixmap.width()), height.unwrap_or(pixmap.height()));
+    with_surface(call, this, |surface| {
+        let (width, height) = (width.unwrap_or(surface.pixmap.width()), height.unwrap_or(surface.pixmap.height()));
         if f64::from(width) * f64::from(height) <= AREA {
-            *pixmap = Pixmap::new(width, height);
+            surface.resize(width, height);
         }
     })?;
     Ok(Value::Undefined)
@@ -223,44 +293,6 @@ fn numbers<H>(args: &[Value<H>]) -> [f64; 4] {
     [n(0), n(1), n(2), n(3)]
 }
 
-/// `fillRect(x, y, w, h)` with the `fillStyle` (a colour) and `globalAlpha`, over what's there; or
-/// `clearRect(x, y, w, h)`: transparent black.
-fn fill_rect<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>], clear: bool) -> Result<Value<H>, Error> {
-    let [x, y, w, h] = numbers(args);
-    let color = if clear {
-        None
-    } else {
-        let Value::Js(context) = this else {
-            return Err(Error::Script("not a canvas".into()));
-        };
-        let alpha = match call.get(context, "globalAlpha")? {
-            Value::Number(a) if a.is_finite() => a.clamp(0.0, 1.0),
-            _ => 1.0,
-        };
-        match call.get(context, "fillStyle")? {
-            Value::String(style) => {
-                svgtypes::Color::from_str(&style).ok().map(|c| premultiply([c.red, c.green, c.blue, (f64::from(c.alpha) * alpha).round() as u8]))
-            }
-            // Gradients and patterns come with drawing.
-            _ => return Ok(Value::Undefined),
-        }
-    };
-    with_pixmap(call, this, |pixmap| {
-        let (x0, y0, x1, y1) = pixel_rect(x, y, w, h, pixmap.width(), pixmap.height());
-        let stride = usize::from(pixmap.width());
-        let data = pixmap.data_mut();
-        for row in y0..y1 {
-            for pixel in data.get_mut(row * stride + x0..row * stride + x1).into_iter().flatten() {
-                *pixel = match color {
-                    None => PremulRgba8 { r: 0, g: 0, b: 0, a: 0 },
-                    Some(color) => over(color, *pixel),
-                };
-            }
-        }
-    })?;
-    Ok(Value::Undefined)
-}
-
 /// `[r, g, b, a]` premultiplied.
 fn premultiply([r, g, b, a]: [u8; 4]) -> PremulRgba8 {
     let p = |c: u8| ((u16::from(c) * u16::from(a) + 127) / 255) as u8;
@@ -274,13 +306,6 @@ fn unpremultiply(p: PremulRgba8) -> [u8; 4] {
     }
     let u = |c: u8| ((u16::from(c) * 255 + u16::from(p.a) / 2) / u16::from(p.a)).min(255) as u8;
     [u(p.r), u(p.g), u(p.b), p.a]
-}
-
-/// `source` over `destination`, both premultiplied.
-fn over(source: PremulRgba8, destination: PremulRgba8) -> PremulRgba8 {
-    let rest = 255 - u16::from(source.a);
-    let c = |s: u8, d: u8| (u16::from(s) + (u16::from(d) * rest + 127) / 255).min(255) as u8;
-    PremulRgba8 { r: c(source.r, destination.r), g: c(source.g, destination.g), b: c(source.b, destination.b), a: c(source.a, destination.a) }
 }
 
 /// An `ImageData` of `width` × `height` with `bytes` (RGBA, not premultiplied).
@@ -427,7 +452,7 @@ fn convert_to_blob<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[V
 }
 
 /// A context's font until a script sets one, as in browsers.
-const DEFAULT_FONT: &str = "10px sans-serif";
+pub(crate) const DEFAULT_FONT: &str = "10px sans-serif";
 
 /// `context.measureText(text)`: a `TextMetrics` of `text` in the context's `font`: its advance
 /// (`width`), its ink around the start of its baseline (`actualBoundingBox…`) and the font's
@@ -556,22 +581,44 @@ impl Font {
 
 /// What `measureText` reports, in pixels.
 #[derive(Debug, Default)]
-struct Measured {
-    width: f64,
+pub(crate) struct Measured {
+    pub width: f64,
     ink_left: f64,
     ink_right: f64,
     ink_ascent: f64,
     ink_descent: f64,
-    ascent: f64,
-    descent: f64,
+    pub ascent: f64,
+    pub descent: f64,
 }
 
 /// `text` laid out on one line in `font`, as the app lays out point type.
-fn measure(text: &str, font: &Font) -> Measured {
-    use vectorcraft_geom::Shape as _;
+fn layout(text: &str, font: &Font) -> vectorcraft_text::TextLayout {
     let style = vectorcraft_doc::CharStyle { font_family: font.family(), font_style: font.style().into(), size: font.size, ..Default::default() };
     let object = vectorcraft_doc::TextObject::point(vectorcraft_geom::Point::ZERO, &text.replace(['\n', '\r'], " "), style);
-    let layout = vectorcraft_text::layout(vectorcraft_text::FontDb::global(), &object);
+    vectorcraft_text::layout(vectorcraft_text::FontDb::global(), &object)
+}
+
+/// The outlines of `text` in the CSS `font`, the start of its baseline at the origin, and its
+/// measurements: what `fillText` draws.
+pub(crate) fn outline(text: &str, font: &str) -> (vectorcraft_geom::BezPath, Measured) {
+    let font = Font::parse(font).unwrap_or_default();
+    let laid = layout(text, &font);
+    let measured = measure_layout(&laid);
+    let start = laid.glyphs.first().map_or(0.0, |g| g.origin.x);
+    let baseline = laid.lines.first().map_or(0.0, |l| l.baseline);
+    let mut outline = vectorcraft_geom::BezPath::new();
+    for glyph in &laid.glyphs {
+        outline.extend(glyph.outline.iter());
+    }
+    (vectorcraft_geom::Affine::translate((-start, -baseline)) * outline, measured)
+}
+
+fn measure(text: &str, font: &Font) -> Measured {
+    measure_layout(&layout(text, font))
+}
+
+fn measure_layout(layout: &vectorcraft_text::TextLayout) -> Measured {
+    use vectorcraft_geom::Shape as _;
     let Some(line) = layout.lines.first() else {
         return Measured::default();
     };
@@ -587,10 +634,6 @@ fn measure(text: &str, font: &Font) -> Measured {
         measured.ink_descent = ink.y1 - line.baseline;
     }
     measured
-}
-
-fn nothing<H>(_call: &mut dyn Call<H>, _this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
-    Ok(Value::Undefined)
 }
 
 #[cfg(test)]

@@ -413,6 +413,68 @@ fn canvases_have_pixels<E: Engine>() {
     );
 }
 
+fn canvases_draw<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "const canvas = new OffscreenCanvas(40, 40)\n\
+             const ctx = canvas.getContext('2d')\n\
+             const at = (x, y) => [...ctx.getImageData(x, y, 1, 1).data].join()\n\
+             ctx.save()\n\
+             ctx.translate(10, 10)\n\
+             ctx.scale(2, 2)\n\
+             ctx.fillStyle = 'red'\n\
+             ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(5, 0); ctx.lineTo(5, 5); ctx.lineTo(0, 5); ctx.closePath(); ctx.fill()\n\
+             ctx.lineWidth = 2\n\
+             ctx.strokeStyle = 'blue'\n\
+             ctx.beginPath(); ctx.moveTo(0, 10); ctx.lineTo(10, 10); ctx.stroke()\n\
+             ctx.restore()\n\
+             console.log(at(15, 15), at(25, 25), at(15, 29), at(15, 32), ctx.fillStyle, ctx.getTransform().a)\n\
+             ctx.clearRect(0, 0, 40, 40)\n\
+             ctx.beginPath(); ctx.arc(20, 20, 10, 0, Math.PI * 2); ctx.fillStyle = '#00ff00'; ctx.fill()\n\
+             console.log(at(20, 20), at(2, 2), ctx.isPointInPath(20, 20), ctx.isPointInPath(1, 1))\n\
+             ctx.save(); ctx.beginPath(); ctx.rect(0, 0, 20, 40); ctx.clip()\n\
+             ctx.fillStyle = 'blue'; ctx.fillRect(0, 0, 40, 40); ctx.restore()\n\
+             console.log(at(5, 5), at(35, 5))\n\
+             const gradient = ctx.createLinearGradient(0, 0, 40, 0)\n\
+             gradient.addColorStop(0, 'red'); gradient.addColorStop(1, 'blue')\n\
+             ctx.fillStyle = gradient; ctx.fillRect(0, 0, 40, 40)\n\
+             const [left, right] = [ctx.getImageData(1, 1, 1, 1).data, ctx.getImageData(38, 1, 1, 1).data]\n\
+             console.log(left[0] > 200 && left[2] < 50, right[2] > 200 && right[0] < 50, ctx.fillStyle === gradient)\n\
+             const small = new OffscreenCanvas(2, 2)\n\
+             small.getContext('2d').fillRect(0, 0, 1, 1)\n\
+             ctx.imageSmoothingEnabled = false\n\
+             ctx.drawImage(small, 0, 0, 20, 20)\n\
+             console.log(at(5, 5), at(15, 15) === at(15, 5))\n\
+             ctx.globalCompositeOperation = 'destination-out'\n\
+             ctx.fillRect(0, 0, 10, 10)\n\
+             ctx.globalCompositeOperation = 'source-over'\n\
+             console.log(at(5, 5).endsWith(',0'))\n\
+             ctx.clearRect(0, 0, 40, 40)\n\
+             ctx.font = '30px \"Source Sans 3\"'; ctx.fillStyle = 'black'; ctx.fillText('H', 5, 35)\n\
+             const ink = ctx.getImageData(0, 0, 40, 40).data.filter((v, i) => i % 4 === 3 && v > 128).length\n\
+             console.log(ink > 50)\n\
+             const raster = new Path.Circle({ center: [10, 10], radius: 10, fillColor: 'red', insert: false }).rasterize({ resolution: 72, insert: false })\n\
+             console.log(raster.width, raster.getPixel(10, 10).toCSS(true), raster.getPixel(0, 0).alpha)",
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.take_output(),
+        [
+            "255,0,0,255 0,0,0,0 0,0,255,255 0,0,0,0 #000000 1",
+            "0,255,0,255 0,0,0,0 true false",
+            "0,0,255,255 0,0,0,0",
+            "true true true",
+            "0,0,0,255 true",
+            "true",
+            "true",
+            "20 #ff0000 0"
+        ]
+    );
+}
+
 fn fetch_classes_work_alone<E: Engine>() {
     let mut runtime = Runtime::<E>::new().unwrap();
     let scope = runtime.create_scope(800.0, 600.0).unwrap();
@@ -555,6 +617,11 @@ macro_rules! engine_tests {
             #[test]
             fn canvases_have_pixels() {
                 super::canvases_have_pixels::<$engine>();
+            }
+
+            #[test]
+            fn canvases_draw() {
+                super::canvases_draw::<$engine>();
             }
 
             #[test]
