@@ -104,6 +104,26 @@ fn timeouts_run_once<E: Engine>() {
     assert!(!runtime.is_running(), "nothing is left once the timeouts ran");
 }
 
+fn animation_frames_run_once_a_frame<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "let frames = 0\n\
+             function frame(time) { print('frame', time); if (++frames < 2) requestAnimationFrame(frame) }\n\
+             requestAnimationFrame(frame)\n\
+             cancelAnimationFrame(requestAnimationFrame(() => print('never')))",
+        )
+        .unwrap();
+    assert!(runtime.is_running(), "a frame is waiting");
+    runtime.run_timers(16.0).unwrap();
+    assert_eq!(runtime.take_output(), ["frame 16"], "the one it asks for runs on the next frame");
+    runtime.run_timers(32.0).unwrap();
+    assert_eq!(runtime.take_output(), ["frame 32"]);
+    assert!(!runtime.is_running());
+}
+
 fn files_read_write_and_list<E: Engine>(name: &str) {
     let folder = std::env::temp_dir().join(format!("papercraft-files-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&folder);
@@ -1041,6 +1061,11 @@ macro_rules! engine_tests {
             #[test]
             fn the_console_writes_as_browsers_do() {
                 super::the_console_writes_as_browsers_do::<$engine>();
+            }
+
+            #[test]
+            fn animation_frames_run_once_a_frame() {
+                super::animation_frames_run_once_a_frame::<$engine>();
             }
 
             #[test]

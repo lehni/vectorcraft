@@ -106,6 +106,8 @@ pub struct Host<H> {
     now: f64,
     /// The timers of `setInterval` and `setTimeout`.
     intervals: Vec<Interval<H>>,
+    /// The callbacks `requestAnimationFrame()` asked to run on the next frame, by id.
+    frames: Vec<(u32, H)>,
     /// The document the project reads from ([`Runtime::bind`]).
     bound: Option<binding::Bound>,
     /// The document's active artboard, `project.activeArtboard` ([`Runtime::set_artboard`]).
@@ -182,6 +184,7 @@ impl<H> Default for Host<H> {
             next_interval_id: 0,
             now: 0.0,
             intervals: Vec::new(),
+            frames: Vec::new(),
             bound: None,
             artboard: 0,
             rectangle: None,
@@ -343,8 +346,8 @@ impl<E: Engine> Runtime<E> {
         })
     }
 
-    /// Runs the `setInterval` callbacks that are due at `now`, in milliseconds since the runtime
-    /// was created. The host calls this once per frame, so no interval runs more often than that.
+    /// Runs the `setInterval` and `setTimeout` callbacks that are due at `now`, in milliseconds
+    /// since the runtime was created, then those `requestAnimationFrame()` asked for, with `now`. The host calls this once per frame, so no interval runs more often than that.
     pub fn run_timers(&mut self, now: f64) -> Result<(), Error> {
         let mut due = Vec::new();
         {
@@ -367,6 +370,8 @@ impl<E: Engine> Runtime<E> {
             }
             host.intervals.retain(|interval| !interval.due.is_nan());
         }
+        // The frame's callbacks: those they request run on the next one.
+        let frames = std::mem::take(&mut self.host.borrow_mut().frames);
         // Callbacks may set or clear intervals, so they run after the borrow ends. The requests
         // that answered meanwhile settle first.
         self.engine.with_call(|call| {
@@ -375,19 +380,22 @@ impl<E: Engine> Runtime<E> {
             for callback in due {
                 call.call(&callback, &Value::Undefined, &[])?;
             }
+            for (_, callback) in frames {
+                call.call(&callback, &Value::Undefined, &[Value::Number(now)])?;
+            }
             Ok(())
         })
     }
 
-    /// Whether the scripts have something left to run: a timer, which `onFrame` uses too, or a
-    /// request out.
+    /// Whether the scripts have something left to run: a timer, which `onFrame` uses too, a frame
+    /// callback, or a request out.
     pub fn is_running(&self) -> bool {
         let host = self.host.borrow();
         #[cfg(not(target_arch = "wasm32"))]
         if !host.fetches.is_empty() {
             return true;
         }
-        !host.intervals.is_empty()
+        !host.intervals.is_empty() || !host.frames.is_empty()
     }
 
     /// Sets `project.currentStyle` of `scope`: `style` as [`host::current_style`] makes it.
@@ -678,12 +686,14 @@ fn prelude<E: Engine>(engine: &mut E) -> Result<(), Error> {
 
 /// The host's globals Paper.js expects in a web worker, after the prelude: the timers
 /// (`setInterval` for its frame loop) and `OffscreenCanvas` for CSS colours; and the browser's
-/// `atob` and `btoa`.
+/// `requestAnimationFrame`, `atob` and `btoa`.
 fn install_globals<E: Engine>(engine: &mut E) -> Result<(), Error> {
     let global = engine.global()?;
     let set_interval = engine.function("setInterval", |call, _, args| set_timer(call, args, true))?;
     let set_timeout = engine.function("setTimeout", |call, _, args| set_timer(call, args, false))?;
     let clear_timer = engine.function("clearInterval", clear_timer)?;
+    let request_frame = engine.function("requestAnimationFrame", request_frame)?;
+    let cancel_frame = engine.function("cancelAnimationFrame", cancel_frame)?;
     let atob = engine.function("atob", atob)?;
     let btoa = engine.function("btoa", btoa)?;
     engine.with_call(|call| {
@@ -692,6 +702,8 @@ fn install_globals<E: Engine>(engine: &mut E) -> Result<(), Error> {
         // As in browsers, both clear either kind of timer.
         call.set(&global, "clearInterval", &Value::Js(clear_timer.clone()))?;
         call.set(&global, "clearTimeout", &Value::Js(clear_timer))?;
+        call.set(&global, "requestAnimationFrame", &Value::Js(request_frame))?;
+        call.set(&global, "cancelAnimationFrame", &Value::Js(cancel_frame))?;
         call.set(&global, "atob", &Value::Js(atob))?;
         call.set(&global, "btoa", &Value::Js(btoa))
     })?;
@@ -741,6 +753,26 @@ pub(crate) fn set_timer<H: Clone>(call: &mut dyn Call<H>, args: &[Value<H>], rep
     let due = host.now + delay;
     host.intervals.push(Interval { id, callback: callback.clone(), delay, due, repeats });
     Ok(Value::Number(f64::from(id)))
+}
+
+/// `requestAnimationFrame(callback)`: runs `callback` with the time on the next frame.
+fn request_frame<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let Some(Value::Js(callback)) = args.first() else {
+        return Err(Error::Type("requestAnimationFrame: the callback is not a function".into()));
+    };
+    let host = call.host()?;
+    let mut host = host.borrow_mut();
+    let id = host.next_interval_id.wrapping_add(1);
+    host.next_interval_id = id;
+    host.frames.push((id, callback.clone()));
+    Ok(Value::Number(f64::from(id)))
+}
+
+fn cancel_frame<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    if let Some(Value::Number(id)) = args.first() {
+        call.host()?.borrow_mut().frames.retain(|(frame, _)| f64::from(*frame) != *id);
+    }
+    Ok(Value::Undefined)
 }
 
 fn clear_timer<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
