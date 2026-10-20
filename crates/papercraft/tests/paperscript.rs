@@ -355,7 +355,7 @@ fn scripts_have_urls<E: Engine>() {
             "https://user:pw@example.com:8080/b/c?x=1&y=two#top https://example.com:8080 example.com:8080 /b/c ?x=1&y=two #top user",
             "https://user:pw@example.com:8080/b/c?x=1&y=two&z=a+b two 3",
             "1 false {\"url\":\"https://user:pw@example.com:8080/b/c?q=1\"}",
-            "a=1&b=2 v,w false true",
+            "a=1&b=2 ['v', 'w'] false true",
             "invalid"
         ]
     );
@@ -408,7 +408,7 @@ fn canvases_have_pixels<E: Engine>() {
         .unwrap();
     assert_eq!(
         runtime.take_output(),
-        ["48 0,0,0,0 255,0,0,128 true", "0,255,0,255 0,0,0,0 0,0,0,0", "2 3 0,0,0,0", "#0000ff 0", "80 78 71"],
+        ["48 [0, 0, 0, 0] [255, 0, 0, 128] true", "[0, 255, 0, 255] [0, 0, 0, 0] [0, 0, 0, 0]", "2 3 [0, 0, 0, 0]", "#0000ff 0", "80 78 71"],
         "a half red stays half red, cleared and outside is transparent, resizing clears, PNG's signature"
     );
 }
@@ -817,6 +817,55 @@ fn local_storage_lasts_and_session_storage_doesnt<E: Engine>(name: &str) {
     std::fs::remove_dir_all(&folder).unwrap();
 }
 
+fn the_console_writes_as_browsers_do<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "class Swatch { constructor() { this.name = 'red' } }\n\
+             function make() {}\n\
+             console.log([1, 'two', [3, { four: 4 }]], { a: 1, b: 'b' }, new Swatch(), make, null, new Point(1, 2))\n\
+             console.log('%s is %d years and %f%%, %o', 'Paper.js', 15.7, 0.5, { x: 1 }, 'more')\n\
+             console.assert(1 === 1, 'not shown'); console.assert(false, 'shown', 2)\n\
+             console.count(); console.count(); console.count('other'); console.countReset(); console.count()\n\
+             console.group('outer'); console.info('in'); console.group(); console.warn('deeper'); console.groupEnd(); console.groupEnd(); console.error('out')\n\
+             console.time('t'); console.time('t'); console.timeEnd('t'); console.timeEnd('t')\n\
+             console.table([{ a: 1, b: 2 }, { a: 3 }])\n\
+             print('printed')\n\
+             function deep() { console.trace('here') }\n\
+             deep()",
+        )
+        .unwrap();
+    let mut output = runtime.take_output();
+    // The trace ends the output: the line, then where it came from.
+    let trace = output.pop().unwrap();
+    assert!(trace.starts_with("Trace: here\n") && trace.contains("deep"), "{trace}");
+    let timed = output.iter().position(|line| line.starts_with("t: ")).unwrap();
+    assert!(output[timed].ends_with(" ms"), "{}", output[timed]);
+    output.remove(timed);
+    assert_eq!(
+        output,
+        [
+            "[1, 'two', [3, {four: 4}]] {a: 1, b: 'b'} Swatch {name: 'red'} ƒ make() null { x: 1, y: 2 }",
+            "Paper.js is 15 years and 0.5%, {x: 1} more",
+            "Assertion failed: shown 2",
+            "default: 1",
+            "default: 2",
+            "other: 1",
+            "default: 1",
+            "outer",
+            "  in",
+            "    deeper",
+            "out",
+            "Timer 't' already exists",
+            "Timer 't' does not exist",
+            "│ (index) │ a │ b │\n│ 0       │ 1 │ 2 │\n│ 1       │ 3 │   │",
+            "printed",
+        ]
+    );
+}
+
 fn runtimes_live_side_by_side<E: Engine>() {
     // As the app runs them: a second script starts while the first keeps running, and the first
     // stops first.
@@ -987,6 +1036,11 @@ macro_rules! engine_tests {
             #[test]
             fn local_storage_lasts_and_session_storage_doesnt() {
                 super::local_storage_lasts_and_session_storage_doesnt::<$engine>(stringify!($module));
+            }
+
+            #[test]
+            fn the_console_writes_as_browsers_do() {
+                super::the_console_writes_as_browsers_do::<$engine>();
             }
 
             #[test]

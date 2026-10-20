@@ -10,6 +10,7 @@
 mod binding;
 mod bitmap;
 mod canvas;
+mod console;
 mod dialog;
 #[cfg(not(target_arch = "wasm32"))]
 mod dom;
@@ -152,6 +153,8 @@ pub struct Host<H> {
     exceptions: Option<exception::Classes<H>>,
     /// What `DOMMatrix` and the other geometry classes share.
     geometry: Option<geometry::Classes<H>>,
+    /// The console's groups, counters and timers.
+    console: Option<console::Console<H>>,
     /// The script's `localStorage` and `sessionStorage`, and what their proxies use.
     local_storage: storage::Storage,
     session_storage: storage::Storage,
@@ -206,6 +209,7 @@ impl<H> Default for Host<H> {
             urls: None,
             exceptions: None,
             geometry: None,
+            console: None,
             local_storage: storage::Storage::default(),
             session_storage: storage::Storage::default(),
             storages: None,
@@ -261,6 +265,8 @@ impl<E: Engine> Runtime<E> {
         fetch::install(&mut runtime, &global)?;
         #[cfg(not(target_arch = "wasm32"))]
         urls::install(&mut runtime, &global)?;
+        // After `performance`, its clock.
+        console::install(&mut runtime.engine, &global)?;
         Ok(runtime)
     }
 
@@ -670,24 +676,17 @@ fn prelude<E: Engine>(engine: &mut E) -> Result<(), Error> {
     Ok(())
 }
 
-/// The host's globals Paper.js expects in a web worker, after the prelude: `console`, the timers
-/// (`setInterval` for its frame loop) and `OffscreenCanvas` for CSS colours; Scriptographer's `print()`, which logs as `console.log()` does; and the browser's `atob` and
-/// `btoa`.
+/// The host's globals Paper.js expects in a web worker, after the prelude: the timers
+/// (`setInterval` for its frame loop) and `OffscreenCanvas` for CSS colours; and the browser's
+/// `atob` and `btoa`.
 fn install_globals<E: Engine>(engine: &mut E) -> Result<(), Error> {
     let global = engine.global()?;
-    let log = engine.function("log", console_log)?;
     let set_interval = engine.function("setInterval", |call, _, args| set_timer(call, args, true))?;
     let set_timeout = engine.function("setTimeout", |call, _, args| set_timer(call, args, false))?;
     let clear_timer = engine.function("clearInterval", clear_timer)?;
     let atob = engine.function("atob", atob)?;
     let btoa = engine.function("btoa", btoa)?;
     engine.with_call(|call| {
-        let console = call.new_object()?;
-        for name in ["log", "info", "warn", "error"] {
-            call.set(&console, name, &Value::Js(log.clone()))?;
-        }
-        call.set(&global, "console", &Value::Js(console))?;
-        call.set(&global, "print", &Value::Js(log))?;
         call.set(&global, "setInterval", &Value::Js(set_interval))?;
         call.set(&global, "setTimeout", &Value::Js(set_timeout))?;
         // As in browsers, both clear either kind of timer.
@@ -697,15 +696,6 @@ fn install_globals<E: Engine>(engine: &mut E) -> Result<(), Error> {
         call.set(&global, "btoa", &Value::Js(btoa))
     })?;
     canvas::install(engine, &global)
-}
-
-fn console_log<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let mut parts = Vec::with_capacity(args.len());
-    for arg in args {
-        parts.push(call.to_string(arg)?);
-    }
-    call.host()?.borrow_mut().output.push(parts.join(" "));
-    Ok(Value::Undefined)
 }
 
 /// `atob(base64)`: the bytes it encodes, each as the character of that code, as in browsers.
