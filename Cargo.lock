@@ -968,7 +968,7 @@ dependencies = [
 [[package]]
 name = "color"
 version = "0.3.3"
-source = "git+https://github.com/lehni/color?rev=aa7c1de5c92180a9de236c8705259a68620cf632#aa7c1de5c92180a9de236c8705259a68620cf632"
+source = "git+https://github.com/lehni/color?rev=b3d3a7dd24018dbd657732cb6882ed48d46352b2#b3d3a7dd24018dbd657732cb6882ed48d46352b2"
 dependencies = [
  "bytemuck",
 ]
