@@ -334,7 +334,7 @@ pub(crate) fn run(app: &mut VectorcraftApp, p: &Value) -> Result<Value, String> 
     let path = match p.get("path").and_then(Value::as_str) {
         Some(path) => path.to_owned(),
         None => {
-            let pick = FilePick { filters: vec![("Scripts", EXTS)], ..Default::default() };
+            let pick = FilePick { filters: vec![FilePick::filter("Scripts", EXTS)], ..Default::default() };
             crate::picks::open(app, &pick).ok_or("cancelled")?
         }
     };
@@ -1137,7 +1137,7 @@ pub(crate) fn new_script(app: &mut VectorcraftApp, p: &Value) -> Result<Value, S
         Some(name) => child(&folder, name)?,
         None => {
             let name = free_name(&folder, tl!("Untitled"), ".js");
-            let pick = FilePick { name, folder: Some(folder.to_string_lossy().into_owned()), filters: vec![("Scripts", EXTS)] };
+            let pick = FilePick { name, folder: Some(folder.to_string_lossy().into_owned()), filters: vec![FilePick::filter("Scripts", EXTS)] };
             let path = PathBuf::from(crate::picks::save(app, &pick).ok_or("cancelled")?);
             // The save dialog may have asked whether to replace a file: a new script never does.
             if path.exists() {
