@@ -374,10 +374,12 @@ fn scripts_measure_text<E: Engine>() {
              ctx.font = 'bold 40px \"Source Sans 3\"'\n\
              const big = ctx.measureText('Hello')\n\
              console.log(small.width > 30, big.width > 2 * small.width, small.fontBoundingBoxAscent > small.actualBoundingBoxAscent, small.actualBoundingBoxAscent > 10)\n\
-             console.log(ctx.measureText('Hello ').width > ctx.measureText('Hello').width, ctx.measureText('').width)",
+             console.log(ctx.measureText('Hello ').width > ctx.measureText('Hello').width, ctx.measureText('').width)\n\
+             const text = new PointText({ point: [0, 0], content: 'Hello', fontFamily: 'Source Sans 3', fontSize: 20 })\n\
+             console.log(Math.abs(text.bounds.width - small.width) < 0.01)",
         )
         .unwrap();
-    assert_eq!(runtime.take_output(), ["10px sans-serif", "true true true true", "true 0"], "bold is wider than twice the size alone");
+    assert_eq!(runtime.take_output(), ["10px sans-serif", "true true true true", "true 0", "true"], "bold is wider than twice the size alone");
 }
 
 fn fetch_classes_work_alone<E: Engine>() {
