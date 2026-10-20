@@ -67,7 +67,7 @@ pub(crate) fn install<E: Engine>(runtime: &mut Runtime<E>, global: &E::Handle) -
 }
 
 /// Asks the host `question`, and waits for the answer.
-fn ask<H>(call: &mut dyn Call<H>, question: Json) -> Result<Json, Error> {
+pub(crate) fn ask<H>(call: &mut dyn Call<H>, question: Json) -> Result<Json, Error> {
     let host = call.host()?;
     let taken = host.borrow_mut().ask.take();
     let mut ask = taken.ok_or_else(|| Error::Script("Dialogs need the desktop app".into()))?;

@@ -971,6 +971,19 @@ fn event_targets_are_the_browsers<E: Engine>() {
     );
 }
 
+fn the_clipboard_needs_the_app<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "navigator.clipboard.readText().catch(e => console.log(e.name))\n\
+             navigator.clipboard.writeText('x').catch(e => console.log(e.name))",
+        )
+        .unwrap();
+    assert_eq!(runtime.take_output(), ["NotAllowedError", "NotAllowedError"]);
+}
+
 fn runtimes_live_side_by_side<E: Engine>() {
     // As the app runs them: a second script starts while the first keeps running, and the first
     // stops first.
@@ -1166,6 +1179,11 @@ macro_rules! engine_tests {
             #[test]
             fn event_targets_are_the_browsers() {
                 super::event_targets_are_the_browsers::<$engine>();
+            }
+
+            #[test]
+            fn the_clipboard_needs_the_app() {
+                super::the_clipboard_needs_the_app::<$engine>();
             }
 
             #[test]

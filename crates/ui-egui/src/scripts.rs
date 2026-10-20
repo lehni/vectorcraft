@@ -476,6 +476,7 @@ pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
     if app.scripts.running.is_empty() && app.scripts.console.is_none() {
         return;
     }
+    clipboard(app, ctx);
     dialogs(app);
     let mut scripts = std::mem::take(&mut app.scripts.running);
     let active = app.session.active().map(|d| d.uid);
@@ -757,6 +758,37 @@ pub(crate) fn palettes(app: &mut VectorcraftApp, ctx: &egui::Context) {
             script.queued.push_back(Work::Palette(palette, event));
         }
         ctx.request_repaint();
+    }
+}
+
+/// Answers the scripts that read or write the system clipboard (`navigator.clipboard`) at once,
+/// with no dialog. Text goes there as a text field copies it, so Paste takes it as another app's.
+fn clipboard(app: &mut VectorcraftApp, ctx: &egui::Context) {
+    let asked: Vec<(u64, Value)> = app
+        .scripts
+        .running
+        .iter()
+        .chain(&app.scripts.console)
+        .filter_map(|script| {
+            script
+                .asking
+                .as_ref()
+                .filter(|a| a.question["type"].as_str().is_some_and(|t| t.starts_with("clipboard")))
+                .map(|a| (script.id, a.question.clone()))
+        })
+        .collect();
+    for (id, question) in asked {
+        let answer = match question["type"].as_str() {
+            Some("clipboardRead") => json!({ "text": app.system_clipboard_text() }),
+            _ => {
+                ctx.copy_text(question["text"].as_str().unwrap_or_default().to_owned());
+                json!({})
+            }
+        };
+        if let Some(script) = app.scripts.running.iter_mut().chain(&mut app.scripts.console).find(|s| s.id == id) {
+            script.worker.send(Request::Answer(answer));
+            script.asking = None;
+        }
     }
 }
 

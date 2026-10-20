@@ -10,6 +10,7 @@
 mod binding;
 mod bitmap;
 mod canvas;
+mod clipboard;
 mod clone;
 mod console;
 mod dialog;
@@ -159,6 +160,8 @@ pub struct Host<H> {
     events: Option<events::Classes<H>>,
     /// What `DOMMatrix` and the other geometry classes share.
     geometry: Option<geometry::Classes<H>>,
+    /// The realm's `Promise`, for the clipboard's answers.
+    clipboard_promise: Option<H>,
     /// What `structuredClone()` uses of the realm.
     clone_classes: Option<clone::Classes<H>>,
     /// The console's groups, counters and timers.
@@ -219,6 +222,7 @@ impl<H> Default for Host<H> {
             exceptions: None,
             events: None,
             geometry: None,
+            clipboard_promise: None,
             clone_classes: None,
             console: None,
             local_storage: storage::Storage::default(),
@@ -290,6 +294,7 @@ impl<E: Engine> Runtime<E> {
         #[cfg(not(target_arch = "wasm32"))]
         urls::install(&mut runtime, &global)?;
         clone::install(&mut runtime.engine, &global)?;
+        clipboard::install(&mut runtime.engine, &global)?;
         // After `performance`, its clock.
         console::install(&mut runtime.engine, &global)?;
         Ok(runtime)

@@ -934,3 +934,30 @@ fn a_click_into_the_panel_gives_it_the_keys() {
     }
     assert_eq!(app.key_panel, None);
 }
+
+/// A script reads and writes the system clipboard through the app, with no dialog: its text goes
+/// out as a text field copies it.
+#[test]
+fn scripts_read_and_write_the_clipboard() {
+    let (mut app, _) = app();
+    app.services.clipboard_read = Some(Box::new(|| Some("from the clipboard".into())));
+    let path = tempfile_path::Path::new(
+        "navigator.clipboard.readText().then(text => {\n\
+             new Path.Circle({ center: [0, 0], radius: 5, name: text })\n\
+             return navigator.clipboard.writeText('from the script')\n\
+         })",
+    );
+    let ctx = egui::Context::default();
+    app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
+    for frame in 1..20 {
+        crate::scripts::frame(&mut app, &ctx, f64::from(frame));
+        if children(&app) == 2 && !app.scripts.is_running() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let named = app.session.doc().unwrap().doc.layers[0].children().unwrap().iter().any(|n| n.name.as_deref() == Some("from the clipboard"));
+    assert!(named, "the script named a path for the clipboard's text: {}", app.ui.status);
+    let copied = ctx.output(|o| o.commands.iter().find_map(|c| if let egui::OutputCommand::CopyText(t) = c { Some(t.clone()) } else { None }));
+    assert_eq!(copied.as_deref(), Some("from the script"));
+}
