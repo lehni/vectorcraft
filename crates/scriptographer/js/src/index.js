@@ -9,6 +9,7 @@ import { DOMException } from './dom-exception.js'
 import * as events from './events.js'
 import * as fetch from './fetch.js'
 import * as geometry from './geometry.js'
+import { Storage, createStorage } from './storage.js'
 
 delete globalThis.__scriptographer
 const { print } = natives
@@ -30,6 +31,13 @@ if (!globalThis.fetch) {
   setGlobals({ ...abort, Blob, File, ...classes })
   // What the runtime reads of blobs and bodies:
   Object.assign(natives, { getBytes, getBody })
+}
+if (!globalThis.localStorage) {
+  setGlobals({
+    Storage,
+    localStorage: createStorage(false),
+    sessionStorage: createStorage(true)
+  })
 }
 if (!globalThis.DOMMatrix) {
   setGlobals({ ...geometry, WebKitCSSMatrix: geometry.DOMMatrix })

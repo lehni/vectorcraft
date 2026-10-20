@@ -360,8 +360,8 @@
     get onabort() {
       return this.#onabort;
     }
-    set onabort(handler) {
-      this.#onabort = typeof handler === "function" ? handler : null;
+    set onabort(handler2) {
+      this.#onabort = typeof handler2 === "function" ? handler2 : null;
     }
     throwIfAborted() {
       if (this.#aborted) throw this.#reason;
@@ -1732,6 +1732,99 @@ ${value}\r
     return setMatrix(new Class(), getMatrixFromList(array));
   }
 
+  // src/storage.js
+  var internal2 = /* @__PURE__ */ Symbol("internal");
+  var sessions = /* @__PURE__ */ new WeakMap();
+  var Storage = class {
+    constructor(key) {
+      if (key !== internal2) {
+        throw new TypeError(
+          "Invalid Storage: use localStorage or sessionStorage."
+        );
+      }
+    }
+    get length() {
+      return getKeys(this).length;
+    }
+    key(index) {
+      return getKeys(this)[index >>> 0] ?? null;
+    }
+    getItem(key) {
+      checkArguments(arguments, 1, "getItem");
+      return natives.storage.getItem(getSession(this), String(key));
+    }
+    // Throws a `QuotaExceededError` when that's more than it holds.
+    setItem(key, value) {
+      checkArguments(arguments, 2, "setItem");
+      natives.storage.setItem(getSession(this), String(key), String(value));
+    }
+    removeItem(key) {
+      checkArguments(arguments, 1, "removeItem");
+      natives.storage.removeItem(getSession(this), String(key));
+    }
+    clear() {
+      natives.storage.clear(getSession(this));
+    }
+  };
+  setToStringTag(Storage);
+  var handler = {
+    get(target, key, receiver) {
+      return isItemKey(target, key) ? target.getItem(key) ?? void 0 : Reflect.get(target, key, receiver);
+    },
+    set(target, key, value, receiver) {
+      if (typeof key === "string") {
+        target.setItem(key, value);
+        return true;
+      } else {
+        return Reflect.set(target, key, value, receiver);
+      }
+    },
+    has(target, key) {
+      return typeof key === "string" && target.getItem(key) !== null || Reflect.has(target, key);
+    },
+    deleteProperty(target, key) {
+      if (isItemKey(target, key)) {
+        target.removeItem(key);
+        return true;
+      } else {
+        return Reflect.deleteProperty(target, key);
+      }
+    },
+    // The items' keys, then the storage's own, as `Object.keys()` lists them.
+    ownKeys(target) {
+      return [.../* @__PURE__ */ new Set([...getKeys(target), ...Reflect.ownKeys(target)])];
+    },
+    getOwnPropertyDescriptor(target, key) {
+      const value = isItemKey(target, key) ? target.getItem(key) : null;
+      return value !== null ? { value, writable: true, enumerable: true, configurable: true } : Reflect.getOwnPropertyDescriptor(target, key);
+    }
+  };
+  function createStorage(isSession) {
+    const target = new Storage(internal2);
+    const storage = new Proxy(target, handler);
+    sessions.set(target, isSession);
+    sessions.set(storage, isSession);
+    return storage;
+  }
+  function getSession(storage) {
+    const isSession = sessions.get(storage);
+    if (isSession === void 0) {
+      throw new TypeError(`Invalid storage: '${storage}', not a Storage.`);
+    }
+    return isSession;
+  }
+  function getKeys(storage) {
+    return natives.storage.keys(getSession(storage));
+  }
+  function isItemKey(target, key) {
+    return typeof key === "string" && !(key in target);
+  }
+  function checkArguments(args, count, name) {
+    if (args.length < count) {
+      throw new TypeError(`Invalid ${name}(): an argument is missing.`);
+    }
+  }
+
   // src/index.js
   delete globalThis.__scriptographer;
   var { print } = natives;
@@ -1748,6 +1841,13 @@ ${value}\r
     const { getBody: getBody2, ...classes } = fetch_exports;
     setGlobals({ ...abort_exports, Blob: Blob2, File: File2, ...classes });
     Object.assign(natives, { getBytes: getBytes2, getBody: getBody2 });
+  }
+  if (!globalThis.localStorage) {
+    setGlobals({
+      Storage,
+      localStorage: createStorage(false),
+      sessionStorage: createStorage(true)
+    });
   }
   if (!globalThis.DOMMatrix) {
     setGlobals({ ...geometry_exports, WebKitCSSMatrix: DOMMatrix });

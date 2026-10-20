@@ -198,7 +198,6 @@ pub struct Host<H> {
     /// The script's `localStorage` and `sessionStorage`, and what their proxies use.
     local_storage: storage::Storage,
     session_storage: storage::Storage,
-    storages: Option<storage::Classes<H>>,
     next_palette_id: u64,
     /// The language the app gave the script ([`Setup`]), which its workers have too.
     language: Option<String>,
@@ -273,7 +272,6 @@ impl<H> Default for Host<H> {
             clone_classes: None,
             local_storage: storage::Storage::default(),
             session_storage: storage::Storage::default(),
-            storages: None,
             next_palette_id: 0,
             language: None,
             cache: None,
@@ -323,18 +321,24 @@ impl<E: Engine> Runtime<E> {
         host.borrow_mut().global = Some(global.clone());
         // What's written in JavaScript, before the classes that build on it (`LocalFile` on
         // `File`), with the natives it needs: `print()` for the script's output, on desktop
-        // `request()` for `fetch()` and `readFile()` for a `LocalFile`'s bytes, and on the web the
-        // app's pickers to ask.
+        // `request()` for `fetch()` and `readFile()` for a `LocalFile`'s bytes, on the web the app's
+        // pickers to ask, and the storages' items.
         let mut natives = vec![("print", engine.function("print", print)?)];
         #[cfg(not(target_arch = "wasm32"))]
         natives.extend([("request", engine.function("request", fetch::request)?), ("readFile", engine.function("readFile", local_file::read_file)?)]);
         #[cfg(target_arch = "wasm32")]
         natives.push(("ask", engine.function("ask", dialog::ask_picker)?));
+        let storage = storage::natives(&mut engine)?;
         let shared = engine.with_call(|call| {
             let shared = call.new_object()?;
             for (name, function) in natives {
                 call.set(&shared, name, &Value::Js(function))?;
             }
+            let storage_natives = call.new_object()?;
+            for (name, function) in storage {
+                call.set(&storage_natives, name, &Value::Js(function))?;
+            }
+            call.set(&shared, "storage", &Value::Js(storage_natives))?;
             call.set(&global, "__scriptographer", &Value::Js(shared.clone()))?;
             Ok(shared)
         })?;
@@ -344,7 +348,6 @@ impl<E: Engine> Runtime<E> {
         engine.eval(SCRIPTOGRAPHER_JS)?;
         // After `DOMException`.
         exception::install(&mut engine, &global)?;
-        storage::install(&mut engine, &global)?;
         install_globals(&mut engine)?;
         let paper = engine.with_call(|call| object(call, &global, "paper"))?;
         let load = engine.function("load", modules::load)?;
