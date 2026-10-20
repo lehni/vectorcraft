@@ -788,19 +788,25 @@ pub(crate) fn pointer(app: &mut VectorcraftApp, ev: &vectorcraft_tools::PointerE
     // `cmd` is Command on macOS, Ctrl elsewhere, as Paper.js's `modifiers.command` is.
     let mac = cfg!(target_os = "macos");
     let modifiers = Modifiers { shift: ev.mods.shift, control: ev.mods.ctrl || (ev.mods.cmd && !mac), alt: ev.mods.alt, meta: ev.mods.cmd && mac };
-    // The frame's events go to the script together ([`flush_pointer`]).
+    // The frame's events go to the script together ([`flush_pointer`]), which gives them their times.
     if app.scripts.pointer.as_ref().is_none_or(|(doc, _)| *doc != active) {
-        flush_pointer(app);
+        flush_pointer(app, app.last_time, 0.0);
     }
-    app.scripts.pointer.get_or_insert_with(|| (active, Vec::new())).1.push((event, (ev.pos.x, ev.pos.y), modifiers));
+    app.scripts.pointer.get_or_insert_with(|| (active, Vec::new())).1.push((event, (ev.pos.x, ev.pos.y), modifiers, 0.0));
     true
 }
 
 /// Sends the active tool script the pointer events of this frame, in one go: it works through them,
 /// and what they changed comes back as one change of the document, as a browser draws once a
-/// frame.
-pub(crate) fn flush_pointer(app: &mut VectorcraftApp) {
-    if let Some((doc, events)) = app.scripts.pointer.take() {
+/// frame. The events came in over the `dt` seconds before the frame's time `now`, but egui has no
+/// times of their own: they get times spread evenly over them, the last one `now`.
+pub(crate) fn flush_pointer(app: &mut VectorcraftApp, now: f64, dt: f64) {
+    if let Some((doc, mut events)) = app.scripts.pointer.take() {
+        // A stalled frame counts a tenth of a second at most.
+        let (dt, count) = (dt.clamp(0.0, 0.1), events.len() as f64);
+        for (i, event) in events.iter_mut().enumerate() {
+            event.3 = now - dt * (count - 1.0 - i as f64) / count;
+        }
         to_tool(app, doc, [Work::Mouse(events)]);
     }
 }
@@ -877,7 +883,16 @@ fn to_tool(app: &mut VectorcraftApp, active: u64, work: impl IntoIterator<Item =
             return;
         }
     };
-    script.queued.extend(work);
+    // Pointer events go by the script's clock, in milliseconds since it started, as its frames do.
+    script.queued.extend(work.into_iter().map(|work| match work {
+        Work::Mouse(mut events) => {
+            for event in &mut events {
+                event.3 = (event.3 - script.started) * 1000.0;
+            }
+            Work::Mouse(events)
+        }
+        work => work,
+    }));
     match pump(app, &mut script, None, FRAME_WAIT) {
         Ok(_) => app.scripts.running.push(script),
         Err(e) => {

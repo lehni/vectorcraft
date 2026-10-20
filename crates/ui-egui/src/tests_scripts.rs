@@ -26,7 +26,7 @@ fn running() -> (VectorcraftApp, u64, tempfile_path::Path) {
 fn pointer(app: &mut VectorcraftApp, kind: vectorcraft_tools::PointerKind, x: f64) -> bool {
     let ev = vectorcraft_tools::PointerEvent { kind, pos: vectorcraft_geom::Point::new(x, 100.0), mods: Default::default(), pressure: 1.0 };
     let taken = crate::scripts::pointer(app, &ev);
-    crate::scripts::flush_pointer(app);
+    crate::scripts::flush_pointer(app, app.last_time, 0.0);
     taken
 }
 
@@ -667,16 +667,20 @@ fn the_console_runs_the_line_return_ends() {
 }
 
 /// A tool script gets every mouse move the system reports, as in a browser, not one per frame: its
-/// drags follow the mouse in even steps.
+/// drags follow the mouse in even steps. They get times spread over the frame, by the script's
+/// clock.
 #[test]
 fn a_tool_script_gets_every_mouse_move() {
     let (mut app, _) = app();
-    let path = tempfile_path::Path::new("function onMouseDrag(event) { console.log('drag') }");
+    let path = tempfile_path::Path::new("function onMouseDrag(event) { console.log('drag', Math.round(event.timeStamp)) }");
     app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
     let ctx = egui::Context::default();
-    let frame = |app: &mut VectorcraftApp, events: Vec<egui::Event>| {
+    let mut time = 0.97;
+    let mut frame = |app: &mut VectorcraftApp, events: Vec<egui::Event>| {
+        time += 0.03;
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
-        let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ui| crate::canvas::show(app, ui));
+        let input = egui::RawInput { screen_rect: Some(screen), time: Some(time), events, ..Default::default() };
+        let mut out = ctx.run_ui(input, |ui| crate::canvas::show(app, ui));
         out.textures_delta.clear();
     };
     let at = |x: f32| egui::pos2(x, 300.0);
@@ -684,6 +688,6 @@ fn a_tool_script_gets_every_mouse_move() {
     frame(&mut app, vec![]);
     frame(&mut app, vec![egui::Event::PointerMoved(at(300.0)), press(300.0, true)]);
     frame(&mut app, vec![egui::Event::PointerMoved(at(310.0)), egui::Event::PointerMoved(at(320.0)), egui::Event::PointerMoved(at(330.0))]);
-    let drags = app.scripts.log().iter().filter(|l| l.text == "drag").count();
-    assert_eq!(drags, 3, "one drag per move: {:?}", app.scripts.log().iter().map(|l| &l.text).collect::<Vec<_>>());
+    let drags: Vec<&str> = app.scripts.log().iter().map(|l| l.text.as_str()).filter(|l| l.starts_with("drag")).collect();
+    assert_eq!(drags, ["drag 1040", "drag 1050", "drag 1060"], "one drag per move, 10 ms apart");
 }

@@ -28,8 +28,8 @@ pub enum Request {
     Answer(Json),
 }
 
-/// A pointer event for a tool, at a point in document coordinates.
-pub type Pointer = (MouseEvent, (f64, f64), Modifiers);
+/// A pointer event for a tool, at a point in document coordinates, and its time in milliseconds.
+pub type Pointer = (MouseEvent, (f64, f64), Modifiers, f64);
 
 /// A script's work.
 pub enum Work {
@@ -127,9 +127,9 @@ impl<E: Engine> Script<E> {
         let result = match work {
             Work::Execute(source) => self.runtime.execute(&self.scope, &source),
             Work::Frame(now) => self.runtime.run_timers(now),
-            Work::Mouse(events) => {
-                events.into_iter().try_for_each(|(event, point, modifiers)| self.runtime.mouse_event(&self.scope, event, point, modifiers))
-            }
+            Work::Mouse(events) => events
+                .into_iter()
+                .try_for_each(|(event, point, modifiers, time)| self.runtime.mouse_event(&self.scope, event, point, modifiers, time)),
             Work::Key(down, key, character, modifiers) => self.runtime.key_event(&self.scope, down, &key, character.as_deref(), modifiers),
             Work::Palette(id, event) => self.runtime.palette_event(id, event),
             Work::Activate(active) => self.runtime.activate_tool(&self.scope, active),

@@ -210,25 +210,25 @@ fn tool_scripts_get_pointer_events<E: Engine>() {
             "tool.minDistance = 10\n\
              function onMouseDown(event) { console.log('down', event.point.x, event.modifiers.shift) }\n\
              function onMouseDrag(event) { new Path.Circle({ center: event.point, radius: 2 }) }\n\
-             function onMouseUp(event) { console.log('up', event.point.x) }",
+             function onMouseUp(event) { console.log('up', event.point.x, event.timeStamp) }",
         )
         .unwrap();
     assert!(runtime.has_tool(&scope).unwrap());
     assert!(!runtime.has_key_handlers(&scope).unwrap(), "a tool for the mouse only");
     let shift = Modifiers { shift: true, ..Default::default() };
-    runtime.mouse_event(&scope, MouseEvent::Down, (0.0, 0.0), shift).unwrap();
+    runtime.mouse_event(&scope, MouseEvent::Down, (0.0, 0.0), shift, 0.0).unwrap();
     // Closer than minDistance: no drag event.
-    runtime.mouse_event(&scope, MouseEvent::Move, (5.0, 0.0), Modifiers::default()).unwrap();
-    runtime.mouse_event(&scope, MouseEvent::Move, (20.0, 0.0), Modifiers::default()).unwrap();
-    runtime.mouse_event(&scope, MouseEvent::Up, (20.0, 0.0), Modifiers::default()).unwrap();
+    runtime.mouse_event(&scope, MouseEvent::Move, (5.0, 0.0), Modifiers::default(), 10.0).unwrap();
+    runtime.mouse_event(&scope, MouseEvent::Move, (20.0, 0.0), Modifiers::default(), 20.0).unwrap();
+    runtime.mouse_event(&scope, MouseEvent::Up, (20.0, 0.0), Modifiers::default(), 30.0).unwrap();
     // A move after the button went up is no drag.
-    runtime.mouse_event(&scope, MouseEvent::Move, (40.0, 0.0), Modifiers::default()).unwrap();
+    runtime.mouse_event(&scope, MouseEvent::Move, (40.0, 0.0), Modifiers::default(), 40.0).unwrap();
     // The document is larger than the view: a press outside it is a press too, also after a move
     // there.
-    runtime.mouse_event(&scope, MouseEvent::Move, (-60.0, 500.0), Modifiers::default()).unwrap();
-    runtime.mouse_event(&scope, MouseEvent::Down, (-50.0, 500.0), Modifiers::default()).unwrap();
-    runtime.mouse_event(&scope, MouseEvent::Up, (-50.0, 500.0), Modifiers::default()).unwrap();
-    assert_eq!(runtime.take_output(), ["down 0 true", "up 20", "down -50 false", "up -50"]);
+    runtime.mouse_event(&scope, MouseEvent::Move, (-60.0, 500.0), Modifiers::default(), 60.0).unwrap();
+    runtime.mouse_event(&scope, MouseEvent::Down, (-50.0, 500.0), Modifiers::default(), 70.0).unwrap();
+    runtime.mouse_event(&scope, MouseEvent::Up, (-50.0, 500.0), Modifiers::default(), 80.0).unwrap();
+    assert_eq!(runtime.take_output(), ["down 0 true", "up 20 30", "down -50 false", "up -50 80"]);
     let patch = runtime.take_patch(&scope).unwrap().unwrap();
     assert_eq!(patch.params["insert"].as_array().unwrap().len(), 1, "one drag event drew one circle");
 }
@@ -413,7 +413,7 @@ fn zz_after_delete() {
     let step = |s: &mut Session, runtime: &mut Runtime<V8>, ev, x: f64| {
         let st = s.active().unwrap();
         runtime.update(&scope, st.doc.clone(), st.selection.clone()).unwrap();
-        runtime.mouse_event(&scope, ev, (x, 50.0), Modifiers::default()).unwrap();
+        runtime.mouse_event(&scope, ev, (x, 50.0), Modifiers::default(), 0.0).unwrap();
         if let Some(patch) = runtime.take_patch(&scope).unwrap() {
             println!("patch {}", patch.params);
             let result = s.execute("document.patch", &patch.params).unwrap();

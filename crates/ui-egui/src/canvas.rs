@@ -318,7 +318,8 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
         egui::Popup::close_all(ui.ctx());
     } else {
         handle_input(app, ui, &resp, rect);
-        crate::scripts::flush_pointer(app);
+        let (now, dt) = ui.input(|i| (i.time, f64::from(i.unstable_dt)));
+        crate::scripts::flush_pointer(app, now, dt);
         // `hover_doc` is the document point under the pointer in the view `handle_input` left. The
         // wheel, a pan, a Rotate View drag, the Zoom tool and a Presentation Mode click move the view
         // there.
