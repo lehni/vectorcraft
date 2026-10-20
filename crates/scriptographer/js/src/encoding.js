@@ -1,4 +1,5 @@
-import { defineValues, setToStringTag } from './define.js'
+import { getBufferBytes } from './blob.js'
+import { inject, setToStringTag } from './define.js'
 import { natives } from './natives.js'
 
 // `TextEncoder` and `TextDecoder` for scripts outside a browser: UTF-8, as the
@@ -57,9 +58,7 @@ export class TextDecoder {
   // A buffer's or a view's bytes as text: invalid sequences replaced, or a
   // `TypeError` when the decoder is `fatal`.
   decode(input = new Uint8Array(), { stream = false } = {}) {
-    const given = ArrayBuffer.isView(input)
-      ? new Uint8Array(input.buffer, input.byteOffset, input.byteLength)
-      : new Uint8Array(input)
+    const given = getBufferBytes(input) ?? new Uint8Array(input)
     let bytes = given
     if (this.#pending.length) {
       bytes = new Uint8Array(this.#pending.length + given.length)
@@ -81,7 +80,15 @@ export class TextDecoder {
 }
 
 for (const target of [TextEncoder.prototype, TextDecoder.prototype]) {
-  defineValues(target, { encoding: 'utf-8' }, { configurable: true })
+  inject(
+    target,
+    {
+      get encoding() {
+        return 'utf-8'
+      }
+    },
+    { enumerable: true }
+  )
 }
 setToStringTag(TextEncoder, TextDecoder)
 

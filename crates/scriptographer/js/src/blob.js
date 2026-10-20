@@ -1,4 +1,4 @@
-import { setToStringTag } from './define.js'
+import { checkArguments, setToStringTag } from './define.js'
 
 // `Blob` and `File` for scripts outside a browser. Their bytes arrive whole: no
 // streams.
@@ -45,9 +45,7 @@ export class File extends Blob {
   #lastModified
 
   constructor(parts, name, options = {}) {
-    if (arguments.length < 2) {
-      throw new TypeError('Invalid File: its parts and its name are needed.')
-    }
+    checkArguments(arguments, 2, 'File')
     super(parts, options)
     this.#name = String(name)
     this.#lastModified = Math.trunc(Number(options.lastModified ?? Date.now()))
@@ -73,17 +71,24 @@ export function getBytes(blob) {
   return blob[readBytes]?.() ?? bytesByBlob.get(blob).bytes
 }
 
+// The bytes of a buffer or a view, not copied, or `null` for anything else.
+export function getBufferBytes(value) {
+  return value instanceof ArrayBuffer
+    ? new Uint8Array(value)
+    : ArrayBuffer.isView(value)
+      ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+      : null
+}
+
 // The bytes of a `Blob`'s parts: strings (UTF-8), buffers, views and `Blob`s.
 function getPartBytes(parts) {
   const encoder = new TextEncoder()
-  const list = Array.from(parts, part =>
-    part instanceof Blob
-      ? getBytes(part)
-      : part instanceof ArrayBuffer
-        ? new Uint8Array(part)
-        : ArrayBuffer.isView(part)
-          ? new Uint8Array(part.buffer, part.byteOffset, part.byteLength)
-          : encoder.encode(String(part))
+  const list = Array.from(
+    parts,
+    part => (
+      getBufferBytes(part) ??
+      (part instanceof Blob ? getBytes(part) : encoder.encode(String(part)))
+    )
   )
   const bytes = new Uint8Array(
     list.reduce((size, part) => size + part.length, 0)

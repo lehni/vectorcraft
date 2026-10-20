@@ -1,4 +1,4 @@
-import { defineValues, setToStringTag } from './define.js'
+import { defineConstants, setToStringTag } from './define.js'
 
 // `DOMException` for scripts outside a browser: an `Error` with a `name`, and
 // the legacy `code` of the names that had one, as `INDEX_SIZE_ERR` and the
@@ -51,14 +51,11 @@ export class DOMException extends Error {
   }
 }
 
-for (const target of [DOMException, DOMException.prototype]) {
-  defineValues(
-    target,
-    Object.fromEntries(
-      constants.map(([, constant], index) => [constant, index + 1])
-    ),
-    { enumerable: true }
+defineConstants(
+  DOMException,
+  Object.fromEntries(
+    constants.map(([, constant], index) => [constant, index + 1])
   )
-}
+)
 
 setToStringTag(DOMException)

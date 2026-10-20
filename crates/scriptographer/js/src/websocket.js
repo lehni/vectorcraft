@@ -1,5 +1,5 @@
-import { Blob, getBytes } from './blob.js'
-import { defineValues, setToStringTag } from './define.js'
+import { Blob, getBufferBytes, getBytes } from './blob.js'
+import { checkArguments, defineConstants, setToStringTag } from './define.js'
 import {
   CloseEvent,
   Event,
@@ -80,9 +80,7 @@ export class WebSocket extends EventTarget {
   // Text, or the bytes of a `Blob`, a buffer or a view. A closing or closed
   // socket sends nothing, as in browsers.
   send(data) {
-    if (arguments.length < 1) {
-      throw new TypeError('Invalid send(): the data is missing.')
-    }
+    checkArguments(arguments, 1, 'send')
     if (this.#readyState === states.CONNECTING) {
       throw new DOMException(
         'Unable to send: the WebSocket is not open yet.',
@@ -92,13 +90,8 @@ export class WebSocket extends EventTarget {
     if (this.#readyState === states.OPEN) {
       natives.socket.send(
         this.#number,
-        data instanceof Blob
-          ? getBytes(data)
-          : data instanceof ArrayBuffer
-            ? new Uint8Array(data)
-            : ArrayBuffer.isView(data)
-              ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
-              : String(data)
+        getBufferBytes(data) ??
+        (data instanceof Blob ? getBytes(data) : String(data))
       )
     }
   }
@@ -163,8 +156,6 @@ export class WebSocket extends EventTarget {
   }
 }
 
-for (const target of [WebSocket, WebSocket.prototype]) {
-  defineValues(target, states, { enumerable: true })
-}
+defineConstants(WebSocket, states)
 defineEventHandlers(WebSocket.prototype, 'open', 'message', 'error', 'close')
 setToStringTag(WebSocket)

@@ -1,4 +1,4 @@
-import { defineValues, setToStringTag } from './define.js'
+import { inject, setToStringTag } from './define.js'
 import {
   ErrorEvent,
   EventTarget,
@@ -62,19 +62,15 @@ export function setupWorker(name) {
   const { addEventListener, removeEventListener, dispatchEvent } =
     EventTarget.prototype
   const { postMessage, close, importScripts } = natives.worker.self
-  defineValues(
-    globalThis,
-    {
-      name,
-      postMessage,
-      close,
-      importScripts,
-      addEventListener,
-      removeEventListener,
-      dispatchEvent
-    },
-    { writable: true, configurable: true }
-  )
+  inject(globalThis, {
+    name,
+    postMessage,
+    close,
+    importScripts,
+    addEventListener,
+    removeEventListener,
+    dispatchEvent
+  })
   defineEventHandlers(globalThis, 'message', 'messageerror')
   return ({ type, data }) => fire(globalThis, new MessageEvent(type, { data }))
 }

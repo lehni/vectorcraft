@@ -1,5 +1,5 @@
 import { reportError } from './global-scope.js'
-import { defineAccessors, defineValues, setToStringTag } from './define.js'
+import { defineConstants, inject, setToStringTag } from './define.js'
 
 // `EventTarget` and the event classes for scripts outside a browser, as the DOM
 // standard has them, to extend (`class Emitter extends EventTarget`). There's
@@ -257,19 +257,19 @@ for (const Class of [
   ErrorEvent
 ]) {
   for (const name of fields[Class.name]) {
-    defineAccessors(Class.prototype, {
-      [name]: {
-        get() {
+    inject(
+      Class.prototype,
+      {
+        get [name]() {
           return getState(this)[name]
         }
-      }
-    })
+      },
+      { enumerable: true }
+    )
   }
 }
 
-for (const target of [Event, Event.prototype]) {
-  defineValues(target, phases, { enumerable: true })
-}
+defineConstants(Event, phases)
 
 setToStringTag(
   EventTarget,
@@ -284,13 +284,14 @@ setToStringTag(
 // the event `types`.
 export function defineEventHandlers(target, ...types) {
   for (const type of types) {
-    defineAccessors(target, {
-      [`on${type}`]: {
-        get() {
+    inject(
+      target,
+      {
+        get [`on${type}`]() {
           return handlersByTarget.get(this)?.[type] ?? null
         },
 
-        set(handler) {
+        set [`on${type}`](handler) {
           let handlers = handlersByTarget.get(this)
           if (!handlers) {
             handlers = {}
@@ -298,8 +299,9 @@ export function defineEventHandlers(target, ...types) {
           }
           handlers[type] = typeof handler === 'function' ? handler : null
         }
-      }
-    })
+      },
+      { enumerable: true }
+    )
   }
 }
 

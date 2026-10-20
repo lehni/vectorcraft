@@ -1,10 +1,9 @@
-import { EventTarget, Event, defineEventHandlers, fire } from './events.js'
-import { setToStringTag } from './define.js'
+import { internal, setToStringTag } from './define.js'
+import { Event, EventTarget, defineEventHandlers, fire } from './events.js'
 
 // `AbortController` and `AbortSignal`, for scripts outside a browser.
 
-// Only the controller and the static methods make signals:
-const internal = Symbol('internal')
+// What aborts a signal, from the controller and the static methods:
 let abort
 
 export class AbortSignal extends EventTarget {

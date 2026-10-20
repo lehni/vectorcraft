@@ -1,5 +1,5 @@
-import { Blob, File } from './blob.js'
-import { setToStringTag } from './define.js'
+import { Blob, File, getBufferBytes } from './blob.js'
+import { internal, setToStringTag } from './define.js'
 import { getBody } from './fetch.js'
 import { getType } from './local-file.js'
 import { natives } from './natives.js'
@@ -11,7 +11,6 @@ import { natives } from './natives.js'
 // browsers do. What's left out: the stream is not a `WritableStream` (no
 // `getWriter()` or `pipeTo()`).
 
-const internal = Symbol('internal')
 // The paths of the handles:
 const pathsByHandle = new WeakMap()
 
@@ -133,8 +132,7 @@ export class FileSystemWritableFileStream {
       typeof data === 'object' &&
       typeof data.type === 'string' &&
       !(data instanceof Blob) &&
-      !ArrayBuffer.isView(data) &&
-      !(data instanceof ArrayBuffer)
+      !getBufferBytes(data)
     )
     const { type, position, size } = isCommand ? data : { type: 'write' }
     if (type === 'seek') {

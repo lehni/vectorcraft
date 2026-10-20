@@ -1,4 +1,4 @@
-import { defineAccessors, setToStringTag } from './define.js'
+import { inject, setToStringTag } from './define.js'
 
 // The Geometry Interfaces, for scripts outside a browser: `DOMPoint`,
 // `DOMRect`, `DOMQuad` and `DOMMatrix`, with their read-only versions. As in a
@@ -392,19 +392,29 @@ setToStringTag(
 
 function defineAttributes(ReadOnly, Writable, entries, getValues, changed) {
   for (const [name, index] of entries) {
-    const get = function () {
-      return getValues(this)[index]
-    }
-    defineAccessors(ReadOnly.prototype, { [name]: { get } })
-    defineAccessors(Writable.prototype, {
-      [name]: {
-        get,
-        set(value) {
+    inject(
+      ReadOnly.prototype,
+      {
+        get [name]() {
+          return getValues(this)[index]
+        }
+      },
+      { enumerable: true }
+    )
+    inject(
+      Writable.prototype,
+      {
+        get [name]() {
+          return getValues(this)[index]
+        },
+
+        set [name](value) {
           getValues(this)[index] = +value
           changed?.(this, index, +value)
         }
-      }
-    })
+      },
+      { enumerable: true }
+    )
   }
 }
 

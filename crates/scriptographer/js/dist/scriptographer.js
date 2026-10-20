@@ -10,32 +10,44 @@
   var natives = globalThis.__scriptographer;
 
   // src/define.js
-  function defineValues(target, values, attributes = {}) {
-    for (const key of Reflect.ownKeys(values)) {
-      Object.defineProperty(target, key, { value: values[key], ...attributes });
-    }
-  }
-  __name(defineValues, "defineValues");
-  function defineAccessors(target, accessors) {
-    for (const key of Reflect.ownKeys(accessors)) {
+  function inject(target, source, attributes) {
+    for (const key of Reflect.ownKeys(source)) {
       Object.defineProperty(target, key, {
-        ...accessors[key],
+        ...Object.getOwnPropertyDescriptor(source, key),
+        enumerable: false,
+        ...attributes
+      });
+    }
+    return target;
+  }
+  __name(inject, "inject");
+  function defineConstants(Class, constants2) {
+    for (const target of [Class, Class.prototype]) {
+      inject(target, constants2, {
         enumerable: true,
-        configurable: true
+        writable: false,
+        configurable: false
       });
     }
   }
-  __name(defineAccessors, "defineAccessors");
+  __name(defineConstants, "defineConstants");
   function setToStringTag(...classes) {
     for (const Class of classes) {
-      defineValues(
+      inject(
         Class.prototype,
         { [Symbol.toStringTag]: Class.name },
-        { configurable: true }
+        { writable: false }
       );
     }
   }
   __name(setToStringTag, "setToStringTag");
+  var internal = /* @__PURE__ */ Symbol("internal");
+  function checkArguments(args, count, name) {
+    if (args.length < count) {
+      throw new TypeError(`Invalid ${name}(): an argument is missing.`);
+    }
+  }
+  __name(checkArguments, "checkArguments");
 
   // src/abort.js
   var abort_exports = {};
@@ -380,18 +392,18 @@
     ErrorEvent
   ]) {
     for (const name of fields[Class.name]) {
-      defineAccessors(Class.prototype, {
-        [name]: {
-          get() {
+      inject(
+        Class.prototype,
+        {
+          get [name]() {
             return getState(this)[name];
           }
-        }
-      });
+        },
+        { enumerable: true }
+      );
     }
   }
-  for (const target of [Event, Event.prototype]) {
-    defineValues(target, phases, { enumerable: true });
-  }
+  defineConstants(Event, phases);
   setToStringTag(
     EventTarget,
     Event,
@@ -402,12 +414,13 @@
   );
   function defineEventHandlers(target, ...types2) {
     for (const type of types2) {
-      defineAccessors(target, {
-        [`on${type}`]: {
-          get() {
+      inject(
+        target,
+        {
+          get [`on${type}`]() {
             return handlersByTarget.get(this)?.[type] ?? null;
           },
-          set(handler2) {
+          set [`on${type}`](handler2) {
             let handlers = handlersByTarget.get(this);
             if (!handlers) {
               handlers = {};
@@ -415,8 +428,9 @@
             }
             handlers[type] = typeof handler2 === "function" ? handler2 : null;
           }
-        }
-      });
+        },
+        { enumerable: true }
+      );
     }
   }
   __name(defineEventHandlers, "defineEventHandlers");
@@ -472,7 +486,6 @@
   __name(remove, "remove");
 
   // src/abort.js
-  var internal = /* @__PURE__ */ Symbol("internal");
   var abort;
   var AbortSignal = class _AbortSignal extends EventTarget {
     static {
@@ -557,6 +570,7 @@
   __export(blob_exports, {
     Blob: () => Blob,
     File: () => File,
+    getBufferBytes: () => getBufferBytes,
     getBytes: () => getBytes,
     readBytes: () => readBytes
   });
@@ -596,9 +610,7 @@
     #name;
     #lastModified;
     constructor(parts2, name, options = {}) {
-      if (arguments.length < 2) {
-        throw new TypeError("Invalid File: its parts and its name are needed.");
-      }
+      checkArguments(arguments, 2, "File");
       super(parts2, options);
       this.#name = String(name);
       this.#lastModified = Math.trunc(Number(options.lastModified ?? Date.now()));
@@ -618,11 +630,15 @@
     return blob[readBytes]?.() ?? bytesByBlob.get(blob).bytes;
   }
   __name(getBytes, "getBytes");
+  function getBufferBytes(value) {
+    return value instanceof ArrayBuffer ? new Uint8Array(value) : ArrayBuffer.isView(value) ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength) : null;
+  }
+  __name(getBufferBytes, "getBufferBytes");
   function getPartBytes(parts2) {
     const encoder = new TextEncoder();
     const list = Array.from(
       parts2,
-      (part) => part instanceof Blob ? getBytes(part) : part instanceof ArrayBuffer ? new Uint8Array(part) : ArrayBuffer.isView(part) ? new Uint8Array(part.buffer, part.byteOffset, part.byteLength) : encoder.encode(String(part))
+      (part) => getBufferBytes(part) ?? (part instanceof Blob ? getBytes(part) : encoder.encode(String(part)))
     );
     const bytes = new Uint8Array(
       list.reduce((size, part) => size + part.length, 0)
@@ -650,9 +666,7 @@
       return ask({ type: "clipboardRead" })?.text ?? "";
     }
     async writeText(text) {
-      if (arguments.length < 1) {
-        throw new TypeError("Invalid writeText(): the text is missing.");
-      }
+      checkArguments(arguments, 1, "writeText");
       ask({ type: "clipboardWrite", text: String(text) });
     }
   };
@@ -1164,15 +1178,12 @@ ${stack}` : ""));
       return codes.get(this.#name) ?? 0;
     }
   };
-  for (const target of [DOMException2, DOMException2.prototype]) {
-    defineValues(
-      target,
-      Object.fromEntries(
-        constants.map(([, constant], index) => [constant, index + 1])
-      ),
-      { enumerable: true }
-    );
-  }
+  defineConstants(
+    DOMException2,
+    Object.fromEntries(
+      constants.map(([, constant], index) => [constant, index + 1])
+    )
+  );
   setToStringTag(DOMException2);
 
   // src/encoding.js
@@ -1227,7 +1238,7 @@ ${stack}` : ""));
     // A buffer's or a view's bytes as text: invalid sequences replaced, or a
     // `TypeError` when the decoder is `fatal`.
     decode(input = new Uint8Array(), { stream = false } = {}) {
-      const given = ArrayBuffer.isView(input) ? new Uint8Array(input.buffer, input.byteOffset, input.byteLength) : new Uint8Array(input);
+      const given = getBufferBytes(input) ?? new Uint8Array(input);
       let bytes = given;
       if (this.#pending.length) {
         bytes = new Uint8Array(this.#pending.length + given.length);
@@ -1248,7 +1259,15 @@ ${stack}` : ""));
     }
   };
   for (const target of [TextEncoder2.prototype, TextDecoder2.prototype]) {
-    defineValues(target, { encoding: "utf-8" }, { configurable: true });
+    inject(
+      target,
+      {
+        get encoding() {
+          return "utf-8";
+        }
+      },
+      { enumerable: true }
+    );
   }
   setToStringTag(TextEncoder2, TextDecoder2);
   function getIncomplete(bytes) {
@@ -1275,6 +1294,43 @@ ${stack}` : ""));
     fetch: () => fetch,
     getBody: () => getBody
   });
+
+  // src/pairs.js
+  var pairIterable = {
+    forEach(callback, thisArg) {
+      for (const [key, value] of this.entries()) {
+        callback.call(thisArg, value, key, this);
+      }
+    },
+    *keys() {
+      for (const [key] of this.entries()) yield key;
+    },
+    *values() {
+      for (const [, value] of this.entries()) yield value;
+    },
+    [Symbol.iterator]() {
+      return this.entries();
+    }
+  };
+  function getPairs(init) {
+    return typeof init[Symbol.iterator] === "function" ? Array.from(init, (pair) => {
+      pair = [...pair];
+      if (pair.length !== 2) {
+        throw new TypeError(`Invalid pair: '${pair}'.`);
+      }
+      return pair;
+    }) : Object.entries(init);
+  }
+  __name(getPairs, "getPairs");
+  function setFirst(list, entry) {
+    const index = list.findIndex(([name]) => name === entry[0]);
+    const rest = list.filter(([name]) => name !== entry[0]);
+    rest.splice(index < 0 ? rest.length : index, 0, entry);
+    return rest;
+  }
+  __name(setFirst, "setFirst");
+
+  // src/fetch.js
   var Headers = class _Headers {
     static {
       __name(this, "Headers");
@@ -1285,14 +1341,7 @@ ${stack}` : ""));
       if (init instanceof _Headers) {
         this.#list = [...init.#list];
       } else if (init != null) {
-        const pairs = typeof init[Symbol.iterator] === "function" ? Array.from(init, (pair) => {
-          pair = [...pair];
-          if (pair.length !== 2) {
-            throw new TypeError(`Invalid header: '${pair}'.`);
-          }
-          return pair;
-        }) : Object.entries(init);
-        for (const [name, value] of pairs) this.append(name, value);
+        for (const [name, value] of getPairs(init)) this.append(name, value);
       }
     }
     get(name) {
@@ -1305,12 +1354,8 @@ ${stack}` : ""));
     has(name) {
       return this.#getValues(name).length > 0;
     }
-    // In place of the first one of its name:
     set(name, value) {
-      const header = getHeader(name, value);
-      const index = this.#list.findIndex(([name2]) => name2 === header[0]);
-      this.delete(header[0]);
-      this.#list.splice(index < 0 ? this.#list.length : index, 0, header);
+      this.#list = setFirst(this.#list, getHeader(name, value));
     }
     append(name, value) {
       this.#list.push(getHeader(name, value));
@@ -1319,24 +1364,10 @@ ${stack}` : ""));
       name = getName(name);
       this.#list = this.#list.filter((header) => header[0] !== name);
     }
-    forEach(callback, thisArg) {
-      for (const [name, value] of this) {
-        callback.call(thisArg, value, name, this);
-      }
-    }
     // As scripts see them: sorted by name, the values of a name joined.
     *entries() {
       const names2 = [...new Set(this.#list.map(([name]) => name))].sort();
       for (const name of names2) yield [name, this.get(name)];
-    }
-    *keys() {
-      for (const [name] of this) yield name;
-    }
-    *values() {
-      for (const [, value] of this) yield value;
-    }
-    [Symbol.iterator]() {
-      return this.entries();
     }
     #getValues(name) {
       name = getName(name);
@@ -1350,14 +1381,12 @@ ${stack}` : ""));
     // `[name, value]`, a value a string or a `File`:
     #entries = [];
     append(name, value, filename) {
+      checkArguments(arguments, 2, "append");
       this.#entries.push(getEntry(...arguments));
     }
-    // In place of the first one of its name:
     set(name, value, filename) {
-      const entry = getEntry(...arguments);
-      const index = this.#entries.findIndex(([name2]) => name2 === entry[0]);
-      this.delete(entry[0]);
-      this.#entries.splice(index < 0 ? this.#entries.length : index, 0, entry);
+      checkArguments(arguments, 2, "set");
+      this.#entries = setFirst(this.#entries, getEntry(...arguments));
     }
     get(name) {
       return this.#entries.find((entry) => entry[0] === String(name))?.[1] ?? null;
@@ -1371,32 +1400,28 @@ ${stack}` : ""));
     delete(name) {
       this.#entries = this.#entries.filter((entry) => entry[0] !== String(name));
     }
-    forEach(callback, thisArg) {
-      for (const [name, value] of this) {
-        callback.call(thisArg, value, name, this);
-      }
-    }
     *entries() {
       for (const [name, value] of this.#entries) yield [name, value];
     }
-    *keys() {
-      for (const [name] of this.#entries) yield name;
-    }
-    *values() {
-      for (const [, value] of this.#entries) yield value;
-    }
-    [Symbol.iterator]() {
-      return this.entries();
-    }
   };
+  for (const Class of [Headers, FormData]) {
+    inject(Class.prototype, pairIterable);
+  }
   var Body = class {
     static {
       __name(this, "Body");
     }
     #bytes;
     #isUsed = false;
-    constructor(bytes) {
-      this.#bytes = bytes;
+    // The body's bytes, its type in `headers` unless they have one.
+    constructor(body, headers) {
+      if (body != null) {
+        const { bytes, type } = getBody(body);
+        if (type && !headers.has("content-type")) {
+          headers.set("content-type", type);
+        }
+        this.#bytes = bytes;
+      }
     }
     get bodyUsed() {
       return this.#isUsed;
@@ -1429,7 +1454,7 @@ ${stack}` : ""));
       if (body.#isUsed) {
         throw new TypeError("Unable to copy the body: it was read already.");
       }
-      return body.#bytes;
+      return body.#bytes ?? null;
     }
   };
   var Request = class _Request extends Body {
@@ -1445,18 +1470,11 @@ ${stack}` : ""));
       const from = input instanceof _Request ? input : null;
       const method = String(init.method ?? from?.method ?? "GET").toUpperCase();
       const headers = new Headers(init.headers ?? from?.headers);
-      let bytes = from ? Body.getBytes(from) : null;
-      if (init.body != null) {
-        const body = getBody(init.body);
-        bytes = body.bytes;
-        if (body.type && !headers.has("content-type")) {
-          headers.set("content-type", body.type);
-        }
-      }
-      if (bytes && (method === "GET" || method === "HEAD")) {
+      const body = init.body ?? (from && Body.getBytes(from));
+      if (body != null && (method === "GET" || method === "HEAD")) {
         throw new TypeError(`Invalid Request: a ${method} request has no body.`);
       }
-      super(bytes);
+      super(body, headers);
       this.#url = from ? from.url : String(input);
       this.#method = method;
       this.#headers = headers;
@@ -1499,15 +1517,7 @@ ${stack}` : ""));
         throw new RangeError(`Invalid Response status: '${status}'.`);
       }
       headers = new Headers(headers);
-      let bytes = null;
-      if (body != null) {
-        const { bytes: data, type } = getBody(body);
-        bytes = data;
-        if (type && !headers.has("content-type")) {
-          headers.set("content-type", type);
-        }
-      }
-      super(bytes);
+      super(body, headers);
       this.#status = status;
       this.#statusText = String(statusText);
       this.#headers = headers;
@@ -1566,14 +1576,8 @@ ${stack}` : ""));
   }
   __name(fetch, "fetch");
   function getBody(body) {
-    return body instanceof Blob ? { bytes: getBytes(body), type: body.type || null } : body instanceof FormData ? getMultipart(body) : body instanceof ArrayBuffer ? { bytes: new Uint8Array(body), type: null } : ArrayBuffer.isView(body) ? {
-      bytes: new Uint8Array(
-        body.buffer,
-        body.byteOffset,
-        body.byteLength
-      ),
-      type: null
-    } : {
+    const bytes = getBufferBytes(body);
+    return bytes ? { bytes, type: null } : body instanceof Blob ? { bytes: getBytes(body), type: body.type || null } : body instanceof FormData ? getMultipart(body) : {
       bytes: new TextEncoder().encode(String(body)),
       type: body instanceof URLSearchParams ? "application/x-www-form-urlencoded;charset=UTF-8" : "text/plain;charset=UTF-8"
     };
@@ -1588,11 +1592,6 @@ ${stack}` : ""));
   }
   __name(getName, "getName");
   function getEntry(name, value, filename) {
-    if (arguments.length < 2) {
-      throw new TypeError(
-        "Invalid FormData entry: its name and value are needed."
-      );
-    }
     return [
       String(name),
       value instanceof Blob ? value instanceof File && filename === void 0 ? value : new File([value], filename ?? value.name ?? "blob", {
@@ -1777,7 +1776,6 @@ ${value}\r
   __name(getType2, "getType");
 
   // src/file-system.js
-  var internal2 = /* @__PURE__ */ Symbol("internal");
   var pathsByHandle = /* @__PURE__ */ new WeakMap();
   var most = 512 * 1024 * 1024;
   var FileSystemHandle = class {
@@ -1785,7 +1783,7 @@ ${value}\r
       __name(this, "FileSystemHandle");
     }
     constructor(key, path) {
-      if (key !== internal2) {
+      if (key !== internal) {
         throw new TypeError("Invalid FileSystemHandle: the pickers give them.");
       }
       pathsByHandle.set(this, path);
@@ -1824,7 +1822,7 @@ ${value}\r
     async createWritable({ keepExistingData = false } = {}) {
       const path = getPath(this);
       return new FileSystemWritableFileStream(
-        internal2,
+        internal,
         path,
         keepExistingData ? natives.fs.read(path) : new Uint8Array()
       );
@@ -1873,7 +1871,7 @@ ${value}\r
     #position = 0;
     #isClosed = false;
     constructor(key, path, bytes) {
-      if (key !== internal2) {
+      if (key !== internal) {
         throw new TypeError(
           "Invalid FileSystemWritableFileStream: createWritable() gives them."
         );
@@ -1884,7 +1882,7 @@ ${value}\r
     // Text, a `Blob`, a buffer or a view at the position, or
     // `{ type: 'write' | 'seek' | 'truncate', data, position, size }`.
     async write(data) {
-      const isCommand = data && typeof data === "object" && typeof data.type === "string" && !(data instanceof Blob) && !ArrayBuffer.isView(data) && !(data instanceof ArrayBuffer);
+      const isCommand = data && typeof data === "object" && typeof data.type === "string" && !(data instanceof Blob) && !getBufferBytes(data);
       const { type, position, size } = isCommand ? data : { type: "write" };
       if (type === "seek") {
         return this.seek(position);
@@ -1988,7 +1986,7 @@ ${value}\r
   __name(getPath, "getPath");
   function createHandle(path, isDirectory = natives.fs.info(path).isDirectory) {
     const Handle = isDirectory ? FileSystemDirectoryHandle : FileSystemFileHandle;
-    return new Handle(internal2, path);
+    return new Handle(internal, path);
   }
   __name(createHandle, "createHandle");
   function getEntryPath(directory, name) {
@@ -2448,19 +2446,28 @@ ${value}\r
   );
   function defineAttributes(ReadOnly, Writable, entries, getValues2, changed) {
     for (const [name, index] of entries) {
-      const get = /* @__PURE__ */ __name(function() {
-        return getValues2(this)[index];
-      }, "get");
-      defineAccessors(ReadOnly.prototype, { [name]: { get } });
-      defineAccessors(Writable.prototype, {
-        [name]: {
-          get,
-          set(value) {
+      inject(
+        ReadOnly.prototype,
+        {
+          get [name]() {
+            return getValues2(this)[index];
+          }
+        },
+        { enumerable: true }
+      );
+      inject(
+        Writable.prototype,
+        {
+          get [name]() {
+            return getValues2(this)[index];
+          },
+          set [name](value) {
             getValues2(this)[index] = +value;
             changed?.(this, index, +value);
           }
-        }
-      });
+        },
+        { enumerable: true }
+      );
     }
   }
   __name(defineAttributes, "defineAttributes");
@@ -2760,14 +2767,13 @@ ${value}\r
   __name(call, "call");
 
   // src/storage.js
-  var internal3 = /* @__PURE__ */ Symbol("internal");
   var sessions = /* @__PURE__ */ new WeakMap();
   var Storage = class {
     static {
       __name(this, "Storage");
     }
     constructor(key) {
-      if (key !== internal3) {
+      if (key !== internal) {
         throw new TypeError(
           "Invalid Storage: use localStorage or sessionStorage."
         );
@@ -2830,7 +2836,7 @@ ${value}\r
     }
   };
   function createStorage(isSession) {
-    const target = new Storage(internal3);
+    const target = new Storage(internal);
     const storage = new Proxy(target, handler);
     sessions.set(target, isSession);
     sessions.set(storage, isSession);
@@ -2853,16 +2859,9 @@ ${value}\r
     return typeof key === "string" && !(key in target);
   }
   __name(isItemKey, "isItemKey");
-  function checkArguments(args, count, name) {
-    if (args.length < count) {
-      throw new TypeError(`Invalid ${name}(): an argument is missing.`);
-    }
-  }
-  __name(checkArguments, "checkArguments");
 
   // src/url.js
   var parts = [
-    "origin",
     "protocol",
     "username",
     "password",
@@ -2905,6 +2904,9 @@ ${value}\r
     set href(href) {
       this.#set("href", href);
     }
+    get origin() {
+      return this.#parts.origin;
+    }
     get searchParams() {
       if (!this.#searchParams) {
         this.#searchParams = new URLSearchParams2(this.#parts.search);
@@ -2927,17 +2929,18 @@ ${value}\r
     }
     static {
       for (const part of parts) {
-        const accessor = {
-          get() {
-            return this.#parts[part];
-          }
-        };
-        if (part !== "origin") {
-          accessor.set = function(value) {
-            this.#set(part, value);
-          };
-        }
-        defineAccessors(_URL.prototype, { [part]: accessor });
+        inject(
+          _URL.prototype,
+          {
+            get [part]() {
+              return this.#parts[part];
+            },
+            set [part](value) {
+              this.#set(part, value);
+            }
+          },
+          { enumerable: true }
+        );
       }
     }
   };
@@ -2953,13 +2956,7 @@ ${value}\r
       if (init instanceof _URLSearchParams) {
         this.#pairs = init.#pairs.map((pair) => [...pair]);
       } else if (init !== null && typeof init === "object") {
-        this.#pairs = typeof init[Symbol.iterator] === "function" ? Array.from(init, (pair) => {
-          pair = Array.from(pair, String);
-          if (pair.length !== 2) {
-            throw new TypeError(`Invalid pair: '${pair}'.`);
-          }
-          return pair;
-        }) : Object.entries(init).map(([name, value]) => [name, String(value)]);
+        this.#pairs = getPairs(init).map((pair) => pair.map(String));
       } else {
         this.#pairs = parseQuery(String(init));
       }
@@ -2994,12 +2991,8 @@ ${value}\r
         (pair) => pair[0] === String(name) && (value === void 0 || pair[1] === String(value))
       );
     }
-    // In place of the first one of its name:
     set(name, value) {
-      const pair = [String(name), String(value)];
-      const index = this.#pairs.findIndex(([name2]) => name2 === pair[0]);
-      this.#pairs = this.#pairs.filter(([name2]) => name2 !== pair[0]);
-      this.#pairs.splice(index < 0 ? this.#pairs.length : index, 0, pair);
+      this.#pairs = setFirst(this.#pairs, [String(name), String(value)]);
       this.#update();
     }
     // By name, in UTF-16 code units, as strings compare: stable.
@@ -3007,22 +3000,8 @@ ${value}\r
       this.#pairs.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
       this.#update();
     }
-    forEach(callback, thisArg) {
-      for (const [name, value] of this) {
-        callback.call(thisArg, value, name, this);
-      }
-    }
     *entries() {
       for (const [name, value] of this.#pairs) yield [name, value];
-    }
-    *keys() {
-      for (const [name] of this.#pairs) yield name;
-    }
-    *values() {
-      for (const [, value] of this.#pairs) yield value;
-    }
-    [Symbol.iterator]() {
-      return this.entries();
     }
     toString() {
       return natives.url.serializeQuery(this.#pairs);
@@ -3033,6 +3012,7 @@ ${value}\r
       if (url) setSearch(url, this.toString());
     }
   };
+  inject(URLSearchParams2.prototype, pairIterable);
   setToStringTag(URL2, URLSearchParams2);
   function parse(url, base) {
     return base === void 0 ? natives.url.parse(String(url)) : natives.url.parse(String(url), String(base));
@@ -3100,9 +3080,7 @@ ${value}\r
     // Text, or the bytes of a `Blob`, a buffer or a view. A closing or closed
     // socket sends nothing, as in browsers.
     send(data) {
-      if (arguments.length < 1) {
-        throw new TypeError("Invalid send(): the data is missing.");
-      }
+      checkArguments(arguments, 1, "send");
       if (this.#readyState === states2.CONNECTING) {
         throw new DOMException(
           "Unable to send: the WebSocket is not open yet.",
@@ -3112,7 +3090,7 @@ ${value}\r
       if (this.#readyState === states2.OPEN) {
         natives.socket.send(
           this.#number,
-          data instanceof Blob ? getBytes(data) : data instanceof ArrayBuffer ? new Uint8Array(data) : ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength) : String(data)
+          getBufferBytes(data) ?? (data instanceof Blob ? getBytes(data) : String(data))
         );
       }
     }
@@ -3164,9 +3142,7 @@ ${value}\r
       }
     }
   };
-  for (const target of [WebSocket, WebSocket.prototype]) {
-    defineValues(target, states2, { enumerable: true });
-  }
+  defineConstants(WebSocket, states2);
   defineEventHandlers(WebSocket.prototype, "open", "message", "error", "close");
   setToStringTag(WebSocket);
 
@@ -3213,19 +3189,15 @@ ${value}\r
   function setupWorker(name) {
     const { addEventListener, removeEventListener, dispatchEvent } = EventTarget.prototype;
     const { postMessage, close, importScripts } = natives.worker.self;
-    defineValues(
-      globalThis,
-      {
-        name,
-        postMessage,
-        close,
-        importScripts,
-        addEventListener,
-        removeEventListener,
-        dispatchEvent
-      },
-      { writable: true, configurable: true }
-    );
+    inject(globalThis, {
+      name,
+      postMessage,
+      close,
+      importScripts,
+      addEventListener,
+      removeEventListener,
+      dispatchEvent
+    });
     defineEventHandlers(globalThis, "message", "messageerror");
     return ({ type, data }) => fire(globalThis, new MessageEvent(type, { data }));
   }
@@ -3235,67 +3207,60 @@ ${value}\r
   delete globalThis.__scriptographer;
   var { print } = natives;
   var console2 = createConsole(print);
-  setGlobals({ console: console2, print: console2.log });
-  setGlobals(
+  inject(globalThis, { console: console2, print: console2.log });
+  inject(
+    globalThis,
     Object.fromEntries(
       Object.entries(global_scope_exports).filter(([name]) => !(name in globalThis))
     )
   );
   if (globalThis.navigator && !navigator.clipboard) {
-    setGlobals({ Clipboard });
-    defineValues(
-      navigator,
-      { clipboard: new Clipboard() },
-      { configurable: true }
-    );
+    inject(globalThis, { Clipboard });
+    inject(navigator, { clipboard: new Clipboard() }, { writable: false });
   }
   if (!globalThis.TextEncoder) {
-    setGlobals({ TextEncoder: TextEncoder2, TextDecoder: TextDecoder2 });
+    inject(globalThis, { TextEncoder: TextEncoder2, TextDecoder: TextDecoder2 });
   }
   if (!globalThis.crypto) {
-    setGlobals({ Crypto, crypto: new Crypto() });
+    inject(globalThis, { Crypto, crypto: new Crypto() });
   }
   if (!globalThis.DOMException) {
-    setGlobals({ DOMException: DOMException2 });
+    inject(globalThis, { DOMException: DOMException2 });
   }
   if (!globalThis.EventTarget) {
-    setGlobals(events_exports);
+    inject(globalThis, events_exports);
   }
   if (!globalThis.fetch) {
     const { Blob: Blob2, File: File2, getBytes: getBytes2 } = blob_exports;
     const { getBody: getBody2, ...classes } = fetch_exports;
-    setGlobals({ ...abort_exports, Blob: Blob2, File: File2, ...classes });
+    inject(globalThis, { ...abort_exports, Blob: Blob2, File: File2, ...classes });
     Object.assign(natives, { getBytes: getBytes2 });
   }
   if (!globalThis.localStorage) {
-    setGlobals({
+    inject(globalThis, {
       Storage,
       localStorage: createStorage(false),
       sessionStorage: createStorage(true)
     });
   }
   if (!globalThis.URL) {
-    setGlobals({ URL: URL2, URLSearchParams: URLSearchParams2 });
+    inject(globalThis, { URL: URL2, URLSearchParams: URLSearchParams2 });
   }
   if (!globalThis.WebSocket) {
-    setGlobals({ WebSocket });
+    inject(globalThis, { WebSocket });
   }
   if (!globalThis.Worker) {
-    setGlobals({ Worker });
+    inject(globalThis, { Worker });
     Object.assign(natives, { setupWorker });
   }
   if (natives.fs) {
     const { getHandlePath: getHandlePath2, ...classes } = file_system_exports;
-    setGlobals({ LocalFile: LocalFile2, ...classes });
+    inject(globalThis, { LocalFile: LocalFile2, ...classes });
   }
   if (!globalThis.DOMMatrix) {
-    setGlobals({ ...geometry_exports, WebKitCSSMatrix: DOMMatrix });
+    inject(globalThis, { ...geometry_exports, WebKitCSSMatrix: DOMMatrix });
   }
   setupDialog(globalThis.Dialog ??= {});
-  setGlobals({ Palette });
+  inject(globalThis, { Palette });
   Object.assign(natives, { takePalettes, hasPalettes, handlePaletteEvent });
-  function setGlobals(values) {
-    defineValues(globalThis, values, { writable: true, configurable: true });
-  }
-  __name(setGlobals, "setGlobals");
 })();

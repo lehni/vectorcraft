@@ -133,18 +133,23 @@
   __name(download, "download");
 
   // src/define.js
-  function defineValues(target, values, attributes = {}) {
-    for (const key of Reflect.ownKeys(values)) {
-      Object.defineProperty(target, key, { value: values[key], ...attributes });
+  function inject(target, source, attributes) {
+    for (const key of Reflect.ownKeys(source)) {
+      Object.defineProperty(target, key, {
+        ...Object.getOwnPropertyDescriptor(source, key),
+        enumerable: false,
+        ...attributes
+      });
     }
+    return target;
   }
-  __name(defineValues, "defineValues");
+  __name(inject, "inject");
   function setToStringTag(...classes) {
     for (const Class of classes) {
-      defineValues(
+      inject(
         Class.prototype,
         { [Symbol.toStringTag]: Class.name },
-        { configurable: true }
+        { writable: false }
       );
     }
   }

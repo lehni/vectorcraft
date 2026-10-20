@@ -1,12 +1,13 @@
-import { defineAccessors, setToStringTag } from './define.js'
+import { inject, setToStringTag } from './define.js'
 import { natives } from './natives.js'
+import { getPairs, pairIterable, setFirst } from './pairs.js'
 
 // `URL` and `URLSearchParams` for scripts outside a browser, as the WHATWG URL
 // standard has them: the runtime parses, and sets the parts. `url.searchParams`
 // and its URL stay in step both ways.
 
+// The parts scripts set, as the origin follows them:
 const parts = [
-  'origin',
   'protocol',
   'username',
   'password',
@@ -56,6 +57,10 @@ export class URL {
     this.#set('href', href)
   }
 
+  get origin() {
+    return this.#parts.origin
+  }
+
   get searchParams() {
     if (!this.#searchParams) {
       this.#searchParams = new URLSearchParams(this.#parts.search)
@@ -82,18 +87,19 @@ export class URL {
 
   static {
     for (const part of parts) {
-      const accessor = {
-        get() {
-          return this.#parts[part]
-        }
-      }
-      // The origin can't be set:
-      if (part !== 'origin') {
-        accessor.set = function (value) {
-          this.#set(part, value)
-        }
-      }
-      defineAccessors(URL.prototype, { [part]: accessor })
+      inject(
+        URL.prototype,
+        {
+          get [part]() {
+            return this.#parts[part]
+          },
+
+          set [part](value) {
+            this.#set(part, value)
+          }
+        },
+        { enumerable: true }
+      )
     }
   }
 }
@@ -110,16 +116,7 @@ export class URLSearchParams {
     if (init instanceof URLSearchParams) {
       this.#pairs = init.#pairs.map(pair => [...pair])
     } else if (init !== null && typeof init === 'object') {
-      this.#pairs =
-        typeof init[Symbol.iterator] === 'function'
-          ? Array.from(init, pair => {
-              pair = Array.from(pair, String)
-              if (pair.length !== 2) {
-                throw new TypeError(`Invalid pair: '${pair}'.`)
-              }
-              return pair
-            })
-          : Object.entries(init).map(([name, value]) => [name, String(value)])
+      this.#pairs = getPairs(init).map(pair => pair.map(String))
     } else {
       this.#pairs = parseQuery(String(init))
     }
@@ -169,12 +166,8 @@ export class URLSearchParams {
     )
   }
 
-  // In place of the first one of its name:
   set(name, value) {
-    const pair = [String(name), String(value)]
-    const index = this.#pairs.findIndex(([name]) => name === pair[0])
-    this.#pairs = this.#pairs.filter(([name]) => name !== pair[0])
-    this.#pairs.splice(index < 0 ? this.#pairs.length : index, 0, pair)
+    this.#pairs = setFirst(this.#pairs, [String(name), String(value)])
     this.#update()
   }
 
@@ -184,26 +177,8 @@ export class URLSearchParams {
     this.#update()
   }
 
-  forEach(callback, thisArg) {
-    for (const [name, value] of this) {
-      callback.call(thisArg, value, name, this)
-    }
-  }
-
   *entries() {
     for (const [name, value] of this.#pairs) yield [name, value]
-  }
-
-  *keys() {
-    for (const [name] of this.#pairs) yield name
-  }
-
-  *values() {
-    for (const [, value] of this.#pairs) yield value
-  }
-
-  [Symbol.iterator]() {
-    return this.entries()
   }
 
   toString() {
@@ -217,6 +192,7 @@ export class URLSearchParams {
   }
 }
 
+inject(URLSearchParams.prototype, pairIterable)
 setToStringTag(URL, URLSearchParams)
 
 // The parts of `url`, against `base` when it's given, or `null`.

@@ -1,12 +1,11 @@
+import { checkArguments, internal, setToStringTag } from './define.js'
 import { natives } from './natives.js'
-import { setToStringTag } from './define.js'
 
 // `localStorage` and `sessionStorage` for scripts outside a browser. The
 // runtime keeps their items, and a script's `localStorage` in its file. Items
 // read and write as properties too (`localStorage.size = '10'`), through a
 // `Proxy`.
 
-const internal = Symbol('internal')
 // Whether a storage, its proxy or its target, is `sessionStorage`:
 const sessions = new WeakMap()
 
@@ -120,10 +119,4 @@ function getKeys(storage) {
 
 function isItemKey(target, key) {
   return typeof key === 'string' && !(key in target)
-}
-
-function checkArguments(args, count, name) {
-  if (args.length < count) {
-    throw new TypeError(`Invalid ${name}(): an argument is missing.`)
-  }
 }

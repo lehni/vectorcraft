@@ -1,7 +1,7 @@
 // What scripts see that's written in JavaScript, on every platform. The runtime
 // runs it before its own classes, which build on these.
 import { natives } from './natives.js'
-import { defineValues } from './define.js'
+import { inject } from './define.js'
 import * as abort from './abort.js'
 import * as blob from './blob.js'
 import { Clipboard } from './clipboard.js'
@@ -32,73 +32,65 @@ const { print } = natives
 
 // Its own console, also in a browser's realm, for the script's output:
 const console = createConsole(print)
-setGlobals({ console, print: console.log })
+inject(globalThis, { console, print: console.log })
 
 // What a browser's realm has already, it keeps:
-setGlobals(
+inject(
+  globalThis,
   Object.fromEntries(
     Object.entries(globalScope).filter(([name]) => !(name in globalThis))
   )
 )
 if (globalThis.navigator && !navigator.clipboard) {
-  setGlobals({ Clipboard })
-  defineValues(
-    navigator,
-    { clipboard: new Clipboard() },
-    { configurable: true }
-  )
+  inject(globalThis, { Clipboard })
+  inject(navigator, { clipboard: new Clipboard() }, { writable: false })
 }
 if (!globalThis.TextEncoder) {
-  setGlobals({ TextEncoder, TextDecoder })
+  inject(globalThis, { TextEncoder, TextDecoder })
 }
 if (!globalThis.crypto) {
-  setGlobals({ Crypto, crypto: new Crypto() })
+  inject(globalThis, { Crypto, crypto: new Crypto() })
 }
 if (!globalThis.DOMException) {
-  setGlobals({ DOMException })
+  inject(globalThis, { DOMException })
 }
 if (!globalThis.EventTarget) {
-  setGlobals(events)
+  inject(globalThis, events)
 }
 if (!globalThis.fetch) {
   const { Blob, File, getBytes } = blob
   const { getBody, ...classes } = fetch
-  setGlobals({ ...abort, Blob, File, ...classes })
+  inject(globalThis, { ...abort, Blob, File, ...classes })
   // What the runtime reads of blobs:
   Object.assign(natives, { getBytes })
 }
 if (!globalThis.localStorage) {
-  setGlobals({
+  inject(globalThis, {
     Storage,
     localStorage: createStorage(false),
     sessionStorage: createStorage(true)
   })
 }
 if (!globalThis.URL) {
-  setGlobals({ URL, URLSearchParams })
+  inject(globalThis, { URL, URLSearchParams })
 }
 if (!globalThis.WebSocket) {
-  setGlobals({ WebSocket })
+  inject(globalThis, { WebSocket })
 }
 if (!globalThis.Worker) {
-  setGlobals({ Worker })
+  inject(globalThis, { Worker })
   // What the runtime makes a worker's global object with:
   Object.assign(natives, { setupWorker })
 }
 // The file system on desktop, by path; the web has the browser's:
 if (natives.fs) {
   const { getHandlePath, ...classes } = fileSystem
-  setGlobals({ LocalFile, ...classes })
+  inject(globalThis, { LocalFile, ...classes })
 }
 if (!globalThis.DOMMatrix) {
-  setGlobals({ ...geometry, WebKitCSSMatrix: geometry.DOMMatrix })
+  inject(globalThis, { ...geometry, WebKitCSSMatrix: geometry.DOMMatrix })
 }
 setupDialog((globalThis.Dialog ??= {}))
-setGlobals({ Palette })
+inject(globalThis, { Palette })
 // What the runtime reports of the palettes, and tells them:
 Object.assign(natives, { takePalettes, hasPalettes, handlePaletteEvent })
-
-// Set as the realm's own globals are: not enumerable.
-function setGlobals(values) {
-  defineValues(globalThis, values, { writable: true, configurable: true })
-}

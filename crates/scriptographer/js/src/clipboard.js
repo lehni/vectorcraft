@@ -1,4 +1,4 @@
-import { setToStringTag } from './define.js'
+import { checkArguments, setToStringTag } from './define.js'
 import { EventTarget } from './events.js'
 import { natives } from './natives.js'
 
@@ -12,9 +12,7 @@ export class Clipboard extends EventTarget {
   }
 
   async writeText(text) {
-    if (arguments.length < 1) {
-      throw new TypeError('Invalid writeText(): the text is missing.')
-    }
+    checkArguments(arguments, 1, 'writeText')
     ask({ type: 'clipboardWrite', text: String(text) })
   }
 }

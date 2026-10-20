@@ -1,6 +1,7 @@
-import { Blob, File, getBytes } from './blob.js'
+import { Blob, File, getBufferBytes, getBytes } from './blob.js'
+import { checkArguments, inject, setToStringTag } from './define.js'
 import { natives } from './natives.js'
-import { setToStringTag } from './define.js'
+import { getPairs, pairIterable, setFirst } from './pairs.js'
 
 // The browser's `fetch()` for scripts outside a browser, with `Headers`,
 // `FormData`, `Request` and `Response`. The runtime sends the requests, on
@@ -15,17 +16,7 @@ export class Headers {
     if (init instanceof Headers) {
       this.#list = [...init.#list]
     } else if (init != null) {
-      const pairs =
-        typeof init[Symbol.iterator] === 'function'
-          ? Array.from(init, pair => {
-              pair = [...pair]
-              if (pair.length !== 2) {
-                throw new TypeError(`Invalid header: '${pair}'.`)
-              }
-              return pair
-            })
-          : Object.entries(init)
-      for (const [name, value] of pairs) this.append(name, value)
+      for (const [name, value] of getPairs(init)) this.append(name, value)
     }
   }
 
@@ -42,12 +33,8 @@ export class Headers {
     return this.#getValues(name).length > 0
   }
 
-  // In place of the first one of its name:
   set(name, value) {
-    const header = getHeader(name, value)
-    const index = this.#list.findIndex(([name]) => name === header[0])
-    this.delete(header[0])
-    this.#list.splice(index < 0 ? this.#list.length : index, 0, header)
+    this.#list = setFirst(this.#list, getHeader(name, value))
   }
 
   append(name, value) {
@@ -59,28 +46,10 @@ export class Headers {
     this.#list = this.#list.filter(header => header[0] !== name)
   }
 
-  forEach(callback, thisArg) {
-    for (const [name, value] of this) {
-      callback.call(thisArg, value, name, this)
-    }
-  }
-
   // As scripts see them: sorted by name, the values of a name joined.
   *entries() {
     const names = [...new Set(this.#list.map(([name]) => name))].sort()
     for (const name of names) yield [name, this.get(name)]
-  }
-
-  *keys() {
-    for (const [name] of this) yield name
-  }
-
-  *values() {
-    for (const [, value] of this) yield value
-  }
-
-  [Symbol.iterator]() {
-    return this.entries()
   }
 
   #getValues(name) {
@@ -96,15 +65,13 @@ export class FormData {
   #entries = []
 
   append(name, value, filename) {
+    checkArguments(arguments, 2, 'append')
     this.#entries.push(getEntry(...arguments))
   }
 
-  // In place of the first one of its name:
   set(name, value, filename) {
-    const entry = getEntry(...arguments)
-    const index = this.#entries.findIndex(([name]) => name === entry[0])
-    this.delete(entry[0])
-    this.#entries.splice(index < 0 ? this.#entries.length : index, 0, entry)
+    checkArguments(arguments, 2, 'set')
+    this.#entries = setFirst(this.#entries, getEntry(...arguments))
   }
 
   get(name) {
@@ -125,27 +92,13 @@ export class FormData {
     this.#entries = this.#entries.filter(entry => entry[0] !== String(name))
   }
 
-  forEach(callback, thisArg) {
-    for (const [name, value] of this) {
-      callback.call(thisArg, value, name, this)
-    }
-  }
-
   *entries() {
     for (const [name, value] of this.#entries) yield [name, value]
   }
+}
 
-  *keys() {
-    for (const [name] of this.#entries) yield name
-  }
-
-  *values() {
-    for (const [, value] of this.#entries) yield value
-  }
-
-  [Symbol.iterator]() {
-    return this.entries()
-  }
+for (const Class of [Headers, FormData]) {
+  inject(Class.prototype, pairIterable)
 }
 
 // What `Request` and `Response` share: their body, read once.
@@ -153,8 +106,15 @@ class Body {
   #bytes
   #isUsed = false
 
-  constructor(bytes) {
-    this.#bytes = bytes
+  // The body's bytes, its type in `headers` unless they have one.
+  constructor(body, headers) {
+    if (body != null) {
+      const { bytes, type } = getBody(body)
+      if (type && !headers.has('content-type')) {
+        headers.set('content-type', type)
+      }
+      this.#bytes = bytes
+    }
   }
 
   get bodyUsed() {
@@ -195,7 +155,7 @@ class Body {
     if (body.#isUsed) {
       throw new TypeError('Unable to copy the body: it was read already.')
     }
-    return body.#bytes
+    return body.#bytes ?? null
   }
 }
 
@@ -210,18 +170,11 @@ export class Request extends Body {
     const from = input instanceof Request ? input : null
     const method = String(init.method ?? from?.method ?? 'GET').toUpperCase()
     const headers = new Headers(init.headers ?? from?.headers)
-    let bytes = from ? Body.getBytes(from) : null
-    if (init.body != null) {
-      const body = getBody(init.body)
-      bytes = body.bytes
-      if (body.type && !headers.has('content-type')) {
-        headers.set('content-type', body.type)
-      }
-    }
-    if (bytes && (method === 'GET' || method === 'HEAD')) {
+    const body = init.body ?? (from && Body.getBytes(from))
+    if (body != null && (method === 'GET' || method === 'HEAD')) {
       throw new TypeError(`Invalid Request: a ${method} request has no body.`)
     }
-    super(bytes)
+    super(body, headers)
     this.#url = from ? from.url : String(input)
     this.#method = method
     this.#headers = headers
@@ -270,15 +223,7 @@ export class Response extends Body {
       throw new RangeError(`Invalid Response status: '${status}'.`)
     }
     headers = new Headers(headers)
-    let bytes = null
-    if (body != null) {
-      const { bytes: data, type } = getBody(body)
-      bytes = data
-      if (type && !headers.has('content-type')) {
-        headers.set('content-type', type)
-      }
-    }
-    super(bytes)
+    super(body, headers)
     this.#status = status
     this.#statusText = String(statusText)
     this.#headers = headers
@@ -356,28 +301,20 @@ export async function fetch(input, init) {
 // A body's bytes and the content type it implies, which the runtime reads too:
 // a string, a buffer or a view, a `Blob`, `FormData` or `URLSearchParams`.
 export function getBody(body) {
-  return body instanceof Blob
-    ? { bytes: getBytes(body), type: body.type || null }
-    : body instanceof FormData
-      ? getMultipart(body)
-      : body instanceof ArrayBuffer
-        ? { bytes: new Uint8Array(body), type: null }
-        : ArrayBuffer.isView(body)
-          ? {
-              bytes: new Uint8Array(
-                body.buffer,
-                body.byteOffset,
-                body.byteLength
-              ),
-              type: null
-            }
-          : {
-              bytes: new TextEncoder().encode(String(body)),
-              type:
-                body instanceof URLSearchParams
-                  ? 'application/x-www-form-urlencoded;charset=UTF-8'
-                  : 'text/plain;charset=UTF-8'
-            }
+  const bytes = getBufferBytes(body)
+  return bytes
+    ? { bytes, type: null }
+    : body instanceof Blob
+      ? { bytes: getBytes(body), type: body.type || null }
+      : body instanceof FormData
+        ? getMultipart(body)
+        : {
+            bytes: new TextEncoder().encode(String(body)),
+            type:
+              body instanceof URLSearchParams
+                ? 'application/x-www-form-urlencoded;charset=UTF-8'
+                : 'text/plain;charset=UTF-8'
+          }
 }
 
 // A header name as headers compare them, lower case, and its value, trimmed:
@@ -392,11 +329,6 @@ function getName(name) {
 // A `FormData` entry from `append(name, value[, filename])`: a `Blob` becomes
 // a `File`, named `filename` or 'blob' if it has no name.
 function getEntry(name, value, filename) {
-  if (arguments.length < 2) {
-    throw new TypeError(
-      'Invalid FormData entry: its name and value are needed.'
-    )
-  }
   return [
     String(name),
     value instanceof Blob

@@ -1,20 +1,26 @@
-// Defining properties as the realm defines its own.
+// Defining classes as the realm defines its own, and as WebIDL has them.
 
-// `values` as data properties of `target`, symbols too, with `attributes`.
-export function defineValues(target, values, attributes = {}) {
-  for (const key of Reflect.ownKeys(values)) {
-    Object.defineProperty(target, key, { value: values[key], ...attributes })
+// Inject the properties of `source` into `target`, getters and setters too:
+// not enumerable, as the realm's own methods aren't, unless `attributes` say
+// otherwise.
+export function inject(target, source, attributes) {
+  for (const key of Reflect.ownKeys(source)) {
+    Object.defineProperty(target, key, {
+      ...Object.getOwnPropertyDescriptor(source, key),
+      enumerable: false,
+      ...attributes
+    })
   }
+  return target
 }
 
-// `accessors` (`{ name: { get, set } }`) as properties of `target`, enumerable
-// and configurable, as WebIDL's attributes are.
-export function defineAccessors(target, accessors) {
-  for (const key of Reflect.ownKeys(accessors)) {
-    Object.defineProperty(target, key, {
-      ...accessors[key],
+// The `constants` of `Class`, on it and its prototype.
+export function defineConstants(Class, constants) {
+  for (const target of [Class, Class.prototype]) {
+    inject(target, constants, {
       enumerable: true,
-      configurable: true
+      writable: false,
+      configurable: false
     })
   }
 }
@@ -23,10 +29,20 @@ export function defineAccessors(target, accessors) {
 // `Object.prototype.toString()`: `[object Blob]`.
 export function setToStringTag(...classes) {
   for (const Class of classes) {
-    defineValues(
+    inject(
       Class.prototype,
       { [Symbol.toStringTag]: Class.name },
-      { configurable: true }
+      { writable: false }
     )
+  }
+}
+
+// What only the runtime's own code passes the classes scripts can't construct:
+export const internal = Symbol('internal')
+
+// A `TypeError` when `name()` got fewer than `count` arguments.
+export function checkArguments(args, count, name) {
+  if (args.length < count) {
+    throw new TypeError(`Invalid ${name}(): an argument is missing.`)
   }
 }
