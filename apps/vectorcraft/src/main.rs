@@ -342,7 +342,6 @@ type Parent = Option<std::sync::Arc<winit::window::Window>>;
 /// What rfd's blocking and asynchronous file dialogs are both set up with.
 trait DialogSettings: Sized {
     fn parent(self, window: &winit::window::Window) -> Self;
-    fn title(self, title: &str) -> Self;
     fn filter(self, name: &str, exts: &[impl ToString]) -> Self;
     fn folder(self, folder: &str) -> Self;
     fn file_name(self, name: &str) -> Self;
@@ -353,9 +352,6 @@ macro_rules! dialog_settings {
         impl DialogSettings for $dialog {
             fn parent(self, window: &winit::window::Window) -> Self {
                 self.set_parent(window)
-            }
-            fn title(self, title: &str) -> Self {
-                self.set_title(title)
             }
             fn filter(self, name: &str, exts: &[impl ToString]) -> Self {
                 self.add_filter(name, exts)
@@ -372,15 +368,10 @@ macro_rules! dialog_settings {
 
 dialog_settings!(rfd::FileDialog, rfd::AsyncFileDialog);
 
-/// `d` set up for `request`: its title, file types, folder and suggested name.
+/// `d` set up for `request`: its file types, folder and suggested name.
 fn dialog_for<D: DialogSettings>(d: D, request: &PickRequest) -> D {
     let pick = match request {
-        PickRequest::Open(pick) | PickRequest::Save(pick) => pick,
-        PickRequest::OpenMany => {
-            return fileio::place_filters().fold(d.title(vectorcraft_ui_egui::i18n::t("Place")), |d, (name, exts)| {
-                d.filter(vectorcraft_ui_egui::i18n::tr_ctx(vectorcraft_ui_egui::i18n::current(), "file-filter", name), exts)
-            });
-        }
+        PickRequest::Open(pick) | PickRequest::OpenMany(pick) | PickRequest::Save(pick) => pick,
         PickRequest::Folder => return d,
     };
     let d = pick.filters.iter().fold(d, |d, (name, exts)| {
@@ -426,7 +417,7 @@ fn show_dialog(dialog: rfd::FileDialog, request: &PickRequest, parent: &Parent) 
     }
     let paths = match request {
         PickRequest::Open(_) => dialog.pick_file().into_iter().collect(),
-        PickRequest::OpenMany => dialog.pick_files().unwrap_or_default(),
+        PickRequest::OpenMany(_) => dialog.pick_files().unwrap_or_default(),
         PickRequest::Save(_) => dialog.save_file().into_iter().collect(),
         PickRequest::Folder => dialog.pick_folder().into_iter().collect(),
     };
@@ -547,7 +538,7 @@ fn start_pick(request: PickRequest, parent: &Parent, ui: &egui::Context) -> Opti
             let picked = dialog.pick_file();
             Box::pin(async move { picked.await.iter().map(path).collect() })
         }
-        PickRequest::OpenMany => {
+        PickRequest::OpenMany(_) => {
             let picked = dialog.pick_files();
             Box::pin(async move { picked.await.unwrap_or_default().iter().map(path).collect() })
         }
@@ -588,7 +579,7 @@ fn services(parent: Parent, ui: egui::Context) -> Services {
     let sampled_ui = ui.clone();
     Services {
         pick_open: Some(Box::new(move |pick: &FilePick| pick_now(PickRequest::Open(pick.clone()), &p1).into_iter().next())),
-        pick_open_multi: Some(Box::new(move || pick_now(PickRequest::OpenMany, &p2))),
+        pick_open_multi: Some(Box::new(move |pick: &FilePick| pick_now(PickRequest::OpenMany(pick.clone()), &p2))),
         pick_save: Some(Box::new(move |pick: &FilePick| pick_now(PickRequest::Save(pick.clone()), &p3).into_iter().next())),
         // Linux shows dialogs on a thread of their own (#592), macOS as sheets (#867); Windows
         // dialogs run the window's events while they are open.

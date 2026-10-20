@@ -802,13 +802,20 @@ fn a_script_picks_a_file() {
     assert_eq!(log, ["/tmp/picked.svg", "null"]);
 }
 
-/// `showOpenFilePicker({ multiple: true })` shows the app's dialog for several files; the paths
-/// picked answer it.
+/// `showOpenFilePicker({ multiple: true })` shows the app's dialog for several files, with the
+/// script's file types; the paths picked answer it.
 #[test]
 fn a_script_picks_several_files() {
     let (mut app, _) = app();
-    app.services.pick_open_multi = Some(Box::new(|| vec!["/tmp/a.svg".to_owned(), "/tmp/b.svg".to_owned()]));
-    let path = tempfile_path::Path::new("print((await showOpenFilePicker({ multiple: true })).map(h => h.name).join())");
+    let shown = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let seen = shown.clone();
+    app.services.pick_open_multi = Some(Box::new(move |pick: &crate::FilePick| {
+        seen.borrow_mut().push(pick.filters.clone());
+        vec!["/tmp/a.svg".to_owned(), "/tmp/b.svg".to_owned()]
+    }));
+    let path = tempfile_path::Path::new(
+        "print((await showOpenFilePicker({ multiple: true, types: [{ description: 'SVG', accept: { 'image/svg+xml': ['.svg'] } }] })).map(h => h.name).join())",
+    );
     app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
     let ctx = egui::Context::default();
     for frame in 1..4 {
@@ -816,6 +823,7 @@ fn a_script_picks_several_files() {
     }
     let log: Vec<&str> = app.scripts.log().iter().map(|l| l.text.as_str()).filter(|l| !l.ends_with("stopped")).collect();
     assert_eq!(log, ["a.svg,b.svg"]);
+    assert_eq!(*shown.borrow(), [crate::FilePick::filters([("SVG", &["svg"][..]), ("All Files", &[])])], "the script's file types");
 }
 
 /// A number with `units` shows its points in that unit, or with the unit's sign; with `steppers`

@@ -222,6 +222,7 @@ impl FilePick {
 }
 
 pub type PickOpen = Box<dyn FnMut(&FilePick) -> Option<String>>;
+pub type PickOpenMany = Box<dyn FnMut(&FilePick) -> Vec<String>>;
 /// What the browser's file picker gave a script ([`ScriptPick`]).
 #[cfg(target_arch = "wasm32")]
 pub use vectorcraft_scriptographer::Picked;
@@ -284,8 +285,9 @@ pub struct Services {
     pub clipboard_read: Option<Box<dyn FnMut() -> Option<String>>>,
     /// Open a URL in the system browser (desktop). Without it, egui opens it (a new tab on the web).
     pub open_url: Option<OpenUrlFn>,
-    /// Show an open dialog for several files (File → Place…); returns their paths (none: cancelled).
-    pub pick_open_multi: Option<Box<dyn FnMut() -> Vec<String>>>,
+    /// Show an open dialog for several files (File → Place…, scripts); returns their paths (none:
+    /// cancelled).
+    pub pick_open_multi: Option<PickOpenMany>,
     /// Web: start an async pick of files to place (they arrive via `place_inbox`).
     pub place_async: Option<Box<dyn FnMut()>>,
     /// Files that arrived asynchronously to be placed (web: picked for Place, or dropped on the

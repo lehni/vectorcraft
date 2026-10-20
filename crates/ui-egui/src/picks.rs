@@ -29,8 +29,8 @@ use crate::{FilePick, VectorcraftApp};
 pub enum PickRequest {
     /// An open dialog for one file.
     Open(FilePick),
-    /// An open dialog for files to place.
-    OpenMany,
+    /// An open dialog for several files.
+    OpenMany(FilePick),
     /// A save dialog.
     Save(FilePick),
     /// A folder picker.
@@ -143,7 +143,7 @@ impl Picks {
     pub(crate) fn waiting_kind(&self) -> Option<&'static str> {
         self.waiting.as_ref().map(|w| match w.request {
             PickRequest::Open(_) => "open",
-            PickRequest::OpenMany => "place",
+            PickRequest::OpenMany(_) => "place",
             PickRequest::Save(_) => "save",
             PickRequest::Folder => "folder",
         })
@@ -249,8 +249,8 @@ pub(crate) fn folder(app: &mut VectorcraftApp) -> Option<String> {
 }
 
 /// Paths from the open dialog for files to place (none: cancelled).
-pub(crate) fn open_many(app: &mut VectorcraftApp) -> Vec<String> {
-    ask(app, PickRequest::OpenMany).unwrap_or_default()
+pub(crate) fn open_many(app: &mut VectorcraftApp, pick: &FilePick) -> Vec<String> {
+    ask(app, PickRequest::OpenMany(pick.clone())).unwrap_or_default()
 }
 
 /// Whether the host shows `request`'s kind of dialog at all.
@@ -258,7 +258,7 @@ pub(crate) fn can(app: &VectorcraftApp, request: &PickRequest) -> bool {
     let s = &app.services;
     match request {
         PickRequest::Open(_) => s.pick_open.is_some(),
-        PickRequest::OpenMany => s.pick_open_multi.is_some() || s.pick_open.is_some(),
+        PickRequest::OpenMany(_) => s.pick_open_multi.is_some() || s.pick_open.is_some(),
         PickRequest::Save(_) => s.pick_save.is_some(),
         PickRequest::Folder => s.pick_folder.is_some(),
     }
@@ -300,9 +300,9 @@ fn ask(app: &mut VectorcraftApp, request: PickRequest) -> Option<PickAnswer> {
         PickRequest::Open(pick) => one(s.pick_open.as_mut().and_then(|f| f(pick))),
         PickRequest::Save(pick) => one(s.pick_save.as_mut().and_then(|f| f(pick))),
         PickRequest::Folder => one(s.pick_folder.as_mut().and_then(|f| f())),
-        PickRequest::OpenMany => match (s.pick_open_multi.as_mut(), s.pick_open.as_mut()) {
-            (Some(many), _) => Some(many()),
-            (None, Some(f)) => one(f(&FilePick::default())),
+        PickRequest::OpenMany(pick) => match (s.pick_open_multi.as_mut(), s.pick_open.as_mut()) {
+            (Some(many), _) => Some(many(pick)),
+            (None, Some(f)) => one(f(pick)),
             (None, None) => None,
         },
     }

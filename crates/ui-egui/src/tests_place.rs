@@ -628,7 +628,7 @@ fn a_vectorcraft_document_places_linked_and_edit_original_opens_it() {
     assert!(!d.bool("__documents") && crate::dialogs::place::link_tip(d).contains("image file"));
     app.ui.dialog = None;
     let both = vec![pic.clone(), path.clone()];
-    app.services.pick_open_multi = Some(Box::new(move || both.clone()));
+    app.services.pick_open_multi = Some(Box::new(move |_| both.clone()));
     app.run("file.place", json!({})).unwrap();
     let d = app.ui.dialog.as_ref().unwrap();
     assert!(crate::dialogs::place::link_tip(d).contains("VectorCraft documents"));

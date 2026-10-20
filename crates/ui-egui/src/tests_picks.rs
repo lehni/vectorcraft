@@ -52,7 +52,7 @@ pub(crate) fn off_the_ui_thread(services: &mut Services) -> (Shown, Written) {
     let in_line = |_: &FilePick| -> Option<String> { panic!("no dialog on the UI thread") };
     services.pick_open = Some(Box::new(in_line));
     services.pick_save = Some(Box::new(in_line));
-    services.pick_open_multi = Some(Box::new(|| panic!("no dialog on the UI thread")));
+    services.pick_open_multi = Some(Box::new(|_| panic!("no dialog on the UI thread")));
     services.pick_folder = Some(Box::new(|| panic!("no dialog on the UI thread")));
     services.read = Some(Box::new(|_: &str| Ok(SVG.to_vec())));
     services.write = Some(Box::new(move |path: &str, _: &[u8]| {

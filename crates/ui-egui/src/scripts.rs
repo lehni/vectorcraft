@@ -898,7 +898,7 @@ fn pick(app: &mut VectorcraftApp, id: u64, question: &Value) {
     crate::picks::button(app, move |app| {
         let picked = match kind.as_str() {
             "openFile" => crate::picks::open(app, &file).map(|p| json!(p)),
-            "openFiles" => Some(crate::picks::open_many(app)).filter(|p| !p.is_empty()).map(|p| json!(p)),
+            "openFiles" => Some(crate::picks::open_many(app, &file)).filter(|p| !p.is_empty()).map(|p| json!(p)),
             "saveFile" => crate::picks::save(app, &file).map(|p| json!(p)),
             _ => crate::picks::folder(app).map(|p| json!(p)),
         };
