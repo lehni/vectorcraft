@@ -9,7 +9,7 @@
  *
  * All rights reserved.
  *
- * Date: Tue Oct 20 04:36:55 2026 +0200
+ * Date: Tue Oct 20 05:16:21 2026 +0200
  *
  ***
  *
@@ -3732,7 +3732,11 @@ new function() {
 			}
 		},
 
-		_getBounds: function(items, matrix, options) {
+		getBounds: function(items, options) {
+			return Item._getBounds(items, null, options, true).rect;
+		},
+
+		_getBounds: function(items, matrix, options, global) {
 			var x1 = Infinity,
 				x2 = -x1,
 				y1 = x1,
@@ -3742,8 +3746,10 @@ new function() {
 			for (var i = 0, l = items.length; i < l; i++) {
 				var item = items[i];
 				if (item._visible && !item.isEmpty(true)) {
-					var bounds = item._getCachedBounds(
-						matrix && matrix.appended(item._matrix), options, true),
+					var bounds = item._getCachedBounds(global
+							? item.getGlobalMatrix(true)
+							: matrix && matrix.appended(item._matrix),
+							options, true),
 						rect = bounds.rect;
 					x1 = Math.min(rect.x, x1);
 					y1 = Math.min(rect.y, y1);
