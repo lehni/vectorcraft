@@ -1,21 +1,17 @@
-//! `Worker` for scripts outside a browser: `new Worker(path)` runs the script at `path` (from the
-//! script's folder, or an `https:` URL) as a classic script on a thread of its own, in a runtime of
-//! its own, with the same APIs (and Paper.js, but no document). Messages go both ways as structured
-//! serialization keeps them ([`crate::clone`]): `worker.postMessage(data)` fires `message` at the
-//! worker's global object (`self.onmessage`), the worker's `postMessage(data)` at the `Worker`, on
-//! its parent's turn ([`poll`]). An uncaught error in the worker fires `error` (an `ErrorEvent`) at
-//! the `Worker`, and the worker goes on. The worker's console writes to its parent's. A worker
-//! ends with `close()`, `worker.terminate()`, or its parent; while it runs, its parent does.
-//!
-//! In the worker, `self` is its global object, an `EventTarget`, with `name`, `postMessage()`,
-//! `close()` and `importScripts()`. Module workers (`type: 'module'`) aren't supported.
+//! The workers of `Worker` outside a browser (`js/src/worker.js`): `new Worker(path)` runs the
+//! script at `path` (from the script's folder, or an `https:` URL) as a classic script on a thread
+//! of its own, in a runtime of its own, with the same APIs (and Paper.js, but no document).
+//! Messages go both ways as structured serialization keeps them ([`crate::clone`]), on the
+//! receiver's turn ([`poll`] in the parent). An uncaught error in the worker goes to the `Worker`,
+//! and the worker goes on. The worker's console writes to its parent's. A worker ends with
+//! `close()`, `worker.terminate()`, or its parent; while it runs, its parent does.
 
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::clone::{Data, deserialize, serialize};
-use crate::{Call, Engine, Error, HostFunction, Interrupt, Runtime, Setup, Value, method, object};
+use crate::{Call, Engine, Error, HostFunction, Interrupt, Runtime, Setup, Value, method};
 
 /// How long a worker waits for a message before it runs its timers.
 const FRAME: Duration = Duration::from_millis(16);
@@ -28,67 +24,50 @@ enum FromWorker {
     Closed,
 }
 
-/// A worker its parent started: its number (its object's `_worker`), its object, its thread's
+/// A worker its parent started: its number, the function its `Worker` receives with, its thread's
 /// channels, and what stops its script.
 pub(crate) struct Child<H> {
     number: u32,
-    object: H,
+    receive: H,
     to: Sender<Data>,
     from: Receiver<FromWorker>,
     interrupt: Arc<Mutex<Option<Interrupt>>>,
 }
 
-/// What a worker's runtime keeps of its parent: the channel to it, the worker's global object, and
-/// whether the worker's script closed it.
+/// What a worker's runtime keeps of its parent: the channel to it, the function its global object
+/// receives with, and whether the worker's script closed it.
 pub(crate) struct Parent<H> {
     to: Sender<FromWorker>,
-    global: H,
+    receive: H,
     closing: bool,
 }
 
-/// Sets `Worker` on `global`, unless it has it.
-pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(), Error> {
-    if engine.with_call(|call| Ok(!matches!(call.get(global, "Worker")?, Value::Undefined)))? {
-        return Ok(());
-    }
-    let constructor = engine.constructor("Worker", construct::<E>)?;
-    let methods: [(&str, HostFunction<E::Handle>); 2] = [("postMessage", post_to_worker), ("terminate", terminate)];
-    let mut made = Vec::new();
-    for (name, f) in methods {
-        made.push((name, engine.function(name, f)?));
-    }
-    engine.with_call(|call| {
-        let event_target = object(call, global, "EventTarget")?;
-        let event_target = call.get(&event_target, "prototype")?;
-        let object_class = object(call, global, "Object")?;
-        let Value::Js(prototype) = method(call, &object_class, "create", &[event_target])? else {
-            return Err(Error::Script("Object.create made nothing".into()));
-        };
-        for (name, function) in made {
-            call.set(&prototype, name, &Value::Js(function))?;
+/// The natives `js/src/worker.js` talks through: `start(url, name, receive)`, which gives the
+/// worker's number, `post(number, data)` and `terminate(number)`, and in the worker
+/// `self.postMessage(data)`, `self.close()` and `self.importScripts(...paths)`.
+pub(crate) fn natives<E: Engine>(engine: &mut E) -> Result<Vec<(&'static str, E::Handle)>, Error> {
+    let natives: [(&str, HostFunction<E::Handle>); 3] = [("start", start::<E>), ("post", post_to_worker), ("terminate", terminate)];
+    let mut made = natives.into_iter().map(|(name, f)| Ok((name, engine.function(name, f)?))).collect::<Result<Vec<_>, Error>>()?;
+    let worker: [(&str, HostFunction<E::Handle>); 3] = [("postMessage", post_to_parent), ("close", close), ("importScripts", import_scripts)];
+    let worker = worker.into_iter().map(|(name, f)| Ok((name, engine.function(name, f)?))).collect::<Result<Vec<_>, Error>>()?;
+    let self_natives = engine.with_call(|call| {
+        let object = call.new_object()?;
+        for (name, function) in worker {
+            call.set(&object, name, &Value::Js(function))?;
         }
-        call.set(&prototype, "constructor", &Value::Js(constructor.clone()))?;
-        call.set(&constructor, "prototype", &Value::Js(prototype.clone()))?;
-        call.set(global, "Worker", &Value::Js(constructor))?;
-        crate::tag(call, global, &prototype, "Worker")
-    })
+        Ok(object)
+    })?;
+    made.push(("self", self_natives));
+    Ok(made)
 }
 
-/// `new Worker(path, options)`, on `this`, the object `new` made: its script runs on a thread.
-fn construct<E: Engine>(call: &mut dyn Call<E::Handle>, this: &Value<E::Handle>, args: &[Value<E::Handle>]) -> Result<Value<E::Handle>, Error> {
-    let Value::Js(worker) = this else {
-        return Err(Error::Type("Worker needs 'new'".into()));
-    };
+/// Runs the script at `url` on a thread.
+fn start<E: Engine>(call: &mut dyn Call<E::Handle>, _this: &Value<E::Handle>, args: &[Value<E::Handle>]) -> Result<Value<E::Handle>, Error> {
     let path = call.to_string(args.first().unwrap_or(&Value::Undefined))?;
-    let mut name = String::new();
-    if let Some(Value::Js(options)) = args.get(1) {
-        if matches!(call.get(options, "type")?, Value::String(kind) if kind == "module") {
-            return Err(Error::Dom("NotSupportedError", "module workers aren't supported".into()));
-        }
-        if let name_given @ Value::String(_) = call.get(options, "name")? {
-            name = call.to_string(&name_given)?;
-        }
-    }
+    let name = call.to_string(args.get(1).unwrap_or(&Value::Undefined))?;
+    let Some(Value::Js(receive)) = args.get(2) else {
+        return Err(Error::Type("Worker: nothing to receive with".into()));
+    };
     let (file, directory, language, cache) = {
         let host = call.host()?;
         let host = host.borrow();
@@ -104,18 +83,12 @@ fn construct<E: Engine>(call: &mut dyn Call<E::Handle>, this: &Value<E::Handle>,
         .name("scriptographer worker".into())
         .spawn(move || run::<E>(key, &name, Setup { language, cache, ..Setup::default() }, &inbox, &outbox, &stop))
         .map_err(|e| Error::Script(format!("Worker: no thread for it: {e}")))?;
-    let number = {
-        let host = call.host()?;
-        let mut host = host.borrow_mut();
-        host.next_child = host.next_child.wrapping_add(1);
-        host.next_child
-    };
-    call.set(worker, "_worker", &Value::Number(f64::from(number)))?;
-    for handler in ["onmessage", "onmessageerror", "onerror"] {
-        call.set(worker, handler, &Value::Null)?;
-    }
-    call.host()?.borrow_mut().children.push(Child { number, object: worker.clone(), to, from, interrupt });
-    Ok(Value::Undefined)
+    let host = call.host()?;
+    let mut host = host.borrow_mut();
+    host.next_child = host.next_child.wrapping_add(1);
+    let number = host.next_child;
+    host.children.push(Child { number, receive: receive.clone(), to, from, interrupt });
+    Ok(Value::Number(f64::from(number)))
 }
 
 /// A worker's thread: runs the script at `key`, then the messages and timers, until it closes or
@@ -180,47 +153,37 @@ fn run<E: Engine>(
     let _ = outbox.send(FromWorker::Closed);
 }
 
-/// Gives the worker's global object what a worker's has: `self` is an `EventTarget`, with `name`,
-/// `postMessage()`, `close()` and `importScripts()`.
+/// Gives the worker's global object what a worker's has (`setupWorker()` in `js/src/worker.js`).
 fn become_worker<E: Engine>(runtime: &mut Runtime<E>, name: &str, to: Sender<FromWorker>) -> Result<(), Error> {
-    let methods: [(&str, HostFunction<E::Handle>); 3] = [("postMessage", post_to_parent), ("close", close), ("importScripts", import_scripts)];
-    let mut made = Vec::new();
-    for (key, f) in methods {
-        made.push((key, runtime.engine.function(key, f)?));
-    }
-    let global = runtime.engine.global()?;
     runtime.engine.with_call(|call| {
-        for (key, function) in made {
-            call.set(&global, key, &Value::Js(function))?;
-        }
-        call.set(&global, "name", &Value::String(name.to_owned()))?;
-        for handler in ["onmessage", "onmessageerror"] {
-            call.set(&global, handler, &Value::Null)?;
-        }
-        // Its listeners are kept as any EventTarget's.
-        let event_target = object(call, &global, "EventTarget")?;
-        let prototype = object(call, &event_target, "prototype")?;
-        for key in ["addEventListener", "removeEventListener", "dispatchEvent"] {
-            let function = call.get(&prototype, key)?;
-            call.set(&global, key, &function)?;
-        }
-        call.host()?.borrow_mut().parent = Some(Parent { to, global: global.clone(), closing: false });
+        let shared = call.host()?.borrow().shared.clone().ok_or_else(|| Error::Script("no bundle".into()))?;
+        let receive = crate::handle(method(call, &shared, "setupWorker", &[Value::String(name.to_owned())])?, "setupWorker()")?;
+        call.host()?.borrow_mut().parent = Some(Parent { to, receive, closing: false });
         Ok(())
     })
 }
 
-/// A message from the parent: a `message` event at the worker's global object, or `messageerror`
-/// when it can't be made in this realm.
+/// A message from the parent, to the worker's global object: `message`, or `messageerror` when it
+/// can't be made in this realm.
 fn deliver<E: Engine>(runtime: &mut Runtime<E>, data: &Data) -> Result<(), Error> {
-    let global = runtime.engine.global()?;
     runtime.engine.with_call(|call| {
-        let target = Value::Js(global.clone());
-        let event = match deserialize(call, data) {
-            Ok(value) => crate::events::new_event(call, "MessageEvent", "message", &[("data", value)])?,
-            Err(_) => crate::events::new_event(call, "MessageEvent", "messageerror", &[])?,
-        };
-        crate::events::fire(call, &target, &event).map(|_| ())
+        let receive = call.host()?.borrow().parent.as_ref().map(|p| p.receive.clone()).ok_or_else(|| Error::Script("not a worker".into()))?;
+        let sent = message(call, data)?;
+        call.call(&receive, &Value::Undefined, &[sent]).map(|_| ())
     })
+}
+
+/// `{ type: 'message', data }` for `data`, or `{ type: 'messageerror' }`.
+fn message<H: Clone>(call: &mut dyn Call<H>, data: &Data) -> Result<Value<H>, Error> {
+    let object = call.new_object()?;
+    match deserialize(call, data) {
+        Ok(value) => {
+            call.set(&object, "type", &Value::String("message".into()))?;
+            call.set(&object, "data", &value)?;
+        }
+        Err(_) => call.set(&object, "type", &Value::String("messageerror".into()))?,
+    }
+    Ok(Value::Js(object))
 }
 
 /// The worker's `postMessage(data)`.
@@ -243,13 +206,12 @@ fn close<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, _args: &[Value<H>])
 
 /// The worker's `importScripts(...paths)`: runs each script, in order, as a classic script.
 fn import_scripts<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let (file, directory, global, cache) = {
+    let (file, directory, cache) = {
         let host = call.host()?;
         let host = host.borrow();
-        let global = host.parent.as_ref().map(|p| p.global.clone()).ok_or_else(|| Error::Script("importScripts: not in a worker".into()))?;
-        (host.file.as_ref().map(|f| f.to_string_lossy().into_owned()), host.directory.clone(), global, host.cache.clone())
+        (host.file.as_ref().map(|f| f.to_string_lossy().into_owned()), host.directory.clone(), host.cache.clone())
     };
-    let eval = object(call, &global, "eval")?;
+    let eval = crate::global_class(call, "eval")?;
     for path in args {
         let path = call.to_string(path)?;
         let key = crate::modules::locate(&path, file.as_deref(), directory.clone()).map_err(|e| Error::Dom("NetworkError", e.to_string()))?;
@@ -261,22 +223,16 @@ fn import_scripts<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Va
     Ok(Value::Undefined)
 }
 
-/// The child `this` is, as its number.
-fn number<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>) -> Result<Option<u32>, Error> {
-    let Value::Js(worker) = this else {
-        return Err(Error::Type("not a Worker".into()));
-    };
-    Ok(match call.get(worker, "_worker")? {
-        Value::Number(n) => Some(n as u32),
-        _ => None,
-    })
+/// The worker `args[0]` numbers.
+fn number<H>(call: &mut dyn Call<H>, args: &[Value<H>]) -> Result<f64, Error> {
+    call.to_number(args.first().unwrap_or(&Value::Undefined))
 }
 
 /// The parent's `worker.postMessage(data)`.
-fn post_to_worker<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let number = number(call, this)?;
-    let data = serialize(call, args.first().unwrap_or(&Value::Undefined))?;
-    if let Some(child) = call.host()?.borrow().children.iter().find(|c| Some(c.number) == number) {
+fn post_to_worker<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let number = number(call, args)?;
+    let data = serialize(call, args.get(1).unwrap_or(&Value::Undefined))?;
+    if let Some(child) = call.host()?.borrow().children.iter().find(|c| f64::from(c.number) == number) {
         // A worker that ended takes nothing, as in browsers.
         let _ = child.to.send(data);
     }
@@ -284,12 +240,12 @@ fn post_to_worker<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Val
 }
 
 /// `worker.terminate()`: stops its script and ends it.
-fn terminate<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let number = number(call, this)?;
+fn terminate<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let number = number(call, args)?;
     let child = {
         let host = call.host()?;
         let mut host = host.borrow_mut();
-        let at = host.children.iter().position(|c| Some(c.number) == number);
+        let at = host.children.iter().position(|c| f64::from(c.number) == number);
         at.map(|at| host.children.swap_remove(at))
     };
     if let Some(child) = child
@@ -301,20 +257,20 @@ fn terminate<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[Value<H
     Ok(Value::Undefined)
 }
 
-/// Fires the events of what the workers sent, on the parent's turn, and passes on their output.
+/// Hands what the workers sent to their `Worker`s, on the parent's turn, and passes on their
+/// output.
 pub(crate) fn poll<H: Clone>(call: &mut dyn Call<H>) -> Result<(), Error> {
     let arrived: Vec<(u32, H, Vec<FromWorker>)> = call
         .host()?
         .borrow()
         .children
         .iter()
-        .map(|child| (child.number, child.object.clone(), std::iter::from_fn(|| child.from.try_recv().ok()).collect()))
+        .map(|child| (child.number, child.receive.clone(), std::iter::from_fn(|| child.from.try_recv().ok()).collect()))
         .filter(|(_, _, sent): &(u32, H, Vec<FromWorker>)| !sent.is_empty())
         .collect();
-    for (number, worker, sent) in arrived {
-        let target = Value::Js(worker);
-        for message in sent {
-            let event = match message {
+    for (number, receive, sent) in arrived {
+        for sent in sent {
+            let sent = match sent {
                 FromWorker::Output(lines) => {
                     call.host()?.borrow_mut().output.extend(lines);
                     continue;
@@ -323,25 +279,15 @@ pub(crate) fn poll<H: Clone>(call: &mut dyn Call<H>) -> Result<(), Error> {
                     call.host()?.borrow_mut().children.retain(|c| c.number != number);
                     break;
                 }
-                FromWorker::Message(data) => match deserialize(call, &data) {
-                    Ok(value) => crate::events::new_event(call, "MessageEvent", "message", &[("data", value)])?,
-                    Err(_) => crate::events::new_event(call, "MessageEvent", "messageerror", &[])?,
-                },
+                FromWorker::Message(data) => message(call, &data)?,
                 FromWorker::Error(message) => {
-                    let event = crate::events::new_event(
-                        call,
-                        "ErrorEvent",
-                        "error",
-                        &[("message", Value::String(message.clone())), ("cancelable", Value::Bool(true))],
-                    )?;
-                    // Unless a handler prevents it, the error shows in the console too, as in browsers.
-                    if crate::events::fire(call, &target, &event)? {
-                        call.host()?.borrow_mut().output.push(format!("Uncaught (in worker) {message}"));
-                    }
-                    continue;
+                    let error = call.new_object()?;
+                    call.set(&error, "type", &Value::String("error".into()))?;
+                    call.set(&error, "message", &Value::String(message))?;
+                    Value::Js(error)
                 }
             };
-            crate::events::fire(call, &target, &event)?;
+            call.call(&receive, &Value::Undefined, &[sent])?;
         }
     }
     Ok(())

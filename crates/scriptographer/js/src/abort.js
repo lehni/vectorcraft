@@ -93,5 +93,5 @@ export class AbortController {
   }
 }
 
-defineEventHandlers(AbortSignal, 'abort')
+defineEventHandlers(AbortSignal.prototype, 'abort')
 setToStringTag(AbortSignal, AbortController)

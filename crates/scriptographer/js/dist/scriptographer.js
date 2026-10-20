@@ -300,9 +300,9 @@
     CloseEvent,
     ErrorEvent
   );
-  function defineEventHandlers(Class, ...types) {
+  function defineEventHandlers(target, ...types) {
     for (const type of types) {
-      defineAccessors(Class.prototype, {
+      defineAccessors(target, {
         [`on${type}`]: {
           get() {
             return handlersByTarget.get(this)?.[type] ?? null;
@@ -439,7 +439,7 @@
       abort(this.#signal, reason);
     }
   };
-  defineEventHandlers(AbortSignal, "abort");
+  defineEventHandlers(AbortSignal.prototype, "abort");
   setToStringTag(AbortSignal, AbortController);
 
   // src/blob.js
@@ -1980,8 +1980,65 @@ ${value}\r
   for (const target of [WebSocket, WebSocket.prototype]) {
     defineValues(target, states2, { enumerable: true });
   }
-  defineEventHandlers(WebSocket, "open", "message", "error", "close");
+  defineEventHandlers(WebSocket.prototype, "open", "message", "error", "close");
   setToStringTag(WebSocket);
+
+  // src/worker.js
+  var Worker = class extends EventTarget {
+    #number;
+    constructor(url, { type = "classic", name = "" } = {}) {
+      super();
+      if (type === "module") {
+        throw new DOMException(
+          "Unsupported Worker: module workers are not supported.",
+          "NotSupportedError"
+        );
+      }
+      this.#number = natives.worker.start(
+        String(url),
+        String(name),
+        (sent) => this.#receive(sent)
+      );
+    }
+    postMessage(data) {
+      natives.worker.post(this.#number, data);
+    }
+    terminate() {
+      natives.worker.terminate(this.#number);
+    }
+    // What the worker sent: `{ type, data }` or `{ type: 'error', message }`.
+    #receive({ type, data, message }) {
+      if (type === "error") {
+        const event = new ErrorEvent("error", { message, cancelable: true });
+        if (fire(this, event)) {
+          console.error(`Uncaught (in worker) ${message}`);
+        }
+      } else {
+        fire(this, new MessageEvent(type, { data }));
+      }
+    }
+  };
+  defineEventHandlers(Worker.prototype, "message", "messageerror", "error");
+  setToStringTag(Worker);
+  function setupWorker(name) {
+    const { addEventListener, removeEventListener, dispatchEvent } = EventTarget.prototype;
+    const { postMessage, close, importScripts } = natives.worker.self;
+    defineValues(
+      globalThis,
+      {
+        name,
+        postMessage,
+        close,
+        importScripts,
+        addEventListener,
+        removeEventListener,
+        dispatchEvent
+      },
+      { writable: true, configurable: true }
+    );
+    defineEventHandlers(globalThis, "message", "messageerror");
+    return ({ type, data }) => fire(globalThis, new MessageEvent(type, { data }));
+  }
 
   // src/index.js
   delete globalThis.__scriptographer;
@@ -2009,6 +2066,10 @@ ${value}\r
   }
   if (!globalThis.WebSocket) {
     setGlobals({ WebSocket });
+  }
+  if (!globalThis.Worker) {
+    setGlobals({ Worker });
+    Object.assign(natives, { setupWorker });
   }
   if (!globalThis.DOMMatrix) {
     setGlobals({ ...geometry_exports, WebKitCSSMatrix: DOMMatrix });

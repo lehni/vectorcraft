@@ -166,5 +166,5 @@ export class WebSocket extends EventTarget {
 for (const target of [WebSocket, WebSocket.prototype]) {
   defineValues(target, states, { enumerable: true })
 }
-defineEventHandlers(WebSocket, 'open', 'message', 'error', 'close')
+defineEventHandlers(WebSocket.prototype, 'open', 'message', 'error', 'close')
 setToStringTag(WebSocket)

@@ -20,8 +20,6 @@ mod dom;
 mod drawing;
 mod engine;
 mod engines;
-#[cfg(not(target_arch = "wasm32"))]
-mod events;
 mod exception;
 #[cfg(not(target_arch = "wasm32"))]
 mod fetch;
@@ -322,7 +320,7 @@ impl<E: Engine> Runtime<E> {
         // What's written in JavaScript, before the classes that build on it (`LocalFile` on
         // `File`), with the natives it needs: `print()` for the script's output, on desktop
         // `request()` for `fetch()` and `readFile()` for a `LocalFile`'s bytes, on the web the app's
-        // pickers to ask, the storages' items, and on desktop the sockets.
+        // pickers to ask, the storages' items, and on desktop the sockets and workers.
         let mut natives = vec![("print", engine.function("print", print)?)];
         #[cfg(not(target_arch = "wasm32"))]
         natives.extend([("request", engine.function("request", fetch::request)?), ("readFile", engine.function("readFile", local_file::read_file)?)]);
@@ -332,6 +330,8 @@ impl<E: Engine> Runtime<E> {
             ("storage", storage::natives(&mut engine)?),
             #[cfg(not(target_arch = "wasm32"))]
             ("socket", websocket::natives(&mut engine)?),
+            #[cfg(not(target_arch = "wasm32"))]
+            ("worker", web_worker::natives(&mut engine)?),
         ];
         let shared = engine.with_call(|call| {
             let shared = call.new_object()?;
@@ -372,8 +372,6 @@ impl<E: Engine> Runtime<E> {
         file_system::install(&mut runtime, &global)?;
         #[cfg(not(target_arch = "wasm32"))]
         urls::install(&mut runtime, &global)?;
-        #[cfg(not(target_arch = "wasm32"))]
-        web_worker::install(&mut runtime.engine, &global)?;
         clone::install(&mut runtime.engine, &global)?;
         clipboard::install(&mut runtime.engine, &global)?;
         Ok(runtime)

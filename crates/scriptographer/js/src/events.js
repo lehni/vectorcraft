@@ -280,10 +280,11 @@ setToStringTag(
   ErrorEvent
 )
 
-// The `on…` event handlers of `Class`'s instances, for the event `types`.
-export function defineEventHandlers(Class, ...types) {
+// The `on…` event handlers of `target`, a prototype or the global object, for
+// the event `types`.
+export function defineEventHandlers(target, ...types) {
   for (const type of types) {
-    defineAccessors(Class.prototype, {
+    defineAccessors(target, {
       [`on${type}`]: {
         get() {
           return handlersByTarget.get(this)?.[type] ?? null

@@ -12,6 +12,7 @@ import * as fetch from './fetch.js'
 import * as geometry from './geometry.js'
 import { Storage, createStorage } from './storage.js'
 import { WebSocket } from './websocket.js'
+import { Worker, setupWorker } from './worker.js'
 
 delete globalThis.__scriptographer
 const { print } = natives
@@ -43,6 +44,11 @@ if (!globalThis.localStorage) {
 }
 if (!globalThis.WebSocket) {
   setGlobals({ WebSocket })
+}
+if (!globalThis.Worker) {
+  setGlobals({ Worker })
+  // What the runtime makes a worker's global object with:
+  Object.assign(natives, { setupWorker })
 }
 if (!globalThis.DOMMatrix) {
   setGlobals({ ...geometry, WebKitCSSMatrix: geometry.DOMMatrix })
