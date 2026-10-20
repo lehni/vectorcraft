@@ -1,4 +1,4 @@
-import { internal, setToStringTag } from './define.js'
+import { checkInternal, internal, setToStringTag } from './define.js'
 import { Event, EventTarget, defineEventHandlers, fire } from './events.js'
 
 // `AbortController` and `AbortSignal`, for scripts outside a browser.
@@ -11,12 +11,11 @@ export class AbortSignal extends EventTarget {
   #reason
 
   constructor(key) {
-    if (key !== internal) {
-      throw new TypeError(
-        'Invalid AbortSignal: AbortController, AbortSignal.abort() and ' +
-        'AbortSignal.timeout() make them.'
-      )
-    }
+    checkInternal(
+      key,
+      'AbortSignal',
+      'AbortController, AbortSignal.abort() and AbortSignal.timeout() make them'
+    )
     super()
   }
 

@@ -304,10 +304,12 @@ fn scripts_have_the_browsers_everyday_apis<E: Engine>() {
              const t = performance.now()\n\
              console.log(t >= 0 && performance.now() >= t)\n\
              queueMicrotask(() => console.log('microtask'))\n\
+             const kept = ['EventTarget', 'OffscreenCanvas', 'URL'].map(name => Object.getOwnPropertyDescriptor(globalThis, name))\n\
+             console.log(kept.every(global => global.writable && !global.enumerable), Object.prototype.toString.call(new ImageData(1, 1)))\n\
              console.log('script')",
         )
         .unwrap();
-    assert_eq!(runtime.take_output(), ["3 hé hé", "4 true", "true", "script", "microtask"]);
+    assert_eq!(runtime.take_output(), ["3 hé hé", "4 true", "true", "true [object ImageData]", "script", "microtask"], "the globals are the realm's kind: values scripts can set, not listed");
 }
 
 /// Encoding as the Encoding standard has it, and base64 as browsers read it.

@@ -164,7 +164,6 @@ html/canvas/offscreen/canvas-context/2d.canvas.context.type.extend.worker.js: In
 html/canvas/offscreen/canvas-context/2d.canvas.context.type.prototype.worker.js: window.CanvasRenderingContext2D.prototype are not [[Writable]] and not [[Configurable]], and its methods are [[Configurable]].
 html/canvas/offscreen/canvas-context/2d.canvas.context.type.replace.worker.js: Interface methods can be overridden
 html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.pattern.worker.js: Resetting the canvas state does not invalidate any existing patterns
-html/canvas/offscreen/canvas-host/2d.canvas.host.readonly.worker.js: Canvas objects are readonly
 html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.idl.worker.js: Getting/setting width/height IDL attributes
 html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.decimal.worker.js: Parsing of non-negative integers
 html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.em.worker.js: Parsing of non-negative integers
@@ -212,12 +211,9 @@ html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.interpolate.zerosize.st
 html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.interpolate.zerosize.strokeRect.worker.js: Untitled
 html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.interpolate.zerosize.strokeText.worker.js: Untitled
 html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.object.invalidoffset.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.object.return.worker.js: createLinearGradient() and createRadialGradient() returns objects implementing CanvasGradient
-html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.object.type.worker.js: window.CanvasGradient exists and has the right properties
 html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.radial.equal.worker.js: Untitled
 html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.radial.negative.worker.js: createRadialGradient() throws INDEX_SIZE_ERR if either radius is negative
 html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.relativecolor.worker.js: Relative color works as CanvasGradient color input
-html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.basic.type.worker.js: Untitled
 html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.basic.zerocanvas.worker.js: Untitled
 html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.modify.canvas1.worker.js: Untitled
 html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.modify.canvas2.worker.js: Untitled
@@ -303,13 +299,11 @@ html/canvas/offscreen/pixel-manipulation/2d.imageData.create1.zero.worker.js: cr
 html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.double.worker.js: createImageData(w, h) double is converted to long
 html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.negative.worker.js: createImageData(sw, sh) takes the absolute magnitude of the size arguments
 html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.nonfinite.worker.js: createImageData() throws TypeError if arguments are not finite
-html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.zero.worker.js: createImageData(sw, sh) throws INDEX_SIZE_ERR if size is zero
 html/canvas/offscreen/pixel-manipulation/2d.imageData.createImageBitmap.srgb.rgba.float16.worker.js: Verify round-trip of 16-bit float sRGB data ImageData through ImageBitmap
 html/canvas/offscreen/pixel-manipulation/2d.imageData.get.large.crash.worker.js: Test that canvas crash when image data cannot be allocated.
 html/canvas/offscreen/pixel-manipulation/2d.imageData.get.nonfinite.worker.js: getImageData() throws TypeError if arguments are not finite
 html/canvas/offscreen/pixel-manipulation/2d.imageData.get.zero.worker.js: getImageData() throws INDEX_SIZE_ERR if size is zero
 html/canvas/offscreen/pixel-manipulation/2d.imageData.object.properties.worker.js: ImageData objects have the right properties
-html/canvas/offscreen/pixel-manipulation/2d.imageData.object.readonly.worker.js: ImageData objects properties are read-only
 html/canvas/offscreen/pixel-manipulation/2d.imageData.put.basic.rgba.float16.worker.js: putImageData() puts 16-bit floating point image data from getImageData() onto the canvas
 html/canvas/offscreen/pixel-manipulation/2d.imageData.put.nonfinite.worker.js: putImageData() throws TypeError if arguments are not finite
 html/canvas/offscreen/pixel-manipulation/2d.imageData.put.null.worker.js: putImageData() with null imagedata throws TypeError

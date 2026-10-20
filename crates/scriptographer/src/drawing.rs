@@ -21,7 +21,7 @@ use vello_cpu::kurbo::{Affine, Arc as ArcSegment, BezPath, Cap, Join, PathEl, Po
 use vello_cpu::peniko::{self, BlendMode, Color, ColorStop, Compose, Extend, Fill, ImageQuality, ImageSampler, Mix};
 use vello_cpu::{Pixmap, RenderContext, RenderSettings, Resources};
 
-use crate::{Call, Error, HostFunction, Value};
+use crate::{Call, Error, Value};
 
 /// A context property: its name, the key its value is kept under, its value on a new canvas, and
 /// the values it takes; others are ignored, as browsers ignore them. `save()` keeps them.
@@ -172,32 +172,29 @@ impl Initial {
     }
 }
 
-/// The getter of `PROPERTIES[I]`.
-fn get<H: Clone, const I: usize>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
-    match PROPERTIES.get(I) {
-        Some(p) => stored(call, this, p.key),
-        None => Ok(Value::Undefined),
-    }
+/// `get(name)`, with the context as `this`: its property `name`.
+pub(crate) fn get_property<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let property = property_named(call, args)?;
+    stored(call, this, property.key)
 }
 
-/// The setter of `PROPERTIES[I]`: keeps the value as the property has it, when it takes it.
-fn set<H: Clone, const I: usize>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let (Some(p), Value::Js(context)) = (PROPERTIES.get(I), this) else {
-        return Ok(Value::Undefined);
+/// `set(name, value)`, with the context as `this`: keeps the value as the property has it, when it
+/// takes it.
+pub(crate) fn set_property<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let property = property_named(call, args)?;
+    let Value::Js(context) = this else {
+        return Err(Error::Script("not a canvas".into()));
     };
-    let value = args.first().cloned().unwrap_or(Value::Undefined);
-    if let Some(kept) = checked(call, p.check, value)? {
-        call.set(context, p.key, &kept)?;
+    let value = args.get(1).cloned().unwrap_or(Value::Undefined);
+    if let Some(kept) = checked(call, property.check, value)? {
+        call.set(context, property.key, &kept)?;
     }
     Ok(Value::Undefined)
 }
 
-/// The getter and setter of every property, in the order of [`PROPERTIES`].
-pub(crate) fn accessors<H: Clone>() -> [(HostFunction<H>, HostFunction<H>); PROPERTIES.len()] {
-    macro_rules! accessors {
-        ($($i:literal)*) => { [$((get::<H, $i> as HostFunction<H>, set::<H, $i> as HostFunction<H>)),*] };
-    }
-    accessors!(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25)
+fn property_named<H>(call: &mut dyn Call<H>, args: &[Value<H>]) -> Result<&'static Property, Error> {
+    let name = call.to_string(args.first().unwrap_or(&Value::Undefined))?;
+    PROPERTIES.iter().find(|p| p.name == name).ok_or_else(|| Error::Type(format!("Unknown property: '{name}'.")))
 }
 
 /// `value` as a property that takes `check` keeps it, or `None` when it doesn't take it.
@@ -1441,7 +1438,7 @@ pub(crate) fn create_gradient<H: Clone>(call: &mut dyn Call<H>, kind: &str, args
     if at.iter().any(|v| matches!(v, Value::Number(n) if !n.is_finite())) {
         return Err(Error::Type(format!("create{kind}Gradient: not finite")));
     }
-    let gradient = crate::canvas::new_gradient(call)?;
+    let gradient = crate::canvas::new_style(call, "CanvasGradient")?;
     let at = call.new_array(&at)?;
     let (offsets, colors) = (call.new_array(&[])?, call.new_array(&[])?);
     for (key, value) in
@@ -1491,7 +1488,7 @@ pub(crate) fn create_pattern<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>,
     if !matches!(repetition.as_str(), "repeat" | "repeat-x" | "repeat-y" | "no-repeat") {
         return Err(Error::Dom("SyntaxError", format!("createPattern: '{repetition}' isn't a repetition")));
     }
-    let pattern = call.new_object()?;
+    let pattern = crate::canvas::new_style(call, "CanvasPattern")?;
     call.set(&pattern, "_image", image)?;
     call.set(&pattern, "_repetition", &Value::String(repetition))?;
     Ok(Value::Js(pattern))

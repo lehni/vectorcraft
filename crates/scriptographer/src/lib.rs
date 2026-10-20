@@ -301,6 +301,7 @@ impl<E: Engine> Runtime<E> {
         .concat();
         let groups = [
             ("storage", storage::natives(&mut engine)?),
+            ("canvas", canvas::natives(&mut engine)?),
             #[cfg(not(target_arch = "wasm32"))]
             ("socket", websocket::natives(&mut engine)?),
             #[cfg(not(target_arch = "wasm32"))]
@@ -750,19 +751,6 @@ fn define_accessor<H: Clone>(call: &mut dyn Call<H>, global: &H, target: &H, nam
     Ok(())
 }
 
-/// Names the objects of `prototype` `name` for `Object.prototype.toString()` (`[object
-/// DOMMatrix]`), through the realm's `Symbol.toStringTag`, as the browser's classes have it.
-pub(crate) fn tag<H: Clone>(call: &mut dyn Call<H>, global: &H, prototype: &H, name: &str) -> Result<(), Error> {
-    let symbol = object(call, global, "Symbol")?;
-    let to_string_tag = call.get(&symbol, "toStringTag")?;
-    let descriptor = call.new_object()?;
-    call.set(&descriptor, "value", &Value::String(name.into()))?;
-    call.set(&descriptor, "configurable", &Value::Bool(true))?;
-    let object_class = object(call, global, "Object")?;
-    method(call, &object_class, "defineProperty", &[Value::Js(prototype.clone()), to_string_tag, Value::Js(descriptor)])?;
-    Ok(())
-}
-
 /// JavaScript's `Boolean(value)`.
 pub(crate) fn truthy<H>(value: &Value<H>) -> bool {
     match value {
@@ -847,8 +835,7 @@ fn set_language<H: Clone>(call: &mut dyn Call<H>, navigator: &H, language: &str)
 }
 
 /// The host's globals Paper.js expects in a web worker, after the prelude: the timers
-/// (`setInterval` for its frame loop) and `OffscreenCanvas` for CSS colours; and the browser's
-/// `requestAnimationFrame`, `atob` and `btoa`.
+/// (`setInterval` for its frame loop), and the browser's `requestAnimationFrame`.
 fn install_globals<E: Engine>(engine: &mut E) -> Result<(), Error> {
     let global = engine.global()?;
     let set_interval = engine.function("setInterval", |call, _, args| set_timer(call, args, true))?;
@@ -864,8 +851,7 @@ fn install_globals<E: Engine>(engine: &mut E) -> Result<(), Error> {
         call.set(&global, "clearTimeout", &Value::Js(clear_timer))?;
         call.set(&global, "requestAnimationFrame", &Value::Js(request_frame))?;
         call.set(&global, "cancelAnimationFrame", &Value::Js(cancel_frame))
-    })?;
-    canvas::install(engine, &global)
+    })
 }
 
 /// `setInterval(callback, delay)` when it `repeats`, else `setTimeout(callback, delay)`.

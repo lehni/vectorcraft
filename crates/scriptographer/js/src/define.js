@@ -40,6 +40,14 @@ export function setToStringTag(...classes) {
 // What only the runtime's own code passes the classes scripts can't construct:
 export const internal = Symbol('internal')
 
+// A `TypeError` unless the runtime's own code constructs the class `name`,
+// saying `how` scripts get its instances.
+export function checkInternal(key, name, how) {
+  if (key !== internal) {
+    throw new TypeError(`Invalid ${name}: ${how}.`)
+  }
+}
+
 // A `TypeError` when `name()` got fewer than `count` arguments.
 export function checkArguments(args, count, name) {
   if (args.length < count) {

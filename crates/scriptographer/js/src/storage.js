@@ -1,4 +1,9 @@
-import { checkArguments, internal, setToStringTag } from './define.js'
+import {
+  checkArguments,
+  checkInternal,
+  internal,
+  setToStringTag
+} from './define.js'
 import { natives } from './natives.js'
 
 // `localStorage` and `sessionStorage` for scripts outside a browser. The
@@ -11,11 +16,7 @@ const sessions = new WeakMap()
 
 export class Storage {
   constructor(key) {
-    if (key !== internal) {
-      throw new TypeError(
-        'Invalid Storage: use localStorage or sessionStorage.'
-      )
-    }
+    checkInternal(key, 'Storage', 'use localStorage or sessionStorage')
   }
 
   get length() {

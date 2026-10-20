@@ -18,25 +18,19 @@ use crate::bitmap;
 use crate::drawing::{self, Surface};
 use crate::path2d;
 
-use crate::{Call, Engine, Error, HostFunction, Value, define_accessor, method, object};
+use crate::{Call, Engine, Error, HostFunction, Value, method};
 
 /// The largest side of a canvas, and the most pixels one has, as browsers cap them.
 pub(crate) const SIDE: f64 = 16384.0;
 pub(crate) const AREA: f64 = 16384.0 * 16384.0 / 4.0;
 
-/// What canvases share: their prototype, `ImageData`'s, the realm's `Object`,
-/// `Uint8ClampedArray` and `FinalizationRegistry` (when it has one, to free a dropped canvas's
-/// pixels), and the pixels of every canvas and `ImageBitmap`, by its number; and the same for
-/// `Path2D`s.
+/// What canvases share: the realm's `Promise`, the `FinalizationRegistry`s that free a dropped
+/// canvas's pixels and a dropped `Path2D`'s path (when the realm has the class), and the pixels of
+/// every canvas and `ImageBitmap`, and the paths, by their numbers.
 pub(crate) struct Canvases<H> {
-    image_data: H,
-    gradient: H,
-    pub object: H,
-    clamped: H,
     pub promise: H,
     pub registry: Option<H>,
     pub surfaces: Vec<Option<Surface<H>>>,
-    pub bitmap_prototype: H,
     pub path_registry: Option<H>,
     pub paths: Vec<Option<BezPath>>,
 }
@@ -57,13 +51,16 @@ pub(crate) fn store<T>(slots: &mut Vec<Option<T>>, item: T) -> usize {
     }
 }
 
-/// Sets `OffscreenCanvas` and `ImageData` on `global`, unless it has them.
-pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(), Error> {
+/// The natives `js/src/canvas.js` makes its classes of: `create(width, height)` and the
+/// `methods` of a canvas, which is its own 2D context, the context's `properties` with `get(name)`
+/// and `set(name, value)`, `width()`, `height()` and `resize(width, height)`; `createPath(path)` and
+/// the `pathMethods` of a `Path2D`; `bitmapWidth()`, `bitmapHeight()` and `closeBitmap()` of an
+/// `ImageBitmap`; `addColorStop()` of a `CanvasGradient`; and `createImageBitmap()`. Each takes
+/// the object it's for as `this`.
+pub(crate) fn natives<E: Engine>(engine: &mut E) -> Result<Vec<(&'static str, E::Handle)>, Error> {
     let methods: Vec<(&str, HostFunction<E::Handle>)> = vec![
-        ("getContext", |_, this, _| Ok(this.clone())),
         ("getImageData", get_image_data),
         ("putImageData", put_image_data),
-        ("createImageData", create_image_data),
         ("measureText", measure_text),
         ("convertToBlob", convert_to_blob),
         ("beginPath", drawing::begin_path),
@@ -105,7 +102,6 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
         ("createConicGradient", |call, _, args| drawing::create_gradient(call, "conic", args, 3)),
         ("createPattern", drawing::create_pattern),
     ];
-    let methods = methods.into_iter().map(|(name, f)| Ok((name, engine.function(name, f)?))).collect::<Result<Vec<_>, Error>>()?;
     let path_methods: Vec<(&str, HostFunction<E::Handle>)> = vec![
         ("closePath", drawing::close_path::<_, drawing::Path2D>),
         ("moveTo", drawing::move_to::<_, drawing::Path2D>),
@@ -119,80 +115,49 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
         ("roundRect", drawing::round_rect::<_, drawing::Path2D>),
         ("addPath", path2d::add_path),
     ];
-    let path_methods = path_methods.into_iter().map(|(name, f)| Ok((name, engine.function(name, f)?))).collect::<Result<Vec<_>, Error>>()?;
-    let path_constructor = engine.constructor("Path2D", path2d::construct)?;
-    let release_path = engine.function("release", path2d::release)?;
-    let width = engine.function("width", |call, this, _| Ok(Value::Number(f64::from(with_pixmap(call, this, |p| p.width())?))))?;
-    let height = engine.function("height", |call, this, _| Ok(Value::Number(f64::from(with_pixmap(call, this, |p| p.height())?))))?;
-    let set_width = engine.function("width", |call, this, args| resize(call, this, args.first(), None))?;
-    let set_height = engine.function("height", |call, this, args| resize(call, this, None, args.first()))?;
+    let natives: Vec<(&str, HostFunction<E::Handle>)> = vec![
+        ("create", offscreen_canvas),
+        ("get", drawing::get_property),
+        ("set", drawing::set_property),
+        ("width", |call, this, _| Ok(Value::Number(f64::from(with_pixmap(call, this, |p| p.width())?)))),
+        ("height", |call, this, _| Ok(Value::Number(f64::from(with_pixmap(call, this, |p| p.height())?)))),
+        // `undefined` for the side that stays.
+        ("resize", |call, this, args| {
+            let given = |n: usize| args.get(n).filter(|side| !matches!(side, Value::Undefined));
+            resize(call, this, given(0), given(1))
+        }),
+        ("createPath", path2d::construct),
+        ("bitmapWidth", |call, this, _| bitmap::side(call, this, true)),
+        ("bitmapHeight", |call, this, _| bitmap::side(call, this, false)),
+        ("closeBitmap", bitmap::close),
+        ("addColorStop", drawing::add_color_stop),
+        ("createImageBitmap", bitmap::create),
+    ];
+    let functions = |engine: &mut E, list: Vec<(&'static str, HostFunction<E::Handle>)>| {
+        list.into_iter().map(|(name, f)| Ok((name, engine.function(name, f)?))).collect::<Result<Vec<_>, Error>>()
+    };
+    let (methods, path_methods, mut natives) = (functions(engine, methods)?, functions(engine, path_methods)?, functions(engine, natives)?);
     let release = engine.function("release", release)?;
-    let bitmap_width = engine.function("width", |call, this, _| bitmap::side(call, this, true))?;
-    let bitmap_height = engine.function("height", |call, this, _| bitmap::side(call, this, false))?;
-    let bitmap_close = engine.function("close", bitmap::close)?;
-    let bitmap_constructor = engine.constructor("ImageBitmap", |_, _, _| Err(Error::Type("Illegal constructor".into())))?;
-    let create_bitmap = engine.function("createImageBitmap", bitmap::create)?;
-    let mut properties = Vec::with_capacity(drawing::PROPERTIES.len());
-    for (property, (get, set)) in drawing::PROPERTIES.iter().zip(drawing::accessors()) {
-        properties.push((property.name, engine.function(property.name, get)?, engine.function(property.name, set)?));
-    }
-    let constructor = engine.constructor("OffscreenCanvas", offscreen_canvas)?;
-    let image_data = engine.constructor("ImageData", construct_image_data)?;
-    let add_color_stop = engine.function("addColorStop", drawing::add_color_stop)?;
-    engine.with_call(|call| {
-        if !matches!(call.get(global, "OffscreenCanvas")?, Value::Undefined) {
-            return Ok(());
-        }
-        let prototype = call.new_object()?;
-        for (name, function) in methods {
-            call.set(&prototype, name, &Value::Js(function))?;
-        }
-        define_accessor(call, global, &prototype, "width", width, Some(set_width))?;
-        for (name, get, set) in properties {
-            define_accessor(call, global, &prototype, name, get, Some(set))?;
-        }
-        define_accessor(call, global, &prototype, "height", height, Some(set_height))?;
-        call.set(&constructor, "prototype", &Value::Js(prototype.clone()))?;
-        call.set(global, "OffscreenCanvas", &Value::Js(constructor))?;
-        crate::tag(call, global, &prototype, "OffscreenCanvas")?;
-        let gradient = call.new_object()?;
-        crate::tag(call, global, &gradient, "CanvasGradient")?;
-        call.set(&gradient, "addColorStop", &Value::Js(add_color_stop))?;
-        let image_data_prototype = call.new_object()?;
-        call.set(&image_data, "prototype", &Value::Js(image_data_prototype.clone()))?;
-        call.set(global, "ImageData", &Value::Js(image_data))?;
-        crate::tag(call, global, &image_data_prototype, "ImageData")?;
-        let path_prototype = call.new_object()?;
-        for (name, function) in path_methods {
-            call.set(&path_prototype, name, &Value::Js(function))?;
-        }
-        call.set(&path_constructor, "prototype", &Value::Js(path_prototype.clone()))?;
-        call.set(global, "Path2D", &Value::Js(path_constructor))?;
-        crate::tag(call, global, &path_prototype, "Path2D")?;
-        let bitmap_prototype = call.new_object()?;
-        call.set(&bitmap_prototype, "close", &Value::Js(bitmap_close))?;
-        define_accessor(call, global, &bitmap_prototype, "width", bitmap_width, None)?;
-        define_accessor(call, global, &bitmap_prototype, "height", bitmap_height, None)?;
-        call.set(&bitmap_constructor, "prototype", &Value::Js(bitmap_prototype.clone()))?;
-        call.set(global, "ImageBitmap", &Value::Js(bitmap_constructor))?;
-        crate::tag(call, global, &bitmap_prototype, "ImageBitmap")?;
-        call.set(global, "createImageBitmap", &Value::Js(create_bitmap))?;
-        let registry = finalization_registry(call, global, release)?;
-        let path_registry = finalization_registry(call, global, release_path)?;
-        call.host()?.borrow_mut().canvases = Some(Canvases {
-            image_data: image_data_prototype,
-            gradient,
-            object: object(call, global, "Object")?,
-            clamped: object(call, global, "Uint8ClampedArray")?,
-            promise: object(call, global, "Promise")?,
-            registry,
-            surfaces: Vec::new(),
-            bitmap_prototype,
-            path_registry,
-            paths: Vec::new(),
-        });
-        Ok(())
-    })
+    let release_path = engine.function("release", path2d::release)?;
+    let global = engine.global()?;
+    let objects = engine.with_call(|call| {
+        let object = |call: &mut dyn Call<E::Handle>, list: Vec<(&'static str, E::Handle)>| -> Result<E::Handle, Error> {
+            let object = call.new_object()?;
+            for (name, function) in list {
+                call.set(&object, name, &Value::Js(function))?;
+            }
+            Ok(object)
+        };
+        let names: Vec<_> = drawing::PROPERTIES.iter().map(|p| Value::String(p.name.into())).collect();
+        let objects = [("methods", object(call, methods)?), ("pathMethods", object(call, path_methods)?), ("properties", call.new_array(&names)?)];
+        let registry = finalization_registry(call, &global, release)?;
+        let path_registry = finalization_registry(call, &global, release_path)?;
+        let promise = crate::object(call, &global, "Promise")?;
+        call.host()?.borrow_mut().canvases = Some(Canvases { promise, registry, surfaces: Vec::new(), path_registry, paths: Vec::new() });
+        Ok(objects)
+    })?;
+    natives.extend(objects);
+    Ok(natives)
 }
 
 /// A `FinalizationRegistry` that calls `release`, when the realm has the class.
@@ -249,7 +214,6 @@ fn offscreen_canvas<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[V
     if let Some(registry) = registry {
         method(call, &registry, "register", &[Value::Js(canvas.clone()), Value::Number(number as f64)])?;
     }
-    call.set(&canvas, "canvas", &Value::Js(canvas.clone()))?;
     drawing::reset_properties(call, &canvas)?;
     Ok(Value::Js(canvas))
 }
@@ -308,18 +272,12 @@ pub(crate) fn image_pixels<H>(call: &mut dyn Call<H>, image: &Value<H>) -> Resul
     with_pixmap(call, image, |pixmap| Arc::new(pixmap.clone())).map_err(|_| Error::Type("the image isn't a canvas".into()))
 }
 
-/// A new `CanvasGradient`.
-pub(crate) fn new_gradient<H: Clone>(call: &mut dyn Call<H>) -> Result<H, Error> {
-    let (object_class, prototype) = {
-        let host = call.host()?;
-        let host = host.borrow();
-        let canvases = host.canvases.as_ref().ok_or_else(|| Error::Script("OffscreenCanvas is not set up".into()))?;
-        (canvases.object.clone(), canvases.gradient.clone())
-    };
-    match method(call, &object_class, "create", &[Value::Js(prototype)])? {
-        Value::Js(made) => Ok(made),
-        _ => Err(Error::Script("Object.create made nothing".into())),
-    }
+/// A new `CanvasGradient` or `CanvasPattern` (`class`), which scripts can't construct.
+pub(crate) fn new_style<H: Clone>(call: &mut dyn Call<H>, class: &str) -> Result<H, Error> {
+    let class = crate::global_class(call, class)?;
+    let prototype = call.get(&class, "prototype")?;
+    let object_class = crate::global_class(call, "Object")?;
+    crate::handle(method(call, &object_class, "create", &[prototype])?, "Object.create()")
 }
 
 /// Setting `canvas.width` or `height`: the canvas is cleared to that size and its state reset, as
@@ -375,69 +333,14 @@ fn unpremultiply(p: PremulRgba8) -> [u8; 4] {
     [u(p.r), u(p.g), u(p.b), p.a]
 }
 
-/// An `ImageData` of `width` × `height` with `bytes` (RGBA, not premultiplied).
-/// An `ImageData` of `width` × `height` `bytes`: `into`, the constructor's `this`, else a new one.
-fn image_data<H: Clone>(call: &mut dyn Call<H>, into: &Value<H>, width: u16, height: u16, bytes: &[u8]) -> Result<Value<H>, Error> {
-    let (object_class, prototype, clamped) = {
-        let host = call.host()?;
-        let host = host.borrow();
-        let canvases = host.canvases.as_ref().ok_or_else(|| Error::Script("ImageData is not set up".into()))?;
-        (canvases.object.clone(), canvases.image_data.clone(), canvases.clamped.clone())
-    };
-    let image = match into {
-        Value::Js(image) => image.clone(),
-        _ => crate::handle(method(call, &object_class, "create", &[Value::Js(prototype)])?, "ImageData")?,
-    };
+/// A new `ImageData` of `width` × `height` `bytes` (RGBA, not premultiplied).
+fn image_data<H: Clone>(call: &mut dyn Call<H>, width: u16, height: u16, bytes: &[u8]) -> Result<Value<H>, Error> {
     let array = call.new_uint8_array(bytes)?;
     let buffer = call.get(&array, "buffer")?;
+    let clamped = crate::global_class(call, "Uint8ClampedArray")?;
     let data = call.construct(&clamped, &[buffer])?;
-    for (key, value) in [
-        ("width", Value::Number(f64::from(width))),
-        ("height", Value::Number(f64::from(height))),
-        ("data", data),
-        ("colorSpace", Value::String("srgb".into())),
-    ] {
-        call.set(&image, key, &value)?;
-    }
-    Ok(Value::Js(image))
-}
-
-/// `new ImageData(width, height)` or `new ImageData(data, width[, height])`.
-fn construct_image_data<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    match args.first() {
-        Some(Value::Js(data)) => {
-            let bytes = call.bytes(data)?;
-            let width = side(args.get(1))?;
-            let rows = bytes.len() / 4 / usize::from(width.max(1));
-            let height = match args.get(2) {
-                Some(Value::Number(_)) => side(args.get(2))?,
-                _ => u16::try_from(rows).map_err(|_| Error::Script("ImageData: too many rows".into()))?,
-            };
-            if width == 0 || bytes.len() != usize::from(width) * usize::from(height) * 4 {
-                return Err(Error::Script("ImageData: the data isn't width × height × 4 bytes".into()));
-            }
-            image_data(call, this, width, height, &bytes)
-        }
-        _ => {
-            let (width, height) = (side(args.first())?, side(args.get(1))?);
-            if f64::from(width) * f64::from(height) > AREA {
-                return Err(Error::Script("ImageData: too large".into()));
-            }
-            image_data(call, this, width, height, &vec![0; usize::from(width) * usize::from(height) * 4])
-        }
-    }
-}
-
-/// `createImageData(width, height)` or `createImageData(imageData)`: transparent black.
-fn create_image_data<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let (width, height) = match args.first() {
-        Some(Value::Js(other)) => {
-            let (w, h) = (call.get(other, "width")?, call.get(other, "height")?);
-            (side(Some(&w))?, side(Some(&h))?)
-        }
-        _ => (side(args.first())?, side(args.get(1))?),
-    };
-    construct_image_data(call, &Value::Undefined, &[Value::Number(f64::from(width)), Value::Number(f64::from(height))])
+    let class = crate::global_class(call, "ImageData")?;
+    call.construct(&class, &[data, Value::Number(f64::from(width)), Value::Number(f64::from(height))])
 }
 
 /// `getImageData(x, y, width, height)`: the pixels there, not premultiplied; outside the canvas
@@ -465,7 +368,7 @@ fn get_image_data<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Val
         }
         bytes
     })?;
-    image_data(call, &Value::Undefined, sw, sh, &bytes)
+    image_data(call, sw, sh, &bytes)
 }
 
 /// `putImageData(imageData, x, y[, dirtyX, dirtyY, dirtyWidth, dirtyHeight])`: the pixels replace

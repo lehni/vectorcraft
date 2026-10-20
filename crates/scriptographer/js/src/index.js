@@ -4,6 +4,7 @@ import { natives } from './natives.js'
 import { inject } from './define.js'
 import * as abort from './abort.js'
 import * as blob from './blob.js'
+import * as canvas from './canvas.js'
 import { Clipboard } from './clipboard.js'
 import { createConsole } from './console.js'
 import { Crypto } from './crypto.js'
@@ -55,7 +56,7 @@ if (!globalThis.DOMException) {
   inject(globalThis, { DOMException })
 }
 if (!globalThis.EventTarget) {
-  inject(globalThis, events)
+  inject(globalThis, { ...events })
 }
 if (!globalThis.fetch) {
   const { Blob, File, getBytes } = blob
@@ -86,6 +87,9 @@ if (!globalThis.Worker) {
 if (natives.fs) {
   const { getHandlePath, ...classes } = fileSystem
   inject(globalThis, { LocalFile, ...classes })
+}
+if (!globalThis.OffscreenCanvas) {
+  inject(globalThis, { ...canvas })
 }
 if (!globalThis.DOMMatrix) {
   inject(globalThis, { ...geometry, WebKitCSSMatrix: geometry.DOMMatrix })

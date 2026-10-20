@@ -1,5 +1,5 @@
 import { Blob, File, getBufferBytes } from './blob.js'
-import { internal, setToStringTag } from './define.js'
+import { checkInternal, internal, setToStringTag } from './define.js'
 import { getBody } from './fetch.js'
 import { getType } from './local-file.js'
 import { natives } from './natives.js'
@@ -19,9 +19,7 @@ const most = 512 * 1024 * 1024
 
 export class FileSystemHandle {
   constructor(key, path) {
-    if (key !== internal) {
-      throw new TypeError('Invalid FileSystemHandle: the pickers give them.')
-    }
+    checkInternal(key, 'FileSystemHandle', 'the pickers give them')
     pathsByHandle.set(this, path)
   }
 
@@ -115,11 +113,11 @@ export class FileSystemWritableFileStream {
   #isClosed = false
 
   constructor(key, path, bytes) {
-    if (key !== internal) {
-      throw new TypeError(
-        'Invalid FileSystemWritableFileStream: createWritable() gives them.'
-      )
-    }
+    checkInternal(
+      key,
+      'FileSystemWritableFileStream',
+      'createWritable() gives them'
+    )
     this.#path = path
     this.#bytes = bytes
   }

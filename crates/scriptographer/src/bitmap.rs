@@ -138,22 +138,14 @@ fn render(pixels: Arc<Pixmap>, width: u16, height: u16, transform: Affine, smoot
 
 /// A new `ImageBitmap` of `pixmap`.
 fn new_bitmap<H: Clone>(call: &mut dyn Call<H>, pixmap: Pixmap) -> Result<Value<H>, Error> {
-    let (object_class, prototype, registry) = {
-        let host = call.host()?;
-        let host = host.borrow();
-        let canvases = host.canvases.as_ref().ok_or_else(not_set_up)?;
-        (canvases.object.clone(), canvases.bitmap_prototype.clone(), canvases.registry.clone())
-    };
-    let Value::Js(bitmap) = method(call, &object_class, "create", &[Value::Js(prototype)])? else {
-        return Err(Error::Script("Object.create made nothing".into()));
-    };
-    let number = {
+    let bitmap = crate::canvas::new_style(call, "ImageBitmap")?;
+    let (number, registry) = {
         let host = call.host()?;
         let mut host = host.borrow_mut();
         let canvases = host.canvases.as_mut().ok_or_else(not_set_up)?;
         let mut surface = Surface::new(0, 0);
         surface.pixmap = pixmap;
-        store(&mut canvases.surfaces, surface)
+        (store(&mut canvases.surfaces, surface), canvases.registry.clone())
     };
     call.set(&bitmap, "_canvas", &Value::Number(number as f64))?;
     if let Some(registry) = registry {

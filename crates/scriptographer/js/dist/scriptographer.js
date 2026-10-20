@@ -42,6 +42,12 @@
   }
   __name(setToStringTag, "setToStringTag");
   var internal = /* @__PURE__ */ Symbol("internal");
+  function checkInternal(key, name, how) {
+    if (key !== internal) {
+      throw new TypeError(`Invalid ${name}: ${how}.`);
+    }
+  }
+  __name(checkInternal, "checkInternal");
   function checkArguments(args, count, name) {
     if (args.length < count) {
       throw new TypeError(`Invalid ${name}(): an argument is missing.`);
@@ -494,11 +500,11 @@
     #aborted = false;
     #reason;
     constructor(key) {
-      if (key !== internal) {
-        throw new TypeError(
-          "Invalid AbortSignal: AbortController, AbortSignal.abort() and AbortSignal.timeout() make them."
-        );
-      }
+      checkInternal(
+        key,
+        "AbortSignal",
+        "AbortController, AbortSignal.abort() and AbortSignal.timeout() make them"
+      );
       super();
     }
     static {
@@ -656,6 +662,175 @@
     return /^[\x20-\x7e]*$/.test(type) ? type.toLowerCase() : "";
   }
   __name(getType, "getType");
+
+  // src/canvas.js
+  var canvas_exports = {};
+  __export(canvas_exports, {
+    CanvasGradient: () => CanvasGradient,
+    CanvasPattern: () => CanvasPattern,
+    ImageBitmap: () => ImageBitmap,
+    ImageData: () => ImageData,
+    OffscreenCanvas: () => OffscreenCanvas,
+    Path2D: () => Path2D,
+    createImageBitmap: () => createImageBitmap
+  });
+  var { canvas } = natives;
+  var OffscreenCanvas = class {
+    static {
+      __name(this, "OffscreenCanvas");
+    }
+    // Transparent black, with a context's defaults.
+    constructor(width, height) {
+      canvas.create.call(this, width, height);
+    }
+    // The canvas is its own context, of any kind asked for:
+    getContext() {
+      return this;
+    }
+    get canvas() {
+      return this;
+    }
+    get width() {
+      return canvas.width.call(this);
+    }
+    // Cleared to the new size, its state reset, as in browsers:
+    set width(width) {
+      canvas.resize.call(this, width, void 0);
+    }
+    get height() {
+      return canvas.height.call(this);
+    }
+    set height(height) {
+      canvas.resize.call(this, void 0, height);
+    }
+    // Transparent black, of a size or of another `ImageData`'s.
+    createImageData(widthOrImage, height) {
+      return widthOrImage instanceof ImageData ? new ImageData(widthOrImage.width, widthOrImage.height) : new ImageData(widthOrImage, height);
+    }
+  };
+  inject(OffscreenCanvas.prototype, canvas.methods);
+  for (const name of canvas.properties) {
+    inject(
+      OffscreenCanvas.prototype,
+      {
+        get [name]() {
+          return canvas.get.call(this, name);
+        },
+        set [name](value) {
+          canvas.set.call(this, name, value);
+        }
+      },
+      { enumerable: true }
+    );
+  }
+  var ImageData = class {
+    static {
+      __name(this, "ImageData");
+    }
+    #data;
+    #width;
+    #height;
+    // `new ImageData(width, height)`, transparent black, or
+    // `new ImageData(data, width[, height])` of RGBA `data`, not premultiplied.
+    constructor(dataOrWidth, width, height) {
+      checkArguments(arguments, 2, "ImageData");
+      if (dataOrWidth instanceof Uint8ClampedArray) {
+        const data = dataOrWidth;
+        width = getSide(width);
+        height = height === void 0 ? data.length / 4 / width : getSide(height);
+        if (data.length !== width * height * 4) {
+          throw new DOMException(
+            "Invalid ImageData: the data is not width \xD7 height \xD7 4 bytes.",
+            "IndexSizeError"
+          );
+        }
+        this.#data = data;
+      } else {
+        height = getSide(width);
+        width = getSide(dataOrWidth);
+        this.#data = new Uint8ClampedArray(width * height * 4);
+      }
+      this.#width = width;
+      this.#height = height;
+    }
+    get width() {
+      return this.#width;
+    }
+    get height() {
+      return this.#height;
+    }
+    get data() {
+      return this.#data;
+    }
+    get colorSpace() {
+      return "srgb";
+    }
+  };
+  var Path2D = class {
+    static {
+      __name(this, "Path2D");
+    }
+    constructor(path) {
+      canvas.createPath.call(this, path);
+    }
+  };
+  inject(Path2D.prototype, canvas.pathMethods);
+  var ImageBitmap = class {
+    static {
+      __name(this, "ImageBitmap");
+    }
+    constructor(key) {
+      checkInternal(key, "ImageBitmap", "createImageBitmap() makes them");
+    }
+    get width() {
+      return canvas.bitmapWidth.call(this);
+    }
+    get height() {
+      return canvas.bitmapHeight.call(this);
+    }
+    close() {
+      canvas.closeBitmap.call(this);
+    }
+  };
+  var CanvasGradient = class {
+    static {
+      __name(this, "CanvasGradient");
+    }
+    constructor(key) {
+      checkInternal(key, "CanvasGradient", "the context makes them");
+    }
+    addColorStop(offset, color) {
+      canvas.addColorStop.call(this, offset, color);
+    }
+  };
+  var CanvasPattern = class {
+    static {
+      __name(this, "CanvasPattern");
+    }
+    constructor(key) {
+      checkInternal(key, "CanvasPattern", "the context makes them");
+    }
+  };
+  setToStringTag(
+    OffscreenCanvas,
+    ImageData,
+    Path2D,
+    ImageBitmap,
+    CanvasGradient,
+    CanvasPattern
+  );
+  var { createImageBitmap } = canvas;
+  function getSide(value) {
+    const side = Math.trunc(Number(value));
+    if (!(side > 0)) {
+      throw new DOMException(
+        `Invalid ImageData size: '${value}'.`,
+        "IndexSizeError"
+      );
+    }
+    return side;
+  }
+  __name(getSide, "getSide");
 
   // src/clipboard.js
   var Clipboard = class extends EventTarget {
@@ -1783,9 +1958,7 @@ ${value}\r
       __name(this, "FileSystemHandle");
     }
     constructor(key, path) {
-      if (key !== internal) {
-        throw new TypeError("Invalid FileSystemHandle: the pickers give them.");
-      }
+      checkInternal(key, "FileSystemHandle", "the pickers give them");
       pathsByHandle.set(this, path);
     }
     get kind() {
@@ -1871,11 +2044,11 @@ ${value}\r
     #position = 0;
     #isClosed = false;
     constructor(key, path, bytes) {
-      if (key !== internal) {
-        throw new TypeError(
-          "Invalid FileSystemWritableFileStream: createWritable() gives them."
-        );
-      }
+      checkInternal(
+        key,
+        "FileSystemWritableFileStream",
+        "createWritable() gives them"
+      );
       this.#path = path;
       this.#bytes = bytes;
     }
@@ -2773,11 +2946,7 @@ ${value}\r
       __name(this, "Storage");
     }
     constructor(key) {
-      if (key !== internal) {
-        throw new TypeError(
-          "Invalid Storage: use localStorage or sessionStorage."
-        );
-      }
+      checkInternal(key, "Storage", "use localStorage or sessionStorage");
     }
     get length() {
       return getKeys(this).length;
@@ -3228,7 +3397,7 @@ ${value}\r
     inject(globalThis, { DOMException: DOMException2 });
   }
   if (!globalThis.EventTarget) {
-    inject(globalThis, events_exports);
+    inject(globalThis, { ...events_exports });
   }
   if (!globalThis.fetch) {
     const { Blob: Blob2, File: File2, getBytes: getBytes2 } = blob_exports;
@@ -3256,6 +3425,9 @@ ${value}\r
   if (natives.fs) {
     const { getHandlePath: getHandlePath2, ...classes } = file_system_exports;
     inject(globalThis, { LocalFile: LocalFile2, ...classes });
+  }
+  if (!globalThis.OffscreenCanvas) {
+    inject(globalThis, { ...canvas_exports });
   }
   if (!globalThis.DOMMatrix) {
     inject(globalThis, { ...geometry_exports, WebKitCSSMatrix: DOMMatrix });
