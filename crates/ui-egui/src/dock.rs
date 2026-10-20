@@ -422,9 +422,11 @@ pub fn floating_panel(app: &mut VectorcraftApp, ctx: &egui::Context) {
     };
     let tab = DockTab::from_id(id);
     // Expanded, the group shows its panels in the dock itself, unless one was dropped on the icon
-    // column; a floating panel shows in its group.
-    let in_rail = app.ui.docking_icons.contains(id) && app.ui.docking.as_ref().is_some_and(|layout| !layout.contains(&id.to_string()));
-    if tab.is_some() && !app.ui.dock_collapsed && !in_rail || floating::group_of(&app.ui, id).is_some() {
+    // column; a floating panel shows in its group, and a panel in the docking layout there: never
+    // twice.
+    let docked = app.ui.docking.as_ref().is_some_and(|layout| layout.contains(&id.to_string()));
+    let in_rail = app.ui.docking_icons.contains(id) && !docked;
+    if tab.is_some() && !app.ui.dock_collapsed && !in_rail || floating::group_of(&app.ui, id).is_some() || docked {
         return;
     }
     // A library panel (in a collapsed dock) is titled by its library's name.

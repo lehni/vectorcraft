@@ -11,7 +11,7 @@ use crate::{VectorcraftApp, widgets};
 
 pub const ID: &str = "papercraftConsole";
 
-pub(crate) const INPUT: &str = "papercraft-console-input";
+const INPUT: &str = "papercraft-console-input";
 
 pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
@@ -19,12 +19,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     // it ends. The text stays, to run lines again.
     let mut input: String = pstate(ui.ctx(), INPUT);
     let entered = ui.input(|i| i.key_pressed(egui::Key::Enter) && i.modifiers.is_none());
-    let field = egui::TextEdit::multiline(&mut input)
-        .id(egui::Id::new(INPUT))
-        .font(egui::TextStyle::Monospace)
-        .desired_rows(2)
-        .desired_width(f32::INFINITY)
-        .show(ui);
+    let field = egui::TextEdit::multiline(&mut input).font(egui::TextStyle::Monospace).desired_rows(2).desired_width(f32::INFINITY).show(ui);
     if entered
         && field.response.has_focus()
         && let Some(cursor) = field.cursor_range.map(|c| c.primary.index.0)

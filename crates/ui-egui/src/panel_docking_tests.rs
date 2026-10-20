@@ -1220,3 +1220,22 @@ fn a_double_click_on_the_strip_of_a_group_beside_another_does_nothing() {
     assert!(h.state().ui.docking_collapsed.is_empty());
     assert_eq!(h.state().ui.docking, saved);
 }
+
+/// A panel the docking layout shows (here floating) doesn't also pop out of its icon: drawn twice,
+/// its fields would be two, each with half the input.
+#[test]
+fn a_panel_in_the_docking_layout_does_not_also_pop_out() {
+    let mut app = app();
+    app.run("window.panel.move", json!({"panel":"swatches", "anchor":"layers", "zone":"top"})).unwrap();
+    app.run("window.panel.float", json!({"panel":"swatches", "x":50,"y":70,"width":330,"height":410})).unwrap();
+    // Only the docking layout has it, as after the PaperCraft Console was dragged out of its
+    // flyout into a floating window: the older floating groups don't.
+    app.ui.floating_panels.retain(|g| !g.panels.iter().any(|p| p == "swatches"));
+    assert!(app.ui.docking.as_ref().unwrap().contains(&"swatches".to_string()));
+    app.ui.open_panel = Some("swatches".into());
+    let ctx = egui::Context::default();
+    crate::theme::install_fonts(&ctx);
+    let mut out = ctx.run_ui(egui::RawInput::default(), |ui| crate::dock::floating_panel(&mut app, ui.ctx()));
+    out.textures_delta.clear();
+    assert!(out.shapes.is_empty(), "no flyout");
+}
