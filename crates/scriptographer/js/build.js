@@ -17,6 +17,8 @@ for (const [file, entry] of Object.entries(bundles)) {
     bundle: true,
     format: 'iife',
     target: 'es2022',
+    // Classes keep their names, which scripts see, where the bundle renames them:
+    keepNames: true,
     legalComments: 'inline',
     write: false
   })

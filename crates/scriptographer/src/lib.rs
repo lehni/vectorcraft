@@ -23,10 +23,8 @@ mod exception;
 #[cfg(not(target_arch = "wasm32"))]
 mod fetch;
 #[cfg(not(target_arch = "wasm32"))]
-mod file_system;
+mod fs;
 pub mod host;
-#[cfg(not(target_arch = "wasm32"))]
-mod local_file;
 mod modules;
 mod palette;
 mod path2d;
@@ -139,12 +137,6 @@ pub struct Host<H> {
     asked: std::collections::VecDeque<dialog::Asked<H>>,
     /// What `Dialog` uses of the script's realm.
     dialog_globals: Option<dialog::Globals<H>>,
-    /// What `LocalFile` objects share.
-    #[cfg(not(target_arch = "wasm32"))]
-    files: Option<local_file::Files<H>>,
-    /// What the file system's handles share.
-    #[cfg(not(target_arch = "wasm32"))]
-    handles: Option<file_system::Handles<H>>,
     /// The script's file, which its imports are relative to.
     file: Option<std::path::PathBuf>,
     /// The script's folder, which relative paths of `LocalFile`s are in.
@@ -222,10 +214,6 @@ impl<H> Default for Host<H> {
             #[cfg(target_arch = "wasm32")]
             asked: Default::default(),
             dialog_globals: None,
-            #[cfg(not(target_arch = "wasm32"))]
-            files: None,
-            #[cfg(not(target_arch = "wasm32"))]
-            handles: None,
             file: None,
             directory: None,
             loader: None,
@@ -306,7 +294,7 @@ impl<E: Engine> Runtime<E> {
         let natives = [
             vec![("print", engine.function("print", print)?), ("ask", engine.function("ask", dialog::ask_native)?)],
             #[cfg(not(target_arch = "wasm32"))]
-            vec![("request", engine.function("request", fetch::request)?), ("readFile", engine.function("readFile", local_file::read_file)?)],
+            vec![("request", engine.function("request", fetch::request)?)],
             #[cfg(not(target_arch = "wasm32"))]
             web::natives(&mut engine)?,
         ]
@@ -319,6 +307,8 @@ impl<E: Engine> Runtime<E> {
             ("worker", web_worker::natives(&mut engine)?),
             #[cfg(not(target_arch = "wasm32"))]
             ("url", urls::natives(&mut engine)?),
+            #[cfg(not(target_arch = "wasm32"))]
+            ("fs", fs::natives(&mut engine)?),
             #[cfg(not(target_arch = "wasm32"))]
             ("encoding", web::encoding(&mut engine)?),
         ];
@@ -351,11 +341,6 @@ impl<E: Engine> Runtime<E> {
         // After Paper.js, which would take a DOM for a browser's.
         #[cfg(not(target_arch = "wasm32"))]
         dom::install(&mut runtime, &global)?;
-        // After `File`, which it extends.
-        #[cfg(not(target_arch = "wasm32"))]
-        local_file::install(&mut runtime, &global)?;
-        #[cfg(not(target_arch = "wasm32"))]
-        file_system::install(&mut runtime, &global)?;
         clone::install(&mut runtime.engine, &global)?;
         Ok(runtime)
     }
@@ -549,11 +534,11 @@ impl<E: Engine> Runtime<E> {
             #[cfg(not(target_arch = "wasm32"))]
             let (file, directory) = (
                 match file {
-                    Some(file) => local_file::new_local_file(call, std::path::Path::new(file))?,
+                    Some(file) => new_local_file(call, file)?,
                     None => Value::Null,
                 },
                 match &directory {
-                    Some(directory) => local_file::new_local_file(call, directory)?,
+                    Some(directory) => new_local_file(call, &directory.to_string_lossy())?,
                     None => Value::Null,
                 },
             );
@@ -803,6 +788,13 @@ fn print<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Resu
     let line = call.to_string(args.first().unwrap_or(&Value::Undefined))?;
     call.host()?.borrow_mut().output.push(line);
     Ok(Value::Undefined)
+}
+
+/// A `LocalFile` of `path` (`js/src/local-file.js`).
+#[cfg(not(target_arch = "wasm32"))]
+fn new_local_file<H: Clone>(call: &mut dyn Call<H>, path: &str) -> Result<Value<H>, Error> {
+    let class = global_class(call, "LocalFile")?;
+    call.construct(&class, &[Value::String(path.to_owned())])
 }
 
 /// Calls the function `name` the bundle gave the runtime (`js/src/index.js`) with `args`.

@@ -1,5 +1,6 @@
 (() => {
   var __defProp = Object.defineProperty;
+  var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
   var __export = (target, all) => {
     for (var name in all)
       __defProp(target, name, { get: all[name], enumerable: true });
@@ -14,6 +15,7 @@
       Object.defineProperty(target, key, { value: values[key], ...attributes });
     }
   }
+  __name(defineValues, "defineValues");
   function defineAccessors(target, accessors) {
     for (const key of Reflect.ownKeys(accessors)) {
       Object.defineProperty(target, key, {
@@ -23,6 +25,7 @@
       });
     }
   }
+  __name(defineAccessors, "defineAccessors");
   function setToStringTag(...classes) {
     for (const Class of classes) {
       defineValues(
@@ -32,6 +35,7 @@
       );
     }
   }
+  __name(setToStringTag, "setToStringTag");
 
   // src/abort.js
   var abort_exports = {};
@@ -69,6 +73,7 @@
     const stack = err?.stack;
     return typeof stack === "string" && stack.startsWith(text) ? stack : text;
   }
+  __name(formatError, "formatError");
 
   // src/global-scope.js
   var performance = {
@@ -90,9 +95,11 @@
       }
     });
   }
+  __name(queueMicrotask, "queueMicrotask");
   function reportError(err) {
     console.error(`Uncaught ${formatError(err)}`);
   }
+  __name(reportError, "reportError");
   var alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   function atob(data) {
     let text = String(data).replace(/[\t\n\f\r ]/g, "");
@@ -116,6 +123,7 @@
     }
     return result;
   }
+  __name(atob, "atob");
   function btoa(data) {
     const text = String(data);
     if (/[^\0-\xff]/.test(text)) {
@@ -132,6 +140,7 @@
     }
     return result;
   }
+  __name(btoa, "btoa");
 
   // src/events.js
   var phases = { NONE: 0, CAPTURING_PHASE: 1, AT_TARGET: 2, BUBBLING_PHASE: 3 };
@@ -139,6 +148,9 @@
   var states = /* @__PURE__ */ new WeakMap();
   var handlersByTarget = /* @__PURE__ */ new WeakMap();
   var EventTarget = class {
+    static {
+      __name(this, "EventTarget");
+    }
     addEventListener(type, callback, options) {
       if (callback && typeof callback === "object" || typeof callback === "function") {
         const { capture, once, passive, signal } = getOptions(options);
@@ -222,6 +234,9 @@
     }
   };
   var Event = class {
+    static {
+      __name(this, "Event");
+    }
     constructor(type, init) {
       if (arguments.length === 0) {
         throw new TypeError("Invalid event: its type is missing.");
@@ -287,6 +302,9 @@
     }
   };
   var CustomEvent = class extends Event {
+    static {
+      __name(this, "CustomEvent");
+    }
     constructor(type, init) {
       super(...arguments);
       setMembers(this, init, { detail: null });
@@ -298,6 +316,9 @@
     }
   };
   var MessageEvent = class extends Event {
+    static {
+      __name(this, "MessageEvent");
+    }
     constructor(type, init) {
       super(...arguments);
       setMembers(this, init, {
@@ -310,12 +331,18 @@
     }
   };
   var CloseEvent = class extends Event {
+    static {
+      __name(this, "CloseEvent");
+    }
     constructor(type, init) {
       super(...arguments);
       setMembers(this, init, { wasClean: false, code: 0, reason: "" });
     }
   };
   var ErrorEvent = class extends Event {
+    static {
+      __name(this, "ErrorEvent");
+    }
     constructor(type, init) {
       super(...arguments);
       setMembers(this, init, {
@@ -373,8 +400,8 @@
     CloseEvent,
     ErrorEvent
   );
-  function defineEventHandlers(target, ...types) {
-    for (const type of types) {
+  function defineEventHandlers(target, ...types2) {
+    for (const type of types2) {
       defineAccessors(target, {
         [`on${type}`]: {
           get() {
@@ -392,6 +419,7 @@
       });
     }
   }
+  __name(defineEventHandlers, "defineEventHandlers");
   function fire(target, event) {
     const handler2 = handlersByTarget.get(target)?.[event.type];
     if (handler2) {
@@ -403,6 +431,7 @@
     }
     return target.dispatchEvent(event);
   }
+  __name(fire, "fire");
   function getState(event) {
     const state = states.get(event);
     if (!state) {
@@ -410,6 +439,7 @@
     }
     return state;
   }
+  __name(getState, "getState");
   function setMembers(event, init, defaults) {
     const state = getState(event);
     for (const [name, value] of Object.entries(defaults)) {
@@ -417,6 +447,7 @@
       state[name] = given === void 0 ? Array.isArray(value) ? [] : value : typeof value === "string" ? String(given) : typeof value === "number" ? Number(given) : typeof value === "boolean" ? !!given : given;
     }
   }
+  __name(setMembers, "setMembers");
   function getOptions(options) {
     if (options && typeof options === "object") {
       const { capture, once, passive, signal } = options;
@@ -425,22 +456,28 @@
       return { capture: !!options, once: false, passive: false, signal: null };
     }
   }
+  __name(getOptions, "getOptions");
   function find(listeners, type, callback, capture) {
     return listeners?.find(
       (listener) => listener.type === type && listener.capture === capture && Object.is(listener.callback, callback)
     );
   }
+  __name(find, "find");
   function remove(target, listener) {
     listener.removed = true;
     const listeners = listenersByTarget.get(target);
     const index = listeners?.indexOf(listener) ?? -1;
     if (index >= 0) listeners.splice(index, 1);
   }
+  __name(remove, "remove");
 
   // src/abort.js
   var internal = /* @__PURE__ */ Symbol("internal");
   var abort;
   var AbortSignal = class _AbortSignal extends EventTarget {
+    static {
+      __name(this, "AbortSignal");
+    }
     #aborted = false;
     #reason;
     constructor(key) {
@@ -452,7 +489,7 @@
       super();
     }
     static {
-      abort = (signal, reason) => {
+      abort = /* @__PURE__ */ __name((signal, reason) => {
         if (!signal.#aborted) {
           signal.#aborted = true;
           signal.#reason = reason === void 0 ? new DOMException(
@@ -461,7 +498,7 @@
           ) : reason;
           fire(signal, new Event("abort"));
         }
-      };
+      }, "abort");
     }
     get aborted() {
       return this.#aborted;
@@ -501,6 +538,9 @@
     }
   };
   var AbortController = class {
+    static {
+      __name(this, "AbortController");
+    }
     #signal = new AbortSignal(internal);
     get signal() {
       return this.#signal;
@@ -517,10 +557,15 @@
   __export(blob_exports, {
     Blob: () => Blob,
     File: () => File,
-    getBytes: () => getBytes
+    getBytes: () => getBytes,
+    readBytes: () => readBytes
   });
   var bytesByBlob = /* @__PURE__ */ new WeakMap();
+  var readBytes = /* @__PURE__ */ Symbol("readBytes");
   var Blob = class _Blob {
+    static {
+      __name(this, "Blob");
+    }
     constructor(parts2 = [], { type = "" } = {}) {
       bytesByBlob.set(this, { bytes: getPartBytes(parts2), type: getType(type) });
     }
@@ -545,6 +590,9 @@
     }
   };
   var File = class extends Blob {
+    static {
+      __name(this, "File");
+    }
     #name;
     #lastModified;
     constructor(parts2, name, options = {}) {
@@ -567,8 +615,9 @@
   };
   setToStringTag(Blob, File);
   function getBytes(blob) {
-    return bytesByBlob.get(blob)?.bytes ?? natives.readFile(blob);
+    return blob[readBytes]?.() ?? bytesByBlob.get(blob).bytes;
   }
+  __name(getBytes, "getBytes");
   function getPartBytes(parts2) {
     const encoder = new TextEncoder();
     const list = Array.from(
@@ -585,13 +634,18 @@
     }
     return bytes;
   }
+  __name(getPartBytes, "getPartBytes");
   function getType(type) {
     type = String(type);
     return /^[\x20-\x7e]*$/.test(type) ? type.toLowerCase() : "";
   }
+  __name(getType, "getType");
 
   // src/clipboard.js
   var Clipboard = class extends EventTarget {
+    static {
+      __name(this, "Clipboard");
+    }
     async readText() {
       return ask({ type: "clipboardRead" })?.text ?? "";
     }
@@ -613,6 +667,7 @@
       );
     }
   }
+  __name(ask, "ask");
 
   // src/console.js
   var maxDepth = 2;
@@ -621,12 +676,12 @@
     let indent = 0;
     const counts = /* @__PURE__ */ new Map();
     const timers = /* @__PURE__ */ new Map();
-    const write = (text) => print2(
+    const write = /* @__PURE__ */ __name((text) => print2(
       text.split("\n").map((line) => "  ".repeat(indent) + line).join("\n")
-    );
-    const log = (...args) => write(format(args));
-    const now = () => globalThis.performance?.now() ?? Date.now();
-    const timeLog = (end, label = "default", ...data) => {
+    ), "write");
+    const log = /* @__PURE__ */ __name((...args) => write(format(args)), "log");
+    const now = /* @__PURE__ */ __name(() => globalThis.performance?.now() ?? Date.now(), "now");
+    const timeLog = /* @__PURE__ */ __name((end, label = "default", ...data) => {
       label = String(label);
       if (timers.has(label)) {
         let line = `${label}: ${(now() - timers.get(label)).toFixed(3)} ms`;
@@ -636,11 +691,11 @@
       } else {
         write(`Timer '${label}' does not exist`);
       }
-    };
-    const group = (...args) => {
+    }, "timeLog");
+    const group = /* @__PURE__ */ __name((...args) => {
       if (args.length) log(...args);
       indent++;
-    };
+    }, "group");
     return {
       log,
       info: log,
@@ -711,6 +766,7 @@ ${stack}` : ""));
       }
     };
   }
+  __name(createConsole, "createConsole");
   function format(args) {
     const parts2 = [];
     let rest = args;
@@ -744,6 +800,7 @@ ${stack}` : ""));
     for (const value of rest) parts2.push(inspect(value, 0));
     return parts2.join(" ");
   }
+  __name(format, "format");
   function inspect(value, depth) {
     if (typeof value === "string") {
       return depth === 0 ? value : `'${value}'`;
@@ -784,6 +841,7 @@ ${stack}` : ""));
       }
     }
   }
+  __name(inspect, "inspect");
   function getItems(entries, total, write) {
     const written = entries.map(([key, value]) => write(key, value));
     if (total > entries.length) {
@@ -791,6 +849,7 @@ ${stack}` : ""));
     }
     return written.join(", ");
   }
+  __name(getItems, "getItems");
   function formatTable(data, chosen) {
     let columns = [];
     const rows = Object.keys(data).slice(0, maxItems).map((key) => {
@@ -825,6 +884,7 @@ ${stack}` : ""));
       (row) => `\u2502 ${row.map((cell, i) => cell + " ".repeat(widths[i] - [...cell].length)).join(" \u2502 ")} \u2502`
     ).join("\n");
   }
+  __name(formatTable, "formatTable");
 
   // src/crypto.js
   var integerArrays = [
@@ -839,6 +899,9 @@ ${stack}` : ""));
     BigUint64Array
   ];
   var Crypto = class {
+    static {
+      __name(this, "Crypto");
+    }
     // At most 65536 bytes, as in browsers.
     getRandomValues(array) {
       if (!integerArrays.some((Class) => array instanceof Class)) {
@@ -940,6 +1003,7 @@ ${stack}` : ""));
       }
     });
   }
+  __name(setupDialog, "setupDialog");
   function getComponents(components, values) {
     return Object.keys(components).map((name) => {
       const definition = components[name];
@@ -958,9 +1022,11 @@ ${stack}` : ""));
       return component;
     });
   }
+  __name(getComponents, "getComponents");
   function getValue(component, value) {
     return component.type === "color" && typeof value === "string" ? new paper.Color(value) : value;
   }
+  __name(getValue, "getValue");
   function getValues(list, answer, values) {
     if (answer && typeof answer === "object") {
       const result = values ?? {};
@@ -974,16 +1040,20 @@ ${stack}` : ""));
       return null;
     }
   }
+  __name(getValues, "getValues");
   function getTexts(args) {
     const [title, message] = args.length > 1 ? args : [defaultTitle, args[0] ?? ""];
     return { title: String(title), message: String(message) };
   }
+  __name(getTexts, "getTexts");
   function toJSON(value) {
     return JSON.parse(JSON.stringify(value ?? null) ?? "null");
   }
+  __name(toJSON, "toJSON");
   function then(value, f) {
     return value instanceof Promise ? value.then(f) : f(value);
   }
+  __name(then, "then");
   async function pick(picker, options) {
     try {
       return await picker(options);
@@ -992,12 +1062,13 @@ ${stack}` : ""));
       throw err;
     }
   }
-  function getPickerOptions(kind, { types, path } = {}) {
+  __name(pick, "pick");
+  function getPickerOptions(kind, { types: types2, path } = {}) {
     const options = {};
-    if (types && kind !== "chooseDirectory") {
+    if (types2 && kind !== "chooseDirectory") {
       const accepted = [];
       let acceptsAll = false;
-      for (const [description, extensions] of getTypes(types)) {
+      for (const [description, extensions] of getTypes(types2)) {
         if (extensions.length) {
           accepted.push({
             description,
@@ -1025,11 +1096,12 @@ ${stack}` : ""));
     }
     return options;
   }
-  function getTypes(types) {
-    const entries = Array.isArray(types) ? Array.from({ length: Math.ceil(types.length / 2) }, (_, i) => [
-      types[i * 2],
-      types[i * 2 + 1] ?? types[i * 2]
-    ]) : Object.entries(types);
+  __name(getPickerOptions, "getPickerOptions");
+  function getTypes(types2) {
+    const entries = Array.isArray(types2) ? Array.from({ length: Math.ceil(types2.length / 2) }, (_, i) => [
+      types2[i * 2],
+      types2[i * 2 + 1] ?? types2[i * 2]
+    ]) : Object.entries(types2);
     return entries.map(([label, patterns]) => [
       String(label),
       (Array.isArray(patterns) ? patterns : String(patterns).split(";")).map(
@@ -1037,6 +1109,7 @@ ${stack}` : ""));
       ).filter((ext) => ext && ext !== "*")
     ]);
   }
+  __name(getTypes, "getTypes");
   function getLocalFile(path) {
     try {
       return new LocalFile(String(path));
@@ -1044,6 +1117,7 @@ ${stack}` : ""));
       return null;
     }
   }
+  __name(getLocalFile, "getLocalFile");
 
   // src/dom-exception.js
   var constants = [
@@ -1075,6 +1149,9 @@ ${stack}` : ""));
   ];
   var codes = new Map(constants.map(([name], index) => [name, index + 1]));
   var DOMException2 = class extends Error {
+    static {
+      __name(this, "DOMException");
+    }
     #name;
     constructor(message = "", name = "Error") {
       super(message);
@@ -1100,6 +1177,9 @@ ${stack}` : ""));
 
   // src/encoding.js
   var TextEncoder2 = class {
+    static {
+      __name(this, "TextEncoder");
+    }
     encode(text = "") {
       return natives.encoding.encode(String(text));
     }
@@ -1121,6 +1201,9 @@ ${stack}` : ""));
   };
   var labels = ["utf-8", "utf8", "unicode-1-1-utf-8", "unicode11utf8"];
   var TextDecoder2 = class {
+    static {
+      __name(this, "TextDecoder");
+    }
     #fatal;
     #ignoreBOM;
     // The bytes of a character a streamed chunk ended in the middle of, and
@@ -1180,6 +1263,7 @@ ${stack}` : ""));
     }
     return 0;
   }
+  __name(getIncomplete, "getIncomplete");
 
   // src/fetch.js
   var fetch_exports = {};
@@ -1192,6 +1276,9 @@ ${stack}` : ""));
     getBody: () => getBody
   });
   var Headers = class _Headers {
+    static {
+      __name(this, "Headers");
+    }
     // The headers as they came, names in lower case:
     #list = [];
     constructor(init) {
@@ -1257,6 +1344,9 @@ ${stack}` : ""));
     }
   };
   var FormData = class {
+    static {
+      __name(this, "FormData");
+    }
     // `[name, value]`, a value a string or a `File`:
     #entries = [];
     append(name, value, filename) {
@@ -1300,6 +1390,9 @@ ${stack}` : ""));
     }
   };
   var Body = class {
+    static {
+      __name(this, "Body");
+    }
     #bytes;
     #isUsed = false;
     constructor(bytes) {
@@ -1340,6 +1433,9 @@ ${stack}` : ""));
     }
   };
   var Request = class _Request extends Body {
+    static {
+      __name(this, "Request");
+    }
     #url;
     #method;
     #headers;
@@ -1388,6 +1484,9 @@ ${stack}` : ""));
   };
   var setResponse;
   var Response = class _Response extends Body {
+    static {
+      __name(this, "Response");
+    }
     #status;
     #statusText;
     #headers;
@@ -1414,12 +1513,12 @@ ${stack}` : ""));
       this.#headers = headers;
     }
     static {
-      setResponse = (response, { url, redirected, type }) => {
+      setResponse = /* @__PURE__ */ __name((response, { url, redirected, type }) => {
         response.#url = url;
         response.#redirected = redirected;
         response.#type = type;
         return response;
-      };
+      }, "setResponse");
     }
     get status() {
       return this.#status;
@@ -1457,7 +1556,7 @@ ${stack}` : ""));
     signal?.throwIfAborted();
     const body = Body.getBytes(request);
     return new Promise((resolve, reject) => {
-      const abort2 = () => reject(signal.reason);
+      const abort2 = /* @__PURE__ */ __name(() => reject(signal.reason), "abort");
       signal?.addEventListener("abort", abort2);
       natives.request(method, url, [...headers], body, redirect === "follow").then(({ status, statusText, url: url2, redirected, headers: headers2, body: body2 }) => {
         const response = new Response(body2, { status, statusText, headers: headers2 });
@@ -1465,6 +1564,7 @@ ${stack}` : ""));
       }, reject).finally(() => signal?.removeEventListener("abort", abort2));
     });
   }
+  __name(fetch, "fetch");
   function getBody(body) {
     return body instanceof Blob ? { bytes: getBytes(body), type: body.type || null } : body instanceof FormData ? getMultipart(body) : body instanceof ArrayBuffer ? { bytes: new Uint8Array(body), type: null } : ArrayBuffer.isView(body) ? {
       bytes: new Uint8Array(
@@ -1478,12 +1578,15 @@ ${stack}` : ""));
       type: body instanceof URLSearchParams ? "application/x-www-form-urlencoded;charset=UTF-8" : "text/plain;charset=UTF-8"
     };
   }
+  __name(getBody, "getBody");
   function getHeader(name, value) {
     return [getName(name), String(value).replace(/^[\t\n\r ]+|[\t\n\r ]+$/g, "")];
   }
+  __name(getHeader, "getHeader");
   function getName(name) {
     return String(name).trim().toLowerCase();
   }
+  __name(getName, "getName");
   function getEntry(name, value, filename) {
     if (arguments.length < 2) {
       throw new TypeError(
@@ -1497,12 +1600,13 @@ ${stack}` : ""));
       }) : String(value)
     ];
   }
+  __name(getEntry, "getEntry");
   function getMultipart(form) {
     const boundary = `----Scriptographer${Array.from(
       { length: 24 },
       () => Math.floor(Math.random() * 16).toString(16)
     ).join("")}`;
-    const quote = (text) => text.replace(/\r/g, "%0D").replace(/\n/g, "%0A").replace(/"/g, "%22");
+    const quote = /* @__PURE__ */ __name((text) => text.replace(/\r/g, "%0D").replace(/\n/g, "%0A").replace(/"/g, "%22"), "quote");
     const parts2 = [];
     for (const [name, value] of form) {
       const disposition = `--${boundary}\r
@@ -1531,6 +1635,459 @@ ${value}\r
       type: `multipart/form-data; boundary=${boundary}`
     };
   }
+  __name(getMultipart, "getMultipart");
+
+  // src/file-system.js
+  var file_system_exports = {};
+  __export(file_system_exports, {
+    FileSystemDirectoryHandle: () => FileSystemDirectoryHandle,
+    FileSystemFileHandle: () => FileSystemFileHandle,
+    FileSystemHandle: () => FileSystemHandle,
+    FileSystemWritableFileStream: () => FileSystemWritableFileStream,
+    getHandlePath: () => getHandlePath,
+    showDirectoryPicker: () => showDirectoryPicker2,
+    showOpenFilePicker: () => showOpenFilePicker2,
+    showSaveFilePicker: () => showSaveFilePicker2
+  });
+
+  // src/local-file.js
+  var types = {
+    txt: "text/plain",
+    md: "text/markdown",
+    csv: "text/csv",
+    html: "text/html",
+    css: "text/css",
+    js: "text/javascript",
+    json: "application/json",
+    xml: "application/xml",
+    pdf: "application/pdf",
+    svg: "image/svg+xml",
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    gif: "image/gif",
+    webp: "image/webp",
+    bmp: "image/bmp",
+    tif: "image/tiff",
+    tiff: "image/tiff"
+  };
+  var LocalFile2 = class _LocalFile extends File {
+    static {
+      __name(this, "LocalFile");
+    }
+    #path;
+    constructor(...parts2) {
+      if (!parts2.length) {
+        throw new TypeError("Invalid LocalFile: its path is missing.");
+      }
+      const path = natives.fs.path(...parts2.map(String));
+      super([], natives.fs.info(path).name);
+      this.#path = path;
+    }
+    // The `LocalFile` of a file or directory handle.
+    static async from(handle) {
+      const path = getHandlePath(handle);
+      if (!path) {
+        throw new TypeError(
+          `Invalid handle: '${handle}', not a FileSystemHandle.`
+        );
+      }
+      return new _LocalFile(path);
+    }
+    get path() {
+      return this.#path;
+    }
+    get name() {
+      return this.#info.name;
+    }
+    get extension() {
+      return this.#info.extension;
+    }
+    get type() {
+      return getType2(this.#path);
+    }
+    get parent() {
+      const { parent } = this.#info;
+      return parent ? new _LocalFile(parent) : null;
+    }
+    get isDirectory() {
+      return this.#info.isDirectory;
+    }
+    // On desktop, every file can be written where it is.
+    get writable() {
+      return true;
+    }
+    get size() {
+      return this.#info.size;
+    }
+    get lastModified() {
+      return this.#info.lastModified;
+    }
+    // What it holds now, as its readers read it:
+    [readBytes]() {
+      return natives.fs.read(this.#path);
+    }
+    // Text, a `Blob`, a buffer or a view.
+    async write(data = "") {
+      natives.fs.write(this.#path, getBody(data).bytes, false);
+    }
+    async append(data = "") {
+      natives.fs.write(this.#path, getBody(data).bytes, true);
+    }
+    async exists() {
+      return this.#info.exists;
+    }
+    // The files and directories in the directory, by name.
+    async list() {
+      return natives.fs.list(this.#path).map((path) => new _LocalFile(path));
+    }
+    // The file or directory `name` in this directory.
+    async file(name) {
+      return new _LocalFile(this.#path, String(name));
+    }
+    async makeDirectory() {
+      natives.fs.makeDirectory(this.#path, true);
+      return this;
+    }
+    // A name renames it where it is, a path moves it; the `LocalFile` follows.
+    async rename(nameOrPath) {
+      this.#path = natives.fs.rename(this.#path, String(nameOrPath));
+      return this;
+    }
+    async copyTo(fileOrPath) {
+      const copy = new _LocalFile(fileOrPath);
+      natives.fs.copy(this.#path, copy.path);
+      return copy;
+    }
+    // A directory with what's in it only when `recursive`.
+    async remove({ recursive = false } = {}) {
+      natives.fs.remove(this.#path, recursive);
+    }
+    toString() {
+      return this.#path;
+    }
+    get #info() {
+      return natives.fs.info(this.#path);
+    }
+  };
+  setToStringTag(LocalFile2);
+  function getType2(path) {
+    return types[natives.fs.info(path).extension.toLowerCase()] ?? "";
+  }
+  __name(getType2, "getType");
+
+  // src/file-system.js
+  var internal2 = /* @__PURE__ */ Symbol("internal");
+  var pathsByHandle = /* @__PURE__ */ new WeakMap();
+  var most = 512 * 1024 * 1024;
+  var FileSystemHandle = class {
+    static {
+      __name(this, "FileSystemHandle");
+    }
+    constructor(key, path) {
+      if (key !== internal2) {
+        throw new TypeError("Invalid FileSystemHandle: the pickers give them.");
+      }
+      pathsByHandle.set(this, path);
+    }
+    get kind() {
+      return this instanceof FileSystemDirectoryHandle ? "directory" : "file";
+    }
+    get name() {
+      return natives.fs.info(getPath(this)).name;
+    }
+    async isSameEntry(other) {
+      return pathsByHandle.get(other) === getPath(this);
+    }
+    // Granted: scripts on desktop may change what the user's files.
+    async queryPermission() {
+      return "granted";
+    }
+    async requestPermission() {
+      return "granted";
+    }
+  };
+  var FileSystemFileHandle = class extends FileSystemHandle {
+    static {
+      __name(this, "FileSystemFileHandle");
+    }
+    async getFile() {
+      const path = getPath(this);
+      const { name, lastModified } = natives.fs.info(path);
+      return new File([natives.fs.read(path)], name, {
+        type: getType2(path),
+        lastModified
+      });
+    }
+    // A stream that writes the file on `close()`, starting empty, or with what
+    // the file holds.
+    async createWritable({ keepExistingData = false } = {}) {
+      const path = getPath(this);
+      return new FileSystemWritableFileStream(
+        internal2,
+        path,
+        keepExistingData ? natives.fs.read(path) : new Uint8Array()
+      );
+    }
+  };
+  var FileSystemDirectoryHandle = class extends FileSystemHandle {
+    static {
+      __name(this, "FileSystemDirectoryHandle");
+    }
+    async getFileHandle(name, { create = false } = {}) {
+      return getEntry2(this, name, false, create);
+    }
+    async getDirectoryHandle(name, { create = false } = {}) {
+      return getEntry2(this, name, true, create);
+    }
+    async removeEntry(name, { recursive = false } = {}) {
+      natives.fs.remove(getEntryPath(this, name), recursive);
+    }
+    // The names from the directory down to `handle`, or `null` outside it.
+    async resolve(handle) {
+      const path = pathsByHandle.get(handle);
+      return path ? natives.fs.relative(getPath(this), path) : null;
+    }
+    // What's in the directory, by name:
+    async *entries() {
+      for (const path of natives.fs.list(getPath(this))) {
+        yield [natives.fs.info(path).name, createHandle(path)];
+      }
+    }
+    async *keys() {
+      for await (const [name] of this.entries()) yield name;
+    }
+    async *values() {
+      for await (const [, handle] of this.entries()) yield handle;
+    }
+    [Symbol.asyncIterator]() {
+      return this.entries();
+    }
+  };
+  var FileSystemWritableFileStream = class {
+    static {
+      __name(this, "FileSystemWritableFileStream");
+    }
+    #path;
+    #bytes;
+    #position = 0;
+    #isClosed = false;
+    constructor(key, path, bytes) {
+      if (key !== internal2) {
+        throw new TypeError(
+          "Invalid FileSystemWritableFileStream: createWritable() gives them."
+        );
+      }
+      this.#path = path;
+      this.#bytes = bytes;
+    }
+    // Text, a `Blob`, a buffer or a view at the position, or
+    // `{ type: 'write' | 'seek' | 'truncate', data, position, size }`.
+    async write(data) {
+      const isCommand = data && typeof data === "object" && typeof data.type === "string" && !(data instanceof Blob) && !ArrayBuffer.isView(data) && !(data instanceof ArrayBuffer);
+      const { type, position, size } = isCommand ? data : { type: "write" };
+      if (type === "seek") {
+        return this.seek(position);
+      } else if (type === "truncate") {
+        return this.truncate(size);
+      } else if (type === "write") {
+        if (isCommand) data = data.data;
+        if (data == null) {
+          throw new DOMException(
+            "Invalid write(): the data is missing.",
+            "SyntaxError"
+          );
+        }
+        this.#check();
+        const { bytes } = getBody(data);
+        const start = getCount(position ?? this.#position);
+        const end = getCount(start + bytes.length);
+        if (this.#bytes.length < end) this.#resize(end);
+        this.#bytes.set(bytes, start);
+        this.#position = end;
+      } else {
+        throw new TypeError(`Invalid write() command: '${type}'.`);
+      }
+    }
+    // Where the stream writes next.
+    async seek(position) {
+      if (position == null) {
+        throw new DOMException(
+          "Invalid seek(): the position is missing.",
+          "SyntaxError"
+        );
+      }
+      this.#check();
+      this.#position = getCount(position);
+    }
+    // Its bytes cut, or filled with zeros, to `size`.
+    async truncate(size) {
+      this.#check();
+      this.#resize(getCount(size));
+      this.#position = Math.min(this.#position, this.#bytes.length);
+    }
+    // Write the file, all at once.
+    async close() {
+      this.#check();
+      this.#isClosed = true;
+      natives.fs.write(this.#path, this.#bytes, false);
+    }
+    async abort() {
+      this.#check();
+      this.#isClosed = true;
+    }
+    #check() {
+      if (this.#isClosed) {
+        throw new TypeError("Invalid stream: it is closed.");
+      }
+    }
+    #resize(size) {
+      const bytes = new Uint8Array(size);
+      bytes.set(this.#bytes.subarray(0, size));
+      this.#bytes = bytes;
+    }
+  };
+  setToStringTag(
+    FileSystemHandle,
+    FileSystemFileHandle,
+    FileSystemDirectoryHandle,
+    FileSystemWritableFileStream
+  );
+  async function showOpenFilePicker2(options = {}) {
+    const paths = pick2(options.multiple ? "openFiles" : "openFile", options);
+    return paths.map((path) => createHandle(path, false));
+  }
+  __name(showOpenFilePicker2, "showOpenFilePicker");
+  async function showSaveFilePicker2(options = {}) {
+    const start = getStart(options);
+    const { suggestedName } = options;
+    const path = suggestedName == null ? start : start ? natives.fs.path(start, String(suggestedName)) : String(suggestedName);
+    const [picked] = pick2("saveFile", options, path);
+    if (!natives.fs.info(picked).exists) {
+      natives.fs.write(picked, new Uint8Array(), false);
+    }
+    return createHandle(picked, false);
+  }
+  __name(showSaveFilePicker2, "showSaveFilePicker");
+  async function showDirectoryPicker2(options = {}) {
+    const [picked] = pick2("chooseDirectory", { startIn: options.startIn });
+    return createHandle(picked, true);
+  }
+  __name(showDirectoryPicker2, "showDirectoryPicker");
+  function getHandlePath(handle) {
+    return pathsByHandle.get(handle) ?? null;
+  }
+  __name(getHandlePath, "getHandlePath");
+  function getPath(handle) {
+    const path = pathsByHandle.get(handle);
+    if (!path) {
+      throw new TypeError(`Invalid handle: '${handle}', not a FileSystemHandle.`);
+    }
+    return path;
+  }
+  __name(getPath, "getPath");
+  function createHandle(path, isDirectory = natives.fs.info(path).isDirectory) {
+    const Handle = isDirectory ? FileSystemDirectoryHandle : FileSystemFileHandle;
+    return new Handle(internal2, path);
+  }
+  __name(createHandle, "createHandle");
+  function getEntryPath(directory, name) {
+    name = String(name);
+    if (!name || name === "." || name === ".." || /[/\\]/.test(name)) {
+      throw new TypeError(`Invalid name: '${name}'.`);
+    }
+    return natives.fs.path(getPath(directory), name);
+  }
+  __name(getEntryPath, "getEntryPath");
+  function getEntry2(directory, name, isDirectory, create) {
+    const path = getEntryPath(directory, name);
+    const info = natives.fs.info(path);
+    if (info.exists) {
+      if (info.isDirectory !== isDirectory) {
+        throw new DOMException(
+          `Invalid entry: '${path}' is a ${info.isDirectory ? "directory" : "file"}.`,
+          "TypeMismatchError"
+        );
+      }
+    } else if (create) {
+      if (isDirectory) {
+        natives.fs.makeDirectory(path, false);
+      } else {
+        natives.fs.write(path, new Uint8Array(), false);
+      }
+    } else {
+      throw new DOMException(`Unable to find '${path}'.`, "NotFoundError");
+    }
+    return createHandle(path, isDirectory);
+  }
+  __name(getEntry2, "getEntry");
+  function getCount(value) {
+    const count = Number(value);
+    if (!(count >= 0 && Number.isFinite(count))) {
+      throw new TypeError(`Invalid size: '${value}'.`);
+    }
+    if (count > most) {
+      throw new DOMException(
+        `Unable to write ${count} bytes: more than a file may have here.`,
+        "QuotaExceededError"
+      );
+    }
+    return Math.trunc(count);
+  }
+  __name(getCount, "getCount");
+  function pick2(type, options, path = getStart(options)) {
+    const answer = natives.ask({ type, path, filters: getFilters(options) });
+    const paths = (Array.isArray(answer) ? answer : [answer]).filter(
+      (path2) => typeof path2 === "string"
+    );
+    if (!paths.length) {
+      throw new DOMException("The user aborted a request.", "AbortError");
+    }
+    return paths;
+  }
+  __name(pick2, "pick");
+  function getStart({ startIn }) {
+    if (startIn == null) {
+      return null;
+    } else if (typeof startIn === "object") {
+      const path = getHandlePath(startIn) ?? startIn.path;
+      if (typeof path !== "string") {
+        throw new TypeError(
+          `Invalid startIn: '${startIn}', not a handle or a LocalFile.`
+        );
+      }
+      const info = natives.fs.info(path);
+      return info.isDirectory ? path : info.parent;
+    } else {
+      return natives.fs.userDirectory(String(startIn));
+    }
+  }
+  __name(getStart, "getStart");
+  function getFilters({ types: types2, excludeAcceptAllOption }) {
+    const filters = Array.from(types2 ?? [], ({ description, accept }) => {
+      if (!accept) {
+        throw new TypeError("Invalid file type: its accept is missing.");
+      }
+      const extensions = Object.values(accept).flat().map((extension) => {
+        extension = String(extension);
+        if (!/^\.[^.]/.test(extension)) {
+          throw new TypeError(
+            `Invalid extension: '${extension}', which starts with '.'.`
+          );
+        }
+        return extension.slice(1);
+      });
+      return [
+        description || extensions.map((extension) => `.${extension}`).join(", "),
+        extensions
+      ];
+    });
+    if (filters.length && !excludeAcceptAllOption) {
+      filters.push(["All Files", []]);
+    }
+    return filters;
+  }
+  __name(getFilters, "getFilters");
 
   // src/geometry.js
   var geometry_exports = {};
@@ -1587,12 +2144,15 @@ ${value}\r
   var getMatrix;
   var setMatrix;
   var DOMPointReadOnly = class {
+    static {
+      __name(this, "DOMPointReadOnly");
+    }
     #values;
     constructor(x = 0, y = 0, z = 0, w = 1) {
       this.#values = [+x, +y, +z, +w];
     }
     static {
-      getPoint = (point) => point.#values;
+      getPoint = /* @__PURE__ */ __name((point) => point.#values, "getPoint");
     }
     matrixTransform(matrix = {}) {
       return DOMMatrixReadOnly.fromMatrix(matrix).transformPoint(this);
@@ -1607,14 +2167,20 @@ ${value}\r
     }
   };
   var DOMPoint = class extends DOMPointReadOnly {
+    static {
+      __name(this, "DOMPoint");
+    }
   };
   var DOMRectReadOnly = class {
+    static {
+      __name(this, "DOMRectReadOnly");
+    }
     #values;
     constructor(x = 0, y = 0, width = 0, height = 0) {
       this.#values = [+x, +y, +width, +height];
     }
     static {
-      getRect = (rect) => rect.#values;
+      getRect = /* @__PURE__ */ __name((rect) => rect.#values, "getRect");
     }
     // `Math.min()` and `max()` are NaN when either value is, as the sides are:
     get top() {
@@ -1639,8 +2205,14 @@ ${value}\r
     }
   };
   var DOMRect = class extends DOMRectReadOnly {
+    static {
+      __name(this, "DOMRect");
+    }
   };
   var DOMQuad = class {
+    static {
+      __name(this, "DOMQuad");
+    }
     #points;
     constructor(p1, p2, p3, p4) {
       this.#points = [p1, p2, p3, p4].map((point) => DOMPoint.fromPoint(point));
@@ -1683,6 +2255,9 @@ ${value}\r
     }
   };
   var DOMMatrixReadOnly = class {
+    static {
+      __name(this, "DOMMatrixReadOnly");
+    }
     #m;
     #is2D;
     // From 6 numbers (2D) or 16. As in a worker, there's no CSS to parse.
@@ -1698,12 +2273,12 @@ ${value}\r
       }
     }
     static {
-      getMatrix = (matrix) => [matrix.#m, matrix.#is2D];
-      setMatrix = (matrix, [m, is2D]) => {
+      getMatrix = /* @__PURE__ */ __name((matrix) => [matrix.#m, matrix.#is2D], "getMatrix");
+      setMatrix = /* @__PURE__ */ __name((matrix, [m, is2D]) => {
         matrix.#m = m;
         matrix.#is2D = is2D;
         return matrix;
-      };
+      }, "setMatrix");
     }
     get is2D() {
       return this.#is2D;
@@ -1755,7 +2330,7 @@ ${value}\r
     transformPoint(point) {
       const { x, y, z, w } = getPointInit(point);
       const m = this.#m;
-      const row = (r) => m[r] * x + m[4 + r] * y + m[8 + r] * z + m[12 + r] * w;
+      const row = /* @__PURE__ */ __name((r) => m[r] * x + m[4 + r] * y + m[8 + r] * z + m[12 + r] * w, "row");
       return new DOMPoint(row(0), row(1), row(2), row(3));
     }
     toFloat32Array() {
@@ -1795,6 +2370,9 @@ ${value}\r
     }
   };
   var DOMMatrix = class extends DOMMatrixReadOnly {
+    static {
+      __name(this, "DOMMatrix");
+    }
     translateSelf(tx = 0, ty = 0, tz = 0) {
       return change(this, this.translate(tx, ty, tz));
     }
@@ -1870,9 +2448,9 @@ ${value}\r
   );
   function defineAttributes(ReadOnly, Writable, entries, getValues2, changed) {
     for (const [name, index] of entries) {
-      const get = function() {
+      const get = /* @__PURE__ */ __name(function() {
         return getValues2(this)[index];
-      };
+      }, "get");
       defineAccessors(ReadOnly.prototype, { [name]: { get } });
       defineAccessors(Writable.prototype, {
         [name]: {
@@ -1885,12 +2463,15 @@ ${value}\r
       });
     }
   }
+  __name(defineAttributes, "defineAttributes");
   function change(matrix, result) {
     return setMatrix(matrix, getMatrix(result));
   }
+  __name(change, "change");
   function operate(matrix, other) {
     return setMatrix(new DOMMatrix(), multiply(getMatrix(matrix), other));
   }
+  __name(operate, "operate");
   function multiply([a, is2DA], [b, is2DB]) {
     const m = [];
     for (let i = 0; i < 16; i++) {
@@ -1902,27 +2483,32 @@ ${value}\r
     }
     return [m, is2DA && is2DB];
   }
+  __name(multiply, "multiply");
   function get2D([a, b, c, d, e, f]) {
     const m = [...identity];
     [m[0], m[1], m[4], m[5], m[12], m[13]] = [a, b, c, d, e, f];
     return [m, true];
   }
+  __name(get2D, "get2D");
   function translation(x, y, z) {
     const m = [...identity];
     [m[12], m[13], m[14]] = [x, y, z];
     return [m, z === 0];
   }
+  __name(translation, "translation");
   function scaling(x, y, z) {
     const m = [...identity];
     [m[0], m[5], m[10]] = [x, y, z];
     return [m, z === 1];
   }
+  __name(scaling, "scaling");
   function scalingAround(sx, sy, sz, ox, oy, oz) {
     return multiply(
       multiply(translation(ox, oy, oz), scaling(sx, sy, sz)),
       translation(-ox, -oy, -oz)
     );
   }
+  __name(scalingAround, "scalingAround");
   function rotationXYZ(rx, ry, rz) {
     const [x, y, z] = ry === void 0 && rz === void 0 ? [0, 0, +rx] : [+rx, +(ry ?? 0), +(rz ?? 0)];
     let result = rotation(0, 0, 1, z);
@@ -1930,6 +2516,7 @@ ${value}\r
     if (x !== 0) result = multiply(result, rotation(1, 0, 0, x));
     return result;
   }
+  __name(rotationXYZ, "rotationXYZ");
   function rotationFromVector(x, y) {
     return rotation(
       0,
@@ -1938,6 +2525,7 @@ ${value}\r
       x === 0 && y === 0 ? 0 : Math.atan2(y, x) * 180 / Math.PI
     );
   }
+  __name(rotationFromVector, "rotationFromVector");
   function rotation(x, y, z, degrees) {
     const is2D = x === 0 && y === 0;
     const length = Math.hypot(x, y, z);
@@ -1966,6 +2554,7 @@ ${value}\r
     ];
     return [m, is2D];
   }
+  __name(rotation, "rotation");
   function invert([m, is2D]) {
     const singular = [new Array(16).fill(NaN), false];
     if (!m.every(Number.isFinite)) return singular;
@@ -2002,9 +2591,11 @@ ${value}\r
     const det = m[0] * i[0] + m[1] * i[4] + m[2] * i[8] + m[3] * i[12];
     return det !== 0 && Number.isFinite(det) ? [i.map((value) => value / det), false] : singular;
   }
+  __name(invert, "invert");
   function toRadians(degrees) {
     return degrees * Math.PI / 180;
   }
+  __name(toRadians, "toRadians");
   function getDictionary(value, name) {
     if (value == null) return null;
     if (typeof value !== "object" && typeof value !== "function") {
@@ -2012,6 +2603,7 @@ ${value}\r
     }
     return value;
   }
+  __name(getDictionary, "getDictionary");
   function getPointInit(point) {
     const {
       x = 0,
@@ -2021,6 +2613,7 @@ ${value}\r
     } = getDictionary(point, "DOMPointInit") ?? {};
     return { x: +x, y: +y, z: +z, w: +w };
   }
+  __name(getPointInit, "getPointInit");
   function getRectInit(rect) {
     const {
       x = 0,
@@ -2030,6 +2623,7 @@ ${value}\r
     } = getDictionary(rect, "DOMRectInit") ?? {};
     return { x: +x, y: +y, width: +width, height: +height };
   }
+  __name(getRectInit, "getRectInit");
   function getMatrixInit(init) {
     init = getDictionary(init, "DOMMatrixInit") ?? {};
     const m = [...identity];
@@ -2055,23 +2649,29 @@ ${value}\r
     }
     return [m, is2D ?? !hasThreeD];
   }
+  __name(getMatrixInit, "getMatrixInit");
   function getMatrixFromList(list) {
     const values = Array.from(list ?? [], Number);
     if (values.length === 6) return get2D(values);
     if (values.length === 16) return [values, false];
     throw new TypeError("Invalid matrix: it takes 6 or 16 numbers.");
   }
+  __name(getMatrixFromList, "getMatrixFromList");
   function fromArray(Class, array) {
     if (!ArrayBuffer.isView(array)) {
       throw new TypeError(`Invalid array: '${array}', not a typed array.`);
     }
     return setMatrix(new Class(), getMatrixFromList(array));
   }
+  __name(fromArray, "fromArray");
 
   // src/palette.js
   var palettes = /* @__PURE__ */ new Map();
   var lastId = 0;
   var Palette = class {
+    static {
+      __name(this, "Palette");
+    }
     constructor(title = "", components, values) {
       if (!components || typeof components !== "object") {
         throw new TypeError("Invalid components: they must be an object.");
@@ -2115,9 +2715,11 @@ ${value}\r
     }
     return changed;
   }
+  __name(takePalettes, "takePalettes");
   function hasPalettes() {
     return palettes.size > 0;
   }
+  __name(hasPalettes, "hasPalettes");
   function handlePaletteEvent(id, type, name, value) {
     const entry = palettes.get(id);
     if (entry) {
@@ -2146,20 +2748,26 @@ ${value}\r
       }
     }
   }
+  __name(handlePaletteEvent, "handlePaletteEvent");
   function getState2(id, palette) {
     const { title, components, values } = palette;
     return { id, title, components: getComponents(components, values) };
   }
+  __name(getState2, "getState");
   function call(owner, name, ...args) {
     if (typeof owner?.[name] === "function") owner[name](...args);
   }
+  __name(call, "call");
 
   // src/storage.js
-  var internal2 = /* @__PURE__ */ Symbol("internal");
+  var internal3 = /* @__PURE__ */ Symbol("internal");
   var sessions = /* @__PURE__ */ new WeakMap();
   var Storage = class {
+    static {
+      __name(this, "Storage");
+    }
     constructor(key) {
-      if (key !== internal2) {
+      if (key !== internal3) {
         throw new TypeError(
           "Invalid Storage: use localStorage or sessionStorage."
         );
@@ -2222,12 +2830,13 @@ ${value}\r
     }
   };
   function createStorage(isSession) {
-    const target = new Storage(internal2);
+    const target = new Storage(internal3);
     const storage = new Proxy(target, handler);
     sessions.set(target, isSession);
     sessions.set(storage, isSession);
     return storage;
   }
+  __name(createStorage, "createStorage");
   function getSession(storage) {
     const isSession = sessions.get(storage);
     if (isSession === void 0) {
@@ -2235,17 +2844,21 @@ ${value}\r
     }
     return isSession;
   }
+  __name(getSession, "getSession");
   function getKeys(storage) {
     return natives.storage.keys(getSession(storage));
   }
+  __name(getKeys, "getKeys");
   function isItemKey(target, key) {
     return typeof key === "string" && !(key in target);
   }
+  __name(isItemKey, "isItemKey");
   function checkArguments(args, count, name) {
     if (args.length < count) {
       throw new TypeError(`Invalid ${name}(): an argument is missing.`);
     }
   }
+  __name(checkArguments, "checkArguments");
 
   // src/url.js
   var parts = [
@@ -2263,6 +2876,9 @@ ${value}\r
   var setPairs;
   var setSearch;
   var URL2 = class _URL {
+    static {
+      __name(this, "URL");
+    }
     // The parts as the runtime parsed them:
     #parts;
     #searchParams = null;
@@ -2273,9 +2889,9 @@ ${value}\r
       }
     }
     static {
-      setSearch = (url, query) => {
+      setSearch = /* @__PURE__ */ __name((url, query) => {
         url.#parts = natives.url.set(url.#parts.href, "search", query);
-      };
+      }, "setSearch");
     }
     static canParse(url, base) {
       return !!parse(url, base);
@@ -2327,6 +2943,9 @@ ${value}\r
   };
   var linksByParams = /* @__PURE__ */ new WeakMap();
   var URLSearchParams2 = class _URLSearchParams {
+    static {
+      __name(this, "URLSearchParams");
+    }
     #pairs = [];
     // A query string (with or without `?`), `[[name, value], …]`,
     // `{ name: value }` or another `URLSearchParams`.
@@ -2346,9 +2965,9 @@ ${value}\r
       }
     }
     static {
-      setPairs = (params, pairs) => {
+      setPairs = /* @__PURE__ */ __name((params, pairs) => {
         params.#pairs = pairs;
-      };
+      }, "setPairs");
     }
     get size() {
       return this.#pairs.length;
@@ -2418,9 +3037,11 @@ ${value}\r
   function parse(url, base) {
     return base === void 0 ? natives.url.parse(String(url)) : natives.url.parse(String(url), String(base));
   }
+  __name(parse, "parse");
   function parseQuery(query) {
     return natives.url.parseQuery(query.replace(/^\?/, ""));
   }
+  __name(parseQuery, "parseQuery");
 
   // src/websocket.js
   var states2 = { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 };
@@ -2431,6 +3052,9 @@ ${value}\r
     "https:": "wss:"
   };
   var WebSocket = class extends EventTarget {
+    static {
+      __name(this, "WebSocket");
+    }
     #url;
     #number;
     #readyState = states2.CONNECTING;
@@ -2548,6 +3172,9 @@ ${value}\r
 
   // src/worker.js
   var Worker = class extends EventTarget {
+    static {
+      __name(this, "Worker");
+    }
     #number;
     constructor(url, { type = "classic", name = "" } = {}) {
       super();
@@ -2602,6 +3229,7 @@ ${value}\r
     defineEventHandlers(globalThis, "message", "messageerror");
     return ({ type, data }) => fire(globalThis, new MessageEvent(type, { data }));
   }
+  __name(setupWorker, "setupWorker");
 
   // src/index.js
   delete globalThis.__scriptographer;
@@ -2637,7 +3265,7 @@ ${value}\r
     const { Blob: Blob2, File: File2, getBytes: getBytes2 } = blob_exports;
     const { getBody: getBody2, ...classes } = fetch_exports;
     setGlobals({ ...abort_exports, Blob: Blob2, File: File2, ...classes });
-    Object.assign(natives, { getBytes: getBytes2, getBody: getBody2 });
+    Object.assign(natives, { getBytes: getBytes2 });
   }
   if (!globalThis.localStorage) {
     setGlobals({
@@ -2656,6 +3284,10 @@ ${value}\r
     setGlobals({ Worker });
     Object.assign(natives, { setupWorker });
   }
+  if (natives.fs) {
+    const { getHandlePath: getHandlePath2, ...classes } = file_system_exports;
+    setGlobals({ LocalFile: LocalFile2, ...classes });
+  }
   if (!globalThis.DOMMatrix) {
     setGlobals({ ...geometry_exports, WebKitCSSMatrix: DOMMatrix });
   }
@@ -2665,4 +3297,5 @@ ${value}\r
   function setGlobals(values) {
     defineValues(globalThis, values, { writable: true, configurable: true });
   }
+  __name(setGlobals, "setGlobals");
 })();

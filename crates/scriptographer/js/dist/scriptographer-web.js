@@ -1,14 +1,17 @@
 (() => {
+  var __defProp = Object.defineProperty;
+  var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
+
   // src/web/pickers.js
   function setupPickers(ask2) {
     const { showDirectoryPicker: nativeDirectoryPicker } = globalThis;
-    const askFor = async (question) => {
+    const askFor = /* @__PURE__ */ __name(async (question) => {
       const picked = await ask2(question);
       if (!picked) {
         throw new DOMException("The user aborted a request.", "AbortError");
       }
       return picked;
-    };
+    }, "askFor");
     Object.assign(globalThis, {
       async showOpenFilePicker(options = {}) {
         const picked = await askFor({
@@ -41,7 +44,11 @@
       }
     });
   }
+  __name(setupPickers, "setupPickers");
   var ReadOnlyFileHandle = class {
+    static {
+      __name(this, "ReadOnlyFileHandle");
+    }
     kind = "file";
     constructor(file) {
       this.file = file;
@@ -67,6 +74,9 @@
     }
   };
   var DownloadHandle = class {
+    static {
+      __name(this, "DownloadHandle");
+    }
     kind = "file";
     constructor(name) {
       this.name = name;
@@ -78,7 +88,7 @@
     async createWritable({ keepExistingData = false } = {}) {
       const parts = keepExistingData ? [...this.parts] : [];
       return {
-        write: async (data) => {
+        write: /* @__PURE__ */ __name(async (data) => {
           if (data?.type && !(data instanceof Blob)) {
             if (data.type !== "write" || data.position != null) {
               throw new DOMException(
@@ -89,13 +99,13 @@
             data = data.data;
           }
           parts.push(data);
-        },
-        close: async () => {
+        }, "write"),
+        close: /* @__PURE__ */ __name(async () => {
           this.parts = parts;
           download(new Blob(parts), this.name);
-        },
-        abort: async () => {
-        }
+        }, "close"),
+        abort: /* @__PURE__ */ __name(async () => {
+        }, "abort")
       };
     }
     async isSameEntry(other) {
@@ -111,6 +121,7 @@
   function getOptions({ startIn, ...options }) {
     return typeof startIn === "string" ? { ...options, startIn } : options;
   }
+  __name(getOptions, "getOptions");
   function download(blob, name) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -119,6 +130,7 @@
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 6e4);
   }
+  __name(download, "download");
 
   // src/define.js
   function defineValues(target, values, attributes = {}) {
@@ -126,6 +138,7 @@
       Object.defineProperty(target, key, { value: values[key], ...attributes });
     }
   }
+  __name(defineValues, "defineValues");
   function setToStringTag(...classes) {
     for (const Class of classes) {
       defineValues(
@@ -135,10 +148,14 @@
       );
     }
   }
+  __name(setToStringTag, "setToStringTag");
 
   // src/web/local-file.js
   var handles = /* @__PURE__ */ new WeakMap();
   var LocalFile = class _LocalFile extends File {
+    static {
+      __name(this, "LocalFile");
+    }
     constructor() {
       throw new TypeError(
         "Unable to make a LocalFile from a path on the web: Dialog.openFile() and LocalFile.from(handle) give them."
@@ -263,9 +280,9 @@
   var { ask } = globalThis.__scriptographer;
   setupPickers(ask);
   globalThis.LocalFile = LocalFile;
-  var getText = (...args) => args.length > 1 ? `${args[0]}
+  var getText = /* @__PURE__ */ __name((...args) => args.length > 1 ? `${args[0]}
 
-${args[1]}` : String(args[0] ?? "");
+${args[1]}` : String(args[0] ?? ""), "getText");
   globalThis.Dialog = {
     alert(...args) {
       globalThis.alert(getText(...args));

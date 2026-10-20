@@ -1,6 +1,5 @@
 //! What the runtime reads and makes of the realm's `Blob`s: the browser's, or outside a browser
-//! those of `js/src/blob.js`, which gives the runtime their bytes (`getBytes()`) and those of a
-//! request's body (`getBody()`).
+//! those of `js/src/blob.js`, which gives the runtime their bytes (`getBytes()`).
 
 use crate::{Call, Error, Value};
 
@@ -26,16 +25,4 @@ pub(crate) fn is_blob<H: Clone>(call: &mut dyn Call<H>, value: &H) -> Result<boo
 pub(crate) fn blob_bytes<H: Clone>(call: &mut dyn Call<H>, blob: &Value<H>) -> Result<Vec<u8>, Error> {
     let bytes = crate::call_bundle(call, "getBytes", std::slice::from_ref(blob))?;
     call.bytes(&crate::handle(bytes, "the blob's bytes")?)
-}
-
-/// A body's bytes and the content type it implies: a string, bytes, a `Blob` or `FormData`.
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn body_bytes<H: Clone>(call: &mut dyn Call<H>, body: &Value<H>) -> Result<(Vec<u8>, Option<String>), Error> {
-    let body = crate::handle(crate::call_bundle(call, "getBody", std::slice::from_ref(body))?, "the body")?;
-    let bytes = crate::handle(call.get(&body, "bytes")?, "the body's bytes")?;
-    let kind = match call.get(&body, "type")? {
-        Value::String(kind) => Some(kind),
-        _ => None,
-    };
-    Ok((call.bytes(&bytes)?, kind))
 }

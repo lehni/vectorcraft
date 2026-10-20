@@ -12,8 +12,10 @@ import { DOMException } from './dom-exception.js'
 import { TextDecoder, TextEncoder } from './encoding.js'
 import * as events from './events.js'
 import * as fetch from './fetch.js'
+import * as fileSystem from './file-system.js'
 import * as geometry from './geometry.js'
 import * as globalScope from './global-scope.js'
+import { LocalFile } from './local-file.js'
 import {
   Palette,
   handlePaletteEvent,
@@ -62,8 +64,8 @@ if (!globalThis.fetch) {
   const { Blob, File, getBytes } = blob
   const { getBody, ...classes } = fetch
   setGlobals({ ...abort, Blob, File, ...classes })
-  // What the runtime reads of blobs and bodies:
-  Object.assign(natives, { getBytes, getBody })
+  // What the runtime reads of blobs:
+  Object.assign(natives, { getBytes })
 }
 if (!globalThis.localStorage) {
   setGlobals({
@@ -82,6 +84,11 @@ if (!globalThis.Worker) {
   setGlobals({ Worker })
   // What the runtime makes a worker's global object with:
   Object.assign(natives, { setupWorker })
+}
+// The file system on desktop, by path; the web has the browser's:
+if (natives.fs) {
+  const { getHandlePath, ...classes } = fileSystem
+  setGlobals({ LocalFile, ...classes })
 }
 if (!globalThis.DOMMatrix) {
   setGlobals({ ...geometry, WebKitCSSMatrix: geometry.DOMMatrix })

@@ -1,12 +1,13 @@
-import { natives } from './natives.js'
 import { setToStringTag } from './define.js'
 
 // `Blob` and `File` for scripts outside a browser. Their bytes arrive whole: no
 // streams.
 
-// A blob's bytes, out of its own properties: a `LocalFile` is a `File` the
-// runtime makes, whose bytes it reads where the file is.
+// A blob's bytes and type, out of its own properties:
 const bytesByBlob = new WeakMap()
+// What a blob that reads its bytes elsewhere (`LocalFile`, where the file is)
+// reads them with:
+export const readBytes = Symbol('readBytes')
 
 export class Blob {
   constructor(parts = [], { type = '' } = {}) {
@@ -69,7 +70,7 @@ setToStringTag(Blob, File)
 
 // The bytes of `blob`, which the runtime reads too, not copied.
 export function getBytes(blob) {
-  return bytesByBlob.get(blob)?.bytes ?? natives.readFile(blob)
+  return blob[readBytes]?.() ?? bytesByBlob.get(blob).bytes
 }
 
 // The bytes of a `Blob`'s parts: strings (UTF-8), buffers, views and `Blob`s.
