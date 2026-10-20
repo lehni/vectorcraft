@@ -1,5 +1,5 @@
 /*!
- * Paper.js v0.14.0 - The Swiss Army Knife of Vector Graphics Scripting.
+ * Paper.js v0.14.0-develop - The Swiss Army Knife of Vector Graphics Scripting.
  * http://paperjs.org/
  *
  * Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey
@@ -9,7 +9,7 @@
  *
  * All rights reserved.
  *
- * Date: Tue Oct 20 01:20:31 2026 +0200
+ * Date: Tue Oct 20 03:09:22 2026 +0200
  *
  ***
  *
@@ -825,7 +825,7 @@ var PaperScope = Base.extend({
 		}
 	},
 
-	version: "0.14.0",
+	version: "0.14.0-develop",
 
 	getView: function() {
 		var project = this.project;
@@ -3072,6 +3072,14 @@ var Project = PaperScopeItem.extend({
 
 	getView: function() {
 		return this._view;
+	},
+
+	getBounds: function() {
+		return this._view.getBounds();
+	},
+
+	setBounds: function() {
+		this._view.setBounds(Rectangle.read(arguments));
 	},
 
 	getCurrentStyle: function() {
@@ -13458,6 +13466,10 @@ var View = Base.extend(Emitter, {
 		return this._bounds;
 	},
 
+	setBounds: function() {
+		this.fitBounds(Rectangle.read(arguments));
+	},
+
 	getSize: function() {
 		return this.getBounds().getSize();
 	},
@@ -13857,7 +13869,7 @@ new function() {
 				View._focused = this;
 				mouseDown = dragging = true;
 			}
-			this._handleMouseEvent(type, event, new Point(point));
+			this._handleMouseEvent(type, event, new Point(point), true);
 			if (type === 'mouseup')
 				mouseDown = dragging = false;
 			return event.defaultPrevented;
@@ -13871,7 +13883,7 @@ new function() {
 					createEvent(type, options), this);
 		},
 
-		_handleMouseEvent: function(type, event, point) {
+		_handleMouseEvent: function(type, event, point, dispatched) {
 			var itemEvents = this._itemEvents,
 				hitItems = itemEvents.native[type],
 				nativeMove = type === 'mousemove',
@@ -13913,7 +13925,8 @@ new function() {
 				isCovered = nativeMove && !dragging && target
 						&& target.nodeType === 1
 						&& !target.contains(this._element),
-				inView = !isCovered && this.getBounds().contains(point),
+				inView = dispatched
+						|| !isCovered && this.getBounds().contains(point),
 				hit = hitItems && inView && view._project.hitTest(point, {
 					tolerance: 0,
 					fill: true,
@@ -15224,12 +15237,12 @@ var HostItem = Item.extend({
 	},
 
 	_getBounds: function(matrix, options) {
-		var rect = this._getSourceBounds(options);
+		var rect = this._getHostBounds(options);
 		return matrix ? matrix._transformBounds(rect) : rect;
 	},
 
 	_hitTestSelf: function(point, options) {
-		var bounds = this._getSourceBounds({ stroke: true, handle: true });
+		var bounds = this._getHostBounds({ stroke: true, handle: true });
 		if (options.fill && bounds._containsPoint(point)) {
 			return new HitResult('fill', this);
 		}
@@ -15298,9 +15311,9 @@ new function() {
 				});
 			}
 			shell._getCachedBounds = function(matrix, options, noInternal) {
-				if (this._sourceBounds) {
-					this._bounds = this._getSourceBoundsCache();
-					this._sourceBounds = false;
+				if (this._hostBounds) {
+					this._bounds = this._getHostBoundsCache();
+					this._hostBounds = false;
 				}
 				return proto._getCachedBounds.call(this, matrix, options,
 						noInternal);
@@ -15309,7 +15322,7 @@ new function() {
 				if (!isLoading) {
 					if (flags & boundsFlags) {
 						for (var item = this; item; item = item._parent)
-							item._sourceBounds = false;
+							item._hostBounds = false;
 					}
 					proto._changed.call(this, flags);
 				}
@@ -15344,7 +15357,7 @@ new function() {
 		item._boxes = columns.boxes;
 		item._boxIndex = i * boxSize;
 		item._bounds = undefined;
-		item._sourceBounds = true;
+		item._hostBounds = true;
 	}
 
 	function setChildren(owner, project, columns) {
@@ -15412,12 +15425,12 @@ new function() {
 				throw new Error('Unable to change the key of an item.');
 			if (!itemsByKey)
 				throw new Error('Unable to set a key in a project without a '
-						+ 'source.');
+						+ 'host.');
 			this._key = key;
 			itemsByKey[key] = this;
 		},
 
-		_getSourceBounds: function(options) {
+		_getHostBounds: function(options) {
 			var boxes = this._boxes,
 				i = this._boxIndex
 					+ (options.handle ? 8 : options.stroke ? 4 : 0);
@@ -15427,7 +15440,7 @@ new function() {
 					: new Rectangle();
 		},
 
-		_getSourceBoundsCache: function() {
+		_getHostBoundsCache: function() {
 			var bounds = {},
 				isIdentity = this._matrix.isIdentity(),
 				nonscaling = !this._strokeScaling;
@@ -15435,7 +15448,7 @@ new function() {
 				var stroke = entry[0],
 					handle = entry[1],
 					key = '' + stroke + handle,
-					rect = this._getSourceBounds({
+					rect = this._getHostBounds({
 						stroke: stroke,
 						handle: handle
 					});
@@ -15464,7 +15477,7 @@ new function() {
 
 		_loadContent: function() {
 			var project = this._project,
-				json = project._source.getItem(this._key),
+				json = project._host.getItem(this._key),
 				ctor = this.constructor,
 				kept = ['_id', '_parent', '_index', '_matrix'],
 				values = {},
@@ -15494,7 +15507,7 @@ new function() {
 
 		_loadChildren: function() {
 			var project = this._project,
-				columns = project._source.getChildren(this._key),
+				columns = project._host.getChildren(this._key),
 				that = this;
 			whileLoading(project, function() {
 				setChildren(that, project, columns);
@@ -15523,25 +15536,42 @@ new function() {
 					project._updateSelection(child, true);
 				}
 				setChildren(this, project,
-						project._source.getChildren(this._key));
+						project._host.getChildren(this._key));
 			}
 		}
 	});
 
 	Project.inject({
-		getSource: function() {
-			return this._source;
+		getBounds: function getBounds() {
+			var host = this._host;
+			return host && host.getBounds
+					? new Rectangle(host.getBounds())
+					: getBounds.base.call(this);
 		},
 
-		setSource: function(source) {
+		setBounds: function setBounds() {
+			var host = this._host;
+			if (host && host.getBounds) {
+				if (host.setBounds)
+					host.setBounds(Rectangle.read(arguments));
+			} else {
+				setBounds.base.apply(this, arguments);
+			}
+		},
+
+		getHost: function() {
+			return this._host;
+		},
+
+		setHost: function(host) {
 			if (this._children.length)
-				throw new Error('Unable to set the source of a project with '
+				throw new Error('Unable to set the host of a project with '
 						+ 'layers.');
 			var that = this;
-			this._source = source;
+			this._host = host;
 			this._itemsByKey = {};
 			whileLoading(this, function() {
-				setChildren(that, that, source.getChildren(null));
+				setChildren(that, that, host.getChildren(null));
 				that._activeLayer = that._children[0] || null;
 			});
 		},
@@ -15550,7 +15580,7 @@ new function() {
 			var itemsByKey = this._itemsByKey,
 				item = itemsByKey[key];
 			if (!item || !item.isInserted()) {
-				var keys = this._source.getAncestorKeys(key) || [];
+				var keys = this._host.getAncestorKeys(key) || [];
 				for (var i = 0, l = keys.length; i < l; i++) {
 					var ancestor = itemsByKey[keys[i]];
 					if (ancestor)

@@ -1,4 +1,4 @@
-//! The document binding: a scope's project reads the document through Paper.js's item source,
+//! The document binding: a scope's project reads the document through Paper.js's host interface,
 //! loading only what scripts touch, and its changes go back as one `document.patch`.
 
 use std::collections::BTreeSet;
@@ -7,7 +7,7 @@ use std::sync::Arc;
 use serde_json::Value as Json;
 use vectorcraft_doc::{Document, Node, NodeId, Selection};
 
-use crate::source::{Columns, TYPE_NAMES, flags, item_json};
+use crate::host::{Columns, TYPE_NAMES, flags, item_json};
 use crate::writeback::{self, Change};
 use crate::{Call, Engine, Error, Runtime, Scope, Value, handle, method, object};
 
@@ -25,7 +25,7 @@ pub struct Patch<H> {
 }
 
 impl<E: Engine> Runtime<E> {
-    /// Makes the document the item source of `scope`'s project, and tracks the project's changes.
+    /// Makes the document the host of `scope`'s project, and tracks the project's changes.
     pub fn bind(&mut self, scope: &Scope<E::Handle>, doc: Arc<Document>, selection: Selection) -> Result<(), Error> {
         let selected = selection.objects.clone();
         self.host.borrow_mut().bound = Some(Bound { doc, selection });
@@ -33,12 +33,12 @@ impl<E: Engine> Runtime<E> {
         let get_item = self.engine.function("getItem", get_item)?;
         let get_ancestor_keys = self.engine.function("getAncestorKeys", get_ancestor_keys)?;
         self.engine.with_call(|call| {
-            let source = call.new_object()?;
-            call.set(&source, "getChildren", &Value::Js(get_children))?;
-            call.set(&source, "getItem", &Value::Js(get_item))?;
-            call.set(&source, "getAncestorKeys", &Value::Js(get_ancestor_keys))?;
+            let host = call.new_object()?;
+            call.set(&host, "getChildren", &Value::Js(get_children))?;
+            call.set(&host, "getItem", &Value::Js(get_item))?;
+            call.set(&host, "getAncestorKeys", &Value::Js(get_ancestor_keys))?;
             let project = object(call, &scope.0, "project")?;
-            method(call, &project, "setSource", &[Value::Js(source)])?;
+            method(call, &project, "setHost", &[Value::Js(host)])?;
             call.set(&project, "trackChanges", &Value::Bool(true))?;
             register(call, &project, &selected)
         })

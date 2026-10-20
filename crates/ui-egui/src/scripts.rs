@@ -581,7 +581,7 @@ fn send(app: &mut VectorcraftApp, script: &mut Running, work: Work) -> Result<()
         }
     });
     let paint = &app.session.paint;
-    let style = vectorcraft_papercraft::source::current_style(&paint.fill, &paint.stroke, paint.stroke_width);
+    let style = vectorcraft_papercraft::host::current_style(&paint.fill, &paint.stroke, paint.stroke_width);
     script.worker.send(Request::Run { doc, selection, style, work });
     Ok(())
 }

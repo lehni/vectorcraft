@@ -19,7 +19,7 @@ use crate::{Engine, Error, Modifiers, MouseEvent, PaletteEvent, Patch, PlatformE
 /// What the app asks a worker to do.
 pub enum Request {
     /// Catch up with the document and the style new art takes in the app (as
-    /// [`crate::source::current_style`] makes it), then do `work`.
+    /// [`crate::host::current_style`] makes it), then do `work`.
     Run { doc: Arc<Document>, selection: Selection, style: Json, work: Work },
     /// The answer to [`Reply::Changes`]: `document.patch`'s result, and the document after it.
     /// `behind` when the document had changed in other ways since the patch's base.

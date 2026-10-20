@@ -14,7 +14,7 @@ use vectorcraft_doc::{Appearance, Document, LayerColor, LineCap, LineJoin, Node,
 use vectorcraft_geom::{Anchor, AnchorKind, PathData, Point, SubPath};
 
 use crate::binding::{Patch, node, number};
-use crate::source::item_json;
+use crate::host::item_json;
 use crate::{Call, Error, Value, method, object};
 
 /// Paper.js's `ChangeFlag`s.

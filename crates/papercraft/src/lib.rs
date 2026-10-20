@@ -12,8 +12,8 @@ mod canvas;
 mod dialog;
 mod engine;
 mod engines;
+pub mod host;
 mod palette;
-pub mod source;
 pub mod worker;
 mod writeback;
 
@@ -49,7 +49,7 @@ pub type PlatformEngine = V8;
 pub type PlatformEngine = Boa;
 
 /// Paper.js with the PaperScript compiler and items backed by a host document: the vendored
-/// `paper-sourced.js` build of Paper.js 0.14.0 (MIT; `dist/paper-sourced.js` of the npm package),
+/// `paper-hosted.js` build of Paper.js 0.14.0-develop (MIT; `dist/paper-hosted.js` of the npm package),
 /// or the build `PAPERCRAFT_PAPER_JS` names (see `build.rs`).
 const PAPER_JS: &str = include_str!(env!("PAPERCRAFT_PAPER_JS_PATH"));
 
@@ -251,7 +251,7 @@ impl<E: Engine> Runtime<E> {
         !self.host.borrow().intervals.is_empty()
     }
 
-    /// Sets `project.currentStyle` of `scope`: `style` as [`source::current_style`] makes it.
+    /// Sets `project.currentStyle` of `scope`: `style` as [`host::current_style`] makes it.
     pub fn set_current_style(&mut self, scope: &Scope<E::Handle>, style: &serde_json::Value) -> Result<(), Error> {
         self.engine.with_call(|call| {
             let globals = dialog::globals(call)?;

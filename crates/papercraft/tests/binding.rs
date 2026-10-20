@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-//! Scripts on a real document: Paper.js reads it through its item source, and what a script
+//! Scripts on a real document: Paper.js reads it through its host interface, and what a script
 //! changes goes back through `document.patch` as one undo step.
 
 use serde_json::json;
@@ -223,7 +223,12 @@ fn tool_scripts_get_pointer_events<E: Engine>() {
     runtime.mouse_event(&scope, MouseEvent::Up, (20.0, 0.0), Modifiers::default()).unwrap();
     // A move after the button went up is no drag.
     runtime.mouse_event(&scope, MouseEvent::Move, (40.0, 0.0), Modifiers::default()).unwrap();
-    assert_eq!(runtime.take_output(), ["down 0 true", "up 20"]);
+    // The document is larger than the view: a press outside it is a press too, also after a move
+    // there.
+    runtime.mouse_event(&scope, MouseEvent::Move, (-60.0, 500.0), Modifiers::default()).unwrap();
+    runtime.mouse_event(&scope, MouseEvent::Down, (-50.0, 500.0), Modifiers::default()).unwrap();
+    runtime.mouse_event(&scope, MouseEvent::Up, (-50.0, 500.0), Modifiers::default()).unwrap();
+    assert_eq!(runtime.take_output(), ["down 0 true", "up 20", "down -50 false", "up -50"]);
     let patch = runtime.take_patch(&scope).unwrap().unwrap();
     assert_eq!(patch.params["insert"].as_array().unwrap().len(), 1, "one drag event drew one circle");
 }

@@ -1,4 +1,4 @@
-//! The document as Paper.js sees it through its item source: one record per child of a container
+//! The document as Paper.js sees it through its host: one record per child of a container
 //! (as columns), and each item's own content as Paper.js JSON (`importJSON` form).
 //!
 //! Layers, groups, paths and compound paths have Paper.js classes. Every other kind of object is a
