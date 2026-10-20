@@ -131,9 +131,14 @@ impl Layout {
     }
 }
 
-/// Component `c`'s label, when it has one: rulers and texts have none.
+/// Component `c`'s label, when it has one: rulers, texts and menu entries have none.
 fn label(c: &Value) -> Option<&str> {
-    c["label"].as_str().filter(|l| !l.is_empty() && !matches!(kind(c), "ruler" | "menu-separator" | "text"))
+    c["label"].as_str().filter(|l| !l.is_empty() && !matches!(kind(c), "ruler" | "text") && !is_menu(c))
+}
+
+/// Whether `c` belongs in a palette's menu: a menu entry or separator.
+pub(crate) fn is_menu(c: &Value) -> bool {
+    matches!(kind(c), "menu-entry" | "menu-separator")
 }
 
 fn kind(c: &Value) -> &str {
@@ -145,7 +150,7 @@ fn kind(c: &Value) -> &str {
 /// the row. A `fullSize` field takes the rest of the row.
 pub(crate) fn component(ui: &mut egui::Ui, layout: &Layout, c: &Value, value: &Value) -> Option<Edit> {
     let name = c["name"].as_str().unwrap_or_default();
-    if c["visible"].as_bool() == Some(false) {
+    if c["visible"].as_bool() == Some(false) || is_menu(c) {
         return None;
     }
     let enabled = c["enabled"].as_bool().unwrap_or(true);
@@ -153,7 +158,7 @@ pub(crate) fn component(ui: &mut egui::Ui, layout: &Layout, c: &Value, value: &V
     let tip = c["toolTip"].as_str().filter(|t| !t.is_empty());
     let width = layout.field_width(c);
     let response = ui.add_enabled_ui(enabled, |ui| match kind(c) {
-        "ruler" | "menu-separator" => {
+        "ruler" => {
             widgets::divider(ui);
             None
         }
@@ -260,7 +265,7 @@ fn units(name: &str) -> (Option<vectorcraft_doc::Unit>, &'static str) {
 }
 
 /// A value as text: strings as they are, everything else as JSON.
-fn text(value: &Value) -> String {
+pub(crate) fn text(value: &Value) -> String {
     match value {
         Value::String(s) => s.clone(),
         Value::Null => String::new(),

@@ -784,3 +784,34 @@ fn palette_numbers_show_their_units() {
         assert!(texts.iter().any(|(t, _)| t == s), "{s} in {texts:?}");
     }
 }
+
+/// A palette's menu entries are in its menu, not in its body: picking one runs its `onSelect`.
+#[test]
+fn a_palettes_menu_runs_its_entries() {
+    let (mut app, _) = app();
+    let path = tempfile_path::Path::new(
+        "new Palette('Tools', {\n\
+             size: { type: 'number', label: 'Size', value: 1 },\n\
+             about: { label: 'About Tools', onSelect: function() { print('about') } }\n\
+         })",
+    );
+    app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
+    let ctx = egui::Context::default();
+    crate::theme::install_fonts(&ctx);
+    crate::scripts::frame(&mut app, &ctx, 0.5);
+    palettes_frame(&mut app, &ctx, vec![]);
+    let texts = palettes_frame(&mut app, &ctx, vec![]);
+    assert!(!texts.iter().any(|(t, _)| t.contains("About Tools")), "not in the body: {texts:?}");
+    // The menu button sits left of the × at the title bar's right end.
+    let area = ctx.memory(|m| m.layer_ids().filter(|l| l.order == egui::Order::Middle).find_map(|l| m.area_rect(l.id))).unwrap();
+    let menu = egui::pos2(area.right() - 33.0, area.top() + crate::floating::STRIP / 2.0);
+    let press = |at, pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+    palettes_frame(&mut app, &ctx, vec![egui::Event::PointerMoved(menu), press(menu, true)]);
+    palettes_frame(&mut app, &ctx, vec![press(menu, false)]);
+    let texts = palettes_frame(&mut app, &ctx, vec![]);
+    let entry = texts.iter().find(|(t, _)| t.contains("About Tools")).map(|(_, r)| r.center()).expect("the menu shows the entry");
+    palettes_frame(&mut app, &ctx, vec![egui::Event::PointerMoved(entry), press(entry, true)]);
+    palettes_frame(&mut app, &ctx, vec![press(entry, false)]);
+    crate::scripts::frame(&mut app, &ctx, 1.0);
+    assert!(app.scripts.log().iter().any(|l| l.text == "about"), "{:?}", app.scripts.log().iter().map(|l| &l.text).collect::<Vec<_>>());
+}

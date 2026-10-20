@@ -1,8 +1,9 @@
 //! Scriptographer's `Palette`: `new Palette(title, components, values)` is a panel that stays open
 //! while the script runs, with the same components as `Dialog.prompt`. What the user changes goes
 //! into `values` and calls the component's `onChange(value)`, then the palette's
-//! `onChange(component)`; a button calls its `onClick()`. What the script changes in `values` or
-//! in the components shows in the panel.
+//! `onChange(component)`; a button calls its `onClick()`, and a menu entry, in the palette's menu,
+//! its `onSelect()`. What the script changes in `values` or in the components shows in the panel.
+//! `palette.reset()` puts the values back to those the components were defined with.
 //!
 //! The host shows the palettes [`Runtime::take_palettes`] reports, and sends what the user does
 //! with [`Runtime::palette_event`].
@@ -20,6 +21,8 @@ pub(crate) struct Palette<H> {
     object: H,
     components: H,
     values: H,
+    /// The components as defined, with the values they started with, for `reset()`.
+    defaults: Vec<Json>,
     /// Its state as last reported, as JSON.
     reported: String,
 }
@@ -29,7 +32,7 @@ pub(crate) struct Palette<H> {
 pub enum PaletteEvent {
     /// Changed a component's value.
     Change(String, Json),
-    /// Clicked a button.
+    /// Clicked a button, or picked a menu entry.
     Click(String),
     /// Closed the palette.
     Close,
@@ -38,7 +41,11 @@ pub enum PaletteEvent {
 /// Sets `Palette` on `global`.
 pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(), Error> {
     let constructor = engine.constructor("Palette", palette)?;
-    engine.with_call(|call| call.set(global, "Palette", &Value::Js(constructor)))
+    let reset = engine.function("reset", reset)?;
+    engine.with_call(|call| {
+        call.host()?.borrow_mut().palette_reset = Some(reset);
+        call.set(global, "Palette", &Value::Js(constructor))
+    })
 }
 
 /// `new Palette(title, components, values)`.
@@ -56,6 +63,7 @@ fn palette<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]
     };
     // `values` holds every component's value from the start.
     let globals = dialog::globals(call)?;
+    let defaults = describe(call, &globals, components, None)?;
     for component in describe(call, &globals, components, Some(&values))? {
         let name = component["name"].as_str().unwrap_or_default();
         if matches!(call.get(&values, name)?, Value::Undefined) {
@@ -68,11 +76,35 @@ fn palette<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]
     call.set(&palette, "components", &Value::Js(components.clone()))?;
     call.set(&palette, "values", &Value::Js(values.clone()))?;
     let host = call.host()?;
+    let reset = host.borrow().palette_reset.clone();
+    if let Some(reset) = reset {
+        call.set(&palette, "reset", &Value::Js(reset))?;
+    }
     let mut host = host.borrow_mut();
     host.next_palette_id += 1;
     let id = host.next_palette_id;
-    host.palettes.push(Palette { id, title, object: palette.clone(), components: components.clone(), values, reported: String::new() });
+    host.palettes.push(Palette { id, title, object: palette.clone(), components: components.clone(), values, defaults, reported: String::new() });
     Ok(Value::Js(palette))
+}
+
+/// `palette.reset()`: every component's value back to the one it was defined with.
+fn reset<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let globals = dialog::globals(call)?;
+    let palettes: Vec<_> =
+        call.host()?.borrow().palettes.iter().map(|p| (p.object.clone(), p.components.clone(), p.values.clone(), p.defaults.clone())).collect();
+    for (palette, components, values, defaults) in palettes {
+        if dialog::same(call, &globals, this, &Value::Js(palette))? {
+            for component in &defaults {
+                let name = component["name"].as_str().unwrap_or_default();
+                let value = from_component(call, &globals, component, &component["value"])?;
+                call.set(&values, name, &value)?;
+                // Handlers read a component's value from its definition.
+                let definition = object(call, &components, name)?;
+                call.set(&definition, "value", &value)?;
+            }
+        }
+    }
+    Ok(Value::Undefined)
 }
 
 impl<E: Engine> Runtime<E> {
@@ -142,7 +174,8 @@ impl<E: Engine> Runtime<E> {
             }
             PaletteEvent::Click(name) => {
                 let definition = object(call, &components, &name)?;
-                handler(call, &definition, "onClick", &[])
+                handler(call, &definition, "onClick", &[])?;
+                handler(call, &definition, "onSelect", &[])
             }
             PaletteEvent::Close => handler(call, &palette, "onClose", &[]),
         })

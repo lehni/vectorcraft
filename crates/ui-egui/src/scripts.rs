@@ -650,7 +650,7 @@ fn show_palettes(script: &mut Running, palettes: Vec<Value>) {
 /// and to the script as work. The × closes a palette. A palette opens where the user last put the
 /// script's palette of that title.
 pub(crate) fn palettes(app: &mut VectorcraftApp, ctx: &egui::Context) {
-    use crate::dialogs::script::{Edit, Layout, component};
+    use crate::dialogs::script::{Edit, Layout, component, is_menu};
     let t = crate::theme::Tokens::get(ctx);
     let screen = ctx.content_rect();
     let start = screen.center() - egui::vec2(120.0, 120.0);
@@ -688,8 +688,9 @@ pub(crate) fn palettes(app: &mut VectorcraftApp, ctx: &egui::Context) {
                         crate::theme::semibold(12.0),
                         t.text,
                     );
+                    // The grip ends before the menu button and the ×.
                     let grip = ui.interact(
-                        egui::Rect::from_min_max(bar.min, egui::pos2(close.left(), bar.bottom())),
+                        egui::Rect::from_min_max(bar.min, egui::pos2(close.left() - 20.0, bar.bottom())),
                         ui.id().with("grip"),
                         egui::Sense::drag(),
                     );
@@ -704,6 +705,29 @@ pub(crate) fn palettes(app: &mut VectorcraftApp, ctx: &egui::Context) {
                     crate::icons::paint(ui, "x", close.shrink(3.0), if x.hovered() { t.text_strong } else { t.text_dim });
                     if x.clicked() {
                         events.push((script.id, view.id, PaletteEvent::Close));
+                    }
+                    // Its menu entries, in its menu.
+                    let entries: Vec<&Value> = view.components.iter().filter(|c| is_menu(c) && c["visible"].as_bool() != Some(false)).collect();
+                    if !entries.is_empty() {
+                        let rect = close.translate(egui::vec2(-20.0, 0.0));
+                        let menu = ui.interact(rect, ui.id().with("menu"), egui::Sense::click());
+                        crate::icons::paint(ui, "menu", rect.shrink(3.0), if menu.hovered() { t.text_strong } else { t.text_dim });
+                        egui::Popup::menu(&menu).show(|ui| {
+                            ui.set_min_width(160.0);
+                            for c in entries {
+                                if c["type"] == "menu-separator" {
+                                    ui.separator();
+                                    continue;
+                                }
+                                let label = c["label"].as_str().map_or_else(|| crate::dialogs::script::text(&c["value"]), str::to_owned);
+                                let enabled = c["enabled"].as_bool().unwrap_or(true);
+                                if crate::widgets::menu_item_name(ui, &label, enabled, false)
+                                    && let Some(name) = c["name"].as_str()
+                                {
+                                    events.push((script.id, view.id, PaletteEvent::Click(name.to_owned())));
+                                }
+                            }
+                        });
                     }
                     egui::Frame::NONE.inner_margin(8).show(ui, |ui| {
                         for c in &view.components {

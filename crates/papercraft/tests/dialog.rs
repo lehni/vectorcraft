@@ -152,9 +152,33 @@ fn what_the_script_changes_in_a_component_shows_too<E: Engine>() {
     assert_eq!(mode["options"], json!(["a", "b", "c"]));
 }
 
+fn palette_menus_and_reset<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(400.0, 300.0).unwrap();
+    let script = "var values = { size: 5 }\n\
+        var palette = new Palette('P', {\n\
+            size: { type: 'number', label: 'Size', value: 1, units: 'point' },\n\
+            line: { type: 'menu-separator' },\n\
+            reset: { label: 'Reset', onSelect: function() { palette.reset(); console.log('reset', values.size, palette.components.size.value) } }\n\
+        }, values)";
+    runtime.execute(&scope, script).unwrap();
+    let components = &runtime.take_palettes().unwrap()[0]["components"];
+    assert_eq!(components[0]["value"], 5, "the values given win over the definition's");
+    assert_eq!(components[0]["steppers"], true, "a number with units has steppers");
+    assert_eq!(components[2]["type"], "menu-entry", "onSelect makes a menu entry");
+    runtime.palette_event(1, PaletteEvent::Click("reset".into())).unwrap();
+    assert_eq!(runtime.take_output(), ["reset 1 1"], "back to the value it was defined with");
+    assert_eq!(runtime.take_palettes().unwrap()[0]["components"][0]["value"], 1, "and the palette shows it");
+}
+
 macro_rules! engine_tests {
     ($module:ident, $engine:ty) => {
         mod $module {
+            #[test]
+            fn palette_menus_and_reset() {
+                super::palette_menus_and_reset::<$engine>();
+            }
+
             #[test]
             fn alert_and_confirm_ask_and_wait() {
                 super::alert_and_confirm_ask_and_wait::<$engine>();

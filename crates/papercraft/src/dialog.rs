@@ -188,8 +188,15 @@ pub(crate) fn describe<H: Clone>(call: &mut dyn Call<H>, globals: &Globals<H>, c
         };
         component.insert("value".into(), to_json(call, globals, &value)?);
         if !component.contains_key("type") {
-            let kind = kind(&component, call.get(&definition, "onClick")?);
+            let kind = kind(&component, call.get(&definition, "onClick")?, call.get(&definition, "onSelect")?);
             component.insert("type".into(), json!(kind));
+        }
+        // A number with units has steppers unless it says otherwise, as in Scriptographer.
+        if component["type"] == "number"
+            && component.get("units").is_some_and(|u| u.is_string() && u != "none")
+            && !component.contains_key("steppers")
+        {
+            component.insert("steppers".into(), json!(true));
         }
         component.insert("name".into(), json!(name));
         list.push(Json::Object(component));
@@ -206,13 +213,17 @@ pub(crate) fn from_component<H: Clone>(call: &mut dyn Call<H>, globals: &Globals
 }
 
 /// A component's type where its definition leaves it out, as Scriptographer read it from the
-/// definition: a list with options, a button with `onClick`, else by its value.
-fn kind<H>(component: &Map<String, Json>, on_click: Value<H>) -> &'static str {
+/// definition: a list with options, a button with `onClick`, a menu entry with `onSelect`, else
+/// by its value.
+fn kind<H>(component: &Map<String, Json>, on_click: Value<H>, on_select: Value<H>) -> &'static str {
     if component.contains_key("options") {
         return "list";
     }
     if matches!(on_click, Value::Js(_)) {
         return "button";
+    }
+    if matches!(on_select, Value::Js(_)) {
+        return "menu-entry";
     }
     match component.get("value") {
         Some(Json::Number(_)) => "number",
@@ -226,6 +237,11 @@ pub(crate) fn globals<H: Clone>(call: &mut dyn Call<H>) -> Result<Globals<H>, Er
     let host = host.borrow();
     let globals = host.dialog_globals.as_ref().ok_or_else(|| Error::Script("Dialog is not set up".into()))?;
     Ok(Globals { json: globals.json.clone(), object: globals.object.clone(), color: globals.color.clone() })
+}
+
+/// Whether `a` and `b` are the same value, as `Object.is(a, b)`.
+pub(crate) fn same<H: Clone>(call: &mut dyn Call<H>, globals: &Globals<H>, a: &Value<H>, b: &Value<H>) -> Result<bool, Error> {
+    Ok(matches!(method(call, &globals.object, "is", &[a.clone(), b.clone()])?, Value::Bool(true)))
 }
 
 /// `Object.keys(object)`, in their order.

@@ -88,6 +88,8 @@ pub struct Host<H> {
     dialog_globals: Option<dialog::Globals<H>>,
     /// The palettes the script made, open.
     palettes: Vec<palette::Palette<H>>,
+    /// The `reset()` of every palette.
+    palette_reset: Option<H>,
     next_palette_id: u64,
     /// `script.preferences` as last taken, as JSON.
     preferences: String,
@@ -118,6 +120,7 @@ impl<H> Default for Host<H> {
             ask: None,
             dialog_globals: None,
             palettes: Vec::new(),
+            palette_reset: None,
             next_palette_id: 0,
             preferences: String::new(),
             handlers: Vec::new(),
