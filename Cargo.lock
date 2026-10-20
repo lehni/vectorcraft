@@ -5738,6 +5738,7 @@ dependencies = [
  "vectorcraft-engine",
  "vectorcraft-format",
  "vectorcraft-geom",
+ "vectorcraft-text",
  "wasm-bindgen",
  "web-sys",
 ]

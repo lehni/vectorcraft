@@ -361,6 +361,25 @@ fn scripts_have_urls<E: Engine>() {
     );
 }
 
+fn scripts_measure_text<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "const ctx = new OffscreenCanvas(1, 1).getContext('2d')\n\
+             console.log(ctx.font)\n\
+             ctx.font = '20px \"Source Sans 3\"'\n\
+             const small = ctx.measureText('Hello')\n\
+             ctx.font = 'bold 40px \"Source Sans 3\"'\n\
+             const big = ctx.measureText('Hello')\n\
+             console.log(small.width > 30, big.width > 2 * small.width, small.fontBoundingBoxAscent > small.actualBoundingBoxAscent, small.actualBoundingBoxAscent > 10)\n\
+             console.log(ctx.measureText('Hello ').width > ctx.measureText('Hello').width, ctx.measureText('').width)",
+        )
+        .unwrap();
+    assert_eq!(runtime.take_output(), ["10px sans-serif", "true true true true", "true 0"], "bold is wider than twice the size alone");
+}
+
 fn fetch_classes_work_alone<E: Engine>() {
     let mut runtime = Runtime::<E>::new().unwrap();
     let scope = runtime.create_scope(800.0, 600.0).unwrap();
@@ -493,6 +512,11 @@ macro_rules! engine_tests {
             #[test]
             fn scripts_have_urls() {
                 super::scripts_have_urls::<$engine>();
+            }
+
+            #[test]
+            fn scripts_measure_text() {
+                super::scripts_measure_text::<$engine>();
             }
 
             #[test]
