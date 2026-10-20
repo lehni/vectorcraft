@@ -11,6 +11,7 @@ import * as events from './events.js'
 import * as fetch from './fetch.js'
 import * as geometry from './geometry.js'
 import { Storage, createStorage } from './storage.js'
+import { WebSocket } from './websocket.js'
 
 delete globalThis.__scriptographer
 const { print } = natives
@@ -39,6 +40,9 @@ if (!globalThis.localStorage) {
     localStorage: createStorage(false),
     sessionStorage: createStorage(true)
   })
+}
+if (!globalThis.WebSocket) {
+  setGlobals({ WebSocket })
 }
 if (!globalThis.DOMMatrix) {
   setGlobals({ ...geometry, WebKitCSSMatrix: geometry.DOMMatrix })

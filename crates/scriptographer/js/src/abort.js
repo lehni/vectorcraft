@@ -1,5 +1,4 @@
-import { EventTarget, Event } from './events.js'
-import { formatError } from './format-error.js'
+import { EventTarget, Event, defineEventHandlers, fire } from './events.js'
 import { setToStringTag } from './define.js'
 
 // `AbortController` and `AbortSignal`, for scripts outside a browser.
@@ -11,7 +10,6 @@ let abort
 export class AbortSignal extends EventTarget {
   #aborted = false
   #reason
-  #onabort = null
 
   constructor(key) {
     if (key !== internal) {
@@ -35,13 +33,7 @@ export class AbortSignal extends EventTarget {
                 'AbortError'
               )
             : reason
-        const event = new Event('abort')
-        try {
-          signal.#onabort?.call(signal, event)
-        } catch (err) {
-          console.error(`Uncaught ${formatError(err)}`)
-        }
-        signal.dispatchEvent(event)
+        fire(signal, new Event('abort'))
       }
     }
   }
@@ -52,14 +44,6 @@ export class AbortSignal extends EventTarget {
 
   get reason() {
     return this.#reason
-  }
-
-  get onabort() {
-    return this.#onabort
-  }
-
-  set onabort(handler) {
-    this.#onabort = typeof handler === 'function' ? handler : null
   }
 
   throwIfAborted() {
@@ -109,4 +93,5 @@ export class AbortController {
   }
 }
 
+defineEventHandlers(AbortSignal, 'abort')
 setToStringTag(AbortSignal, AbortController)

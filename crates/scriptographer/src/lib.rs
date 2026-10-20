@@ -322,23 +322,29 @@ impl<E: Engine> Runtime<E> {
         // What's written in JavaScript, before the classes that build on it (`LocalFile` on
         // `File`), with the natives it needs: `print()` for the script's output, on desktop
         // `request()` for `fetch()` and `readFile()` for a `LocalFile`'s bytes, on the web the app's
-        // pickers to ask, and the storages' items.
+        // pickers to ask, the storages' items, and on desktop the sockets.
         let mut natives = vec![("print", engine.function("print", print)?)];
         #[cfg(not(target_arch = "wasm32"))]
         natives.extend([("request", engine.function("request", fetch::request)?), ("readFile", engine.function("readFile", local_file::read_file)?)]);
         #[cfg(target_arch = "wasm32")]
         natives.push(("ask", engine.function("ask", dialog::ask_picker)?));
-        let storage = storage::natives(&mut engine)?;
+        let groups = [
+            ("storage", storage::natives(&mut engine)?),
+            #[cfg(not(target_arch = "wasm32"))]
+            ("socket", websocket::natives(&mut engine)?),
+        ];
         let shared = engine.with_call(|call| {
             let shared = call.new_object()?;
             for (name, function) in natives {
                 call.set(&shared, name, &Value::Js(function))?;
             }
-            let storage_natives = call.new_object()?;
-            for (name, function) in storage {
-                call.set(&storage_natives, name, &Value::Js(function))?;
+            for (name, natives) in groups {
+                let group = call.new_object()?;
+                for (name, function) in natives {
+                    call.set(&group, name, &Value::Js(function))?;
+                }
+                call.set(&shared, name, &Value::Js(group))?;
             }
-            call.set(&shared, "storage", &Value::Js(storage_natives))?;
             call.set(&global, "__scriptographer", &Value::Js(shared.clone()))?;
             Ok(shared)
         })?;
@@ -366,8 +372,6 @@ impl<E: Engine> Runtime<E> {
         file_system::install(&mut runtime, &global)?;
         #[cfg(not(target_arch = "wasm32"))]
         urls::install(&mut runtime, &global)?;
-        #[cfg(not(target_arch = "wasm32"))]
-        websocket::install(&mut runtime.engine, &global)?;
         #[cfg(not(target_arch = "wasm32"))]
         web_worker::install(&mut runtime.engine, &global)?;
         clone::install(&mut runtime.engine, &global)?;

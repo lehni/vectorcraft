@@ -48,7 +48,9 @@
     ErrorEvent: () => ErrorEvent,
     Event: () => Event,
     EventTarget: () => EventTarget,
-    MessageEvent: () => MessageEvent
+    MessageEvent: () => MessageEvent,
+    defineEventHandlers: () => defineEventHandlers,
+    fire: () => fire
   });
 
   // src/format-error.js
@@ -62,6 +64,7 @@
   var phases = { NONE: 0, CAPTURING_PHASE: 1, AT_TARGET: 2, BUBBLING_PHASE: 3 };
   var listenersByTarget = /* @__PURE__ */ new WeakMap();
   var states = /* @__PURE__ */ new WeakMap();
+  var handlersByTarget = /* @__PURE__ */ new WeakMap();
   var EventTarget = class {
     addEventListener(type, callback, options) {
       if (callback && typeof callback === "object" || typeof callback === "function") {
@@ -129,7 +132,7 @@
               throw new TypeError("Invalid listener: it has no handleEvent().");
             }
           } catch (err) {
-            console.error(`Uncaught ${formatError(err)}`);
+            report(err);
           }
           state.passive = false;
           if (state.stopImmediately) break;
@@ -297,6 +300,39 @@
     CloseEvent,
     ErrorEvent
   );
+  function defineEventHandlers(Class, ...types) {
+    for (const type of types) {
+      defineAccessors(Class.prototype, {
+        [`on${type}`]: {
+          get() {
+            return handlersByTarget.get(this)?.[type] ?? null;
+          },
+          set(handler2) {
+            let handlers = handlersByTarget.get(this);
+            if (!handlers) {
+              handlers = {};
+              handlersByTarget.set(this, handlers);
+            }
+            handlers[type] = typeof handler2 === "function" ? handler2 : null;
+          }
+        }
+      });
+    }
+  }
+  function fire(target, event) {
+    const handler2 = handlersByTarget.get(target)?.[event.type];
+    if (handler2) {
+      try {
+        handler2.call(target, event);
+      } catch (err) {
+        report(err);
+      }
+    }
+    return target.dispatchEvent(event);
+  }
+  function report(err) {
+    console.error(`Uncaught ${formatError(err)}`);
+  }
   function getState(event) {
     const state = states.get(event);
     if (!state) {
@@ -337,7 +373,6 @@
   var AbortSignal = class _AbortSignal extends EventTarget {
     #aborted = false;
     #reason;
-    #onabort = null;
     constructor(key) {
       if (key !== internal) {
         throw new TypeError(
@@ -354,13 +389,7 @@
             "signal is aborted without reason",
             "AbortError"
           ) : reason;
-          const event = new Event("abort");
-          try {
-            signal.#onabort?.call(signal, event);
-          } catch (err) {
-            console.error(`Uncaught ${formatError(err)}`);
-          }
-          signal.dispatchEvent(event);
+          fire(signal, new Event("abort"));
         }
       };
     }
@@ -369,12 +398,6 @@
     }
     get reason() {
       return this.#reason;
-    }
-    get onabort() {
-      return this.#onabort;
-    }
-    set onabort(handler2) {
-      this.#onabort = typeof handler2 === "function" ? handler2 : null;
     }
     throwIfAborted() {
       if (this.#aborted) throw this.#reason;
@@ -416,6 +439,7 @@
       abort(this.#signal, reason);
     }
   };
+  defineEventHandlers(AbortSignal, "abort");
   setToStringTag(AbortSignal, AbortController);
 
   // src/blob.js
@@ -1835,6 +1859,130 @@ ${value}\r
     }
   }
 
+  // src/websocket.js
+  var states2 = { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 };
+  var schemes = {
+    "ws:": "ws:",
+    "http:": "ws:",
+    "wss:": "wss:",
+    "https:": "wss:"
+  };
+  var WebSocket = class extends EventTarget {
+    #url;
+    #number;
+    #readyState = states2.CONNECTING;
+    #protocol = "";
+    #binaryType = "blob";
+    constructor(url, protocols = []) {
+      super();
+      url = String(url);
+      const parsed = URL.canParse(url) ? new URL(url) : null;
+      const scheme = schemes[parsed?.protocol];
+      if (!scheme || parsed.hash) {
+        throw new DOMException(`Invalid WebSocket URL: '${url}'.`, "SyntaxError");
+      }
+      parsed.protocol = scheme;
+      this.#url = parsed.href;
+      this.#number = natives.socket.open(
+        this.#url,
+        typeof protocols === "string" ? [protocols] : Array.from(protocols, String),
+        (incoming) => this.#receive(incoming)
+      );
+    }
+    get url() {
+      return this.#url;
+    }
+    get readyState() {
+      return this.#readyState;
+    }
+    get protocol() {
+      return this.#protocol;
+    }
+    get extensions() {
+      return "";
+    }
+    get bufferedAmount() {
+      return 0;
+    }
+    get binaryType() {
+      return this.#binaryType;
+    }
+    set binaryType(type) {
+      if (type === "blob" || type === "arraybuffer") this.#binaryType = type;
+    }
+    // Text, or the bytes of a `Blob`, a buffer or a view. A closing or closed
+    // socket sends nothing, as in browsers.
+    send(data) {
+      if (arguments.length < 1) {
+        throw new TypeError("Invalid send(): the data is missing.");
+      }
+      if (this.#readyState === states2.CONNECTING) {
+        throw new DOMException(
+          "Unable to send: the WebSocket is not open yet.",
+          "InvalidStateError"
+        );
+      }
+      if (this.#readyState === states2.OPEN) {
+        natives.socket.send(
+          this.#number,
+          data instanceof Blob ? getBytes(data) : data instanceof ArrayBuffer ? new Uint8Array(data) : ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength) : String(data)
+        );
+      }
+    }
+    // A code of 1000 or 3000 to 4999, a reason of 123 bytes at most.
+    close(code, reason = "") {
+      if (code !== void 0 && (code = Number(code)) !== 1e3 && !(code >= 3e3 && code <= 4999)) {
+        throw new DOMException(
+          `Invalid WebSocket close code: '${code}'.`,
+          "InvalidAccessError"
+        );
+      }
+      reason = String(reason);
+      if (new TextEncoder().encode(reason).length > 123) {
+        throw new DOMException(
+          "Invalid WebSocket close reason: it is longer than 123 bytes.",
+          "SyntaxError"
+        );
+      }
+      if (this.#readyState < states2.CLOSING) {
+        this.#readyState = states2.CLOSING;
+        natives.socket.close(this.#number, code ?? 1e3, reason);
+      }
+    }
+    // What the socket's thread read: `{ type, … }`.
+    #receive({ type, protocol, data, message, code, reason, wasClean }) {
+      switch (type) {
+        case "open":
+          this.#readyState = states2.OPEN;
+          this.#protocol = protocol;
+          fire(this, new Event("open"));
+          break;
+        case "message":
+          fire(
+            this,
+            new MessageEvent("message", {
+              data: typeof data === "string" ? data : this.#binaryType === "arraybuffer" ? data.buffer : new Blob([data]),
+              origin: new URL(this.#url).origin
+            })
+          );
+          break;
+        case "error":
+          console.error(`WebSocket ${this.#url}: ${message}`);
+          fire(this, new Event("error"));
+          break;
+        case "close":
+          this.#readyState = states2.CLOSED;
+          fire(this, new CloseEvent("close", { code, reason, wasClean }));
+          break;
+      }
+    }
+  };
+  for (const target of [WebSocket, WebSocket.prototype]) {
+    defineValues(target, states2, { enumerable: true });
+  }
+  defineEventHandlers(WebSocket, "open", "message", "error", "close");
+  setToStringTag(WebSocket);
+
   // src/index.js
   delete globalThis.__scriptographer;
   var { print } = natives;
@@ -1858,6 +2006,9 @@ ${value}\r
       localStorage: createStorage(false),
       sessionStorage: createStorage(true)
     });
+  }
+  if (!globalThis.WebSocket) {
+    setGlobals({ WebSocket });
   }
   if (!globalThis.DOMMatrix) {
     setGlobals({ ...geometry_exports, WebKitCSSMatrix: DOMMatrix });

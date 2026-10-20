@@ -1,9 +1,7 @@
-//! `WebSocket` for scripts outside a browser, over tungstenite and rustls: a socket's thread
-//! connects, then reads (a little at a time) and writes what the script sends; what it reads comes
-//! back on the script's turn ([`poll`], from `Runtime::run_timers`) as the events browsers fire:
-//! `open`, `message` (text as a string, binary as a `Blob` or an `ArrayBuffer` as `binaryType`
-//! says), `error` and `close`, each to its `on…` handler, then to the listeners. An open socket keeps
-//! the script running. A browser's realm has its own.
+//! The sockets of `WebSocket` outside a browser (`js/src/websocket.js`), over tungstenite and
+//! rustls: a socket's thread connects, then reads (a little at a time) and writes what the script
+//! sends; what it reads goes back to the script on its turn ([`poll`], from `Runtime::run_timers`).
+//! An open socket keeps the script running.
 
 use std::net::TcpStream;
 use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
@@ -15,14 +13,7 @@ use tungstenite::protocol::frame::coding::CloseCode;
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message, WebSocket};
 
-use crate::{Call, Engine, Error, HostFunction, Value, method, object};
-
-/// The ready states, as `WebSocket.CONNECTING` … name them.
-const CONNECTING: f64 = 0.0;
-const OPEN: f64 = 1.0;
-const CLOSING: f64 = 2.0;
-const CLOSED: f64 = 3.0;
-const STATES: [(&str, f64); 4] = [("CONNECTING", CONNECTING), ("OPEN", OPEN), ("CLOSING", CLOSING), ("CLOSED", CLOSED)];
+use crate::{Call, Engine, Error, HostFunction, Value};
 
 /// How long a socket's thread waits for what the server sends before it looks at what to send.
 const READ_WAIT: Duration = Duration::from_millis(20);
@@ -43,108 +34,73 @@ enum Incoming {
     Closed { code: u16, reason: String, clean: bool },
 }
 
-/// A script's socket: its number (its object's `_socket`), its object, and its thread's channels.
+/// A script's socket: its number, the function it receives with, and its thread's channels.
 pub(crate) struct Socket<H> {
     number: u32,
-    object: H,
+    receive: H,
     commands: Sender<Command>,
     incoming: Receiver<Incoming>,
 }
 
-/// Sets `WebSocket` on `global`, unless it has it.
-pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(), Error> {
-    if engine.with_call(|call| Ok(!matches!(call.get(global, "WebSocket")?, Value::Undefined)))? {
-        return Ok(());
-    }
-    let constructor = engine.constructor("WebSocket", construct)?;
-    let methods: [(&str, HostFunction<E::Handle>); 2] = [("send", send), ("close", close)];
-    let mut made = Vec::new();
-    for (name, f) in methods {
-        made.push((name, engine.function(name, f)?));
-    }
-    engine.with_call(|call| {
-        let event_target = object(call, global, "EventTarget")?;
-        let event_target = call.get(&event_target, "prototype")?;
-        let object_class = object(call, global, "Object")?;
-        let Value::Js(prototype) = method(call, &object_class, "create", &[event_target])? else {
-            return Err(Error::Script("Object.create made nothing".into()));
-        };
-        for (name, function) in made {
-            call.set(&prototype, name, &Value::Js(function))?;
-        }
-        for (name, state) in STATES {
-            call.set(&prototype, name, &Value::Number(state))?;
-            call.set(&constructor, name, &Value::Number(state))?;
-        }
-        call.set(&prototype, "constructor", &Value::Js(constructor.clone()))?;
-        call.set(&constructor, "prototype", &Value::Js(prototype.clone()))?;
-        call.set(global, "WebSocket", &Value::Js(constructor))?;
-        crate::tag(call, global, &prototype, "WebSocket")
-    })
+/// The natives `js/src/websocket.js` talks through: `open(url, protocols, receive)`, which gives
+/// the socket's number, `send(number, data)` (text, or bytes) and `close(number, code, reason)`.
+pub(crate) fn natives<E: Engine>(engine: &mut E) -> Result<Vec<(&'static str, E::Handle)>, Error> {
+    let natives: [(&str, HostFunction<E::Handle>); 3] = [("open", open), ("send", send), ("close", close)];
+    natives.into_iter().map(|(name, f)| Ok((name, engine.function(name, f)?))).collect()
 }
 
-/// `new WebSocket(url, protocols)`, on `this`, the object `new` made: it connects on a thread.
-fn construct<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let Value::Js(socket) = this else {
-        return Err(Error::Type("WebSocket needs 'new'".into()));
-    };
-    let given = call.to_string(args.first().unwrap_or(&Value::Undefined))?;
-    let mut url = url::Url::parse(&given).map_err(|e| Error::Dom("SyntaxError", format!("'{given}' isn't a URL: {e}")))?;
-    // As browsers have it: http and https mean ws and wss, and a fragment isn't allowed.
-    let scheme = match url.scheme() {
-        "http" | "ws" => "ws",
-        "https" | "wss" => "wss",
-        other => return Err(Error::Dom("SyntaxError", format!("a WebSocket's URL can't be {other}:"))),
-    };
-    if url.set_scheme(scheme).is_err() || url.fragment().is_some() {
-        return Err(Error::Dom("SyntaxError", format!("'{given}' isn't a WebSocket URL")));
-    }
-    let protocols: Vec<String> = match args.get(1) {
-        None | Some(Value::Undefined) => Vec::new(),
-        Some(Value::Js(list)) => {
-            let count = match call.get(list, "length")? {
-                Value::Number(n) if n.is_finite() && n >= 0.0 => (n as usize).min(64),
-                _ => 0,
-            };
-            let mut protocols = Vec::with_capacity(count);
-            for i in 0..count {
-                let protocol = call.get(list, &i.to_string())?;
-                protocols.push(call.to_string(&protocol)?);
-            }
-            protocols
+/// Connects to `url` on a thread.
+fn open<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let url = call.to_string(args.first().unwrap_or(&Value::Undefined))?;
+    let mut protocols = Vec::new();
+    if let Some(Value::Js(list)) = args.get(1) {
+        let length = call.get(list, "length")?;
+        let length = call.to_number(&length)?;
+        for i in 0..(if length.is_finite() { length.clamp(0.0, 64.0) as usize } else { 0 }) {
+            let protocol = call.get(list, &i.to_string())?;
+            protocols.push(call.to_string(&protocol)?);
         }
-        Some(protocol) => vec![call.to_string(protocol)?],
-    };
-    for (key, value) in [
-        ("url", Value::String(url.to_string())),
-        ("readyState", Value::Number(CONNECTING)),
-        ("protocol", Value::String(String::new())),
-        ("extensions", Value::String(String::new())),
-        ("bufferedAmount", Value::Number(0.0)),
-        ("binaryType", Value::String("blob".into())),
-        ("onopen", Value::Null),
-        ("onmessage", Value::Null),
-        ("onerror", Value::Null),
-        ("onclose", Value::Null),
-    ] {
-        call.set(socket, key, &value)?;
     }
+    let Some(Value::Js(receive)) = args.get(2) else {
+        return Err(Error::Type("WebSocket: nothing to receive with".into()));
+    };
     let (commands, received) = channel();
     let (sent, incoming) = channel();
-    let address = url.to_string();
     std::thread::Builder::new()
         .name("scriptographer websocket".into())
-        .spawn(move || run(&address, &protocols, &received, &sent))
+        .spawn(move || run(&url, &protocols, &received, &sent))
         .map_err(|e| Error::Script(format!("WebSocket: no thread for it: {e}")))?;
-    let number = {
-        let host = call.host()?;
-        let mut host = host.borrow_mut();
-        host.next_socket = host.next_socket.wrapping_add(1);
-        host.next_socket
-    };
-    call.set(socket, "_socket", &Value::Number(f64::from(number)))?;
-    call.host()?.borrow_mut().sockets.push(Socket { number, object: socket.clone(), commands, incoming });
+    let host = call.host()?;
+    let mut host = host.borrow_mut();
+    host.next_socket = host.next_socket.wrapping_add(1);
+    let number = host.next_socket;
+    host.sockets.push(Socket { number, receive: receive.clone(), commands, incoming });
+    Ok(Value::Number(f64::from(number)))
+}
+
+/// Tells the socket `args[0]`'s thread `command`, while it runs.
+fn command<H>(call: &mut dyn Call<H>, args: &[Value<H>], command: Command) -> Result<Value<H>, Error> {
+    let number = call.to_number(args.first().unwrap_or(&Value::Undefined))?;
+    if let Some(socket) = call.host()?.borrow().sockets.iter().find(|s| f64::from(s.number) == number) {
+        // A thread that ended has told the script why, or will.
+        let _ = socket.commands.send(command);
+    }
     Ok(Value::Undefined)
+}
+
+fn send<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let data = match args.get(1) {
+        Some(Value::String(text)) => Command::Text(text.clone()),
+        Some(Value::Js(bytes)) => Command::Binary(call.bytes(bytes)?),
+        _ => return Err(Error::Type("WebSocket: nothing to send".into())),
+    };
+    command(call, args, data)
+}
+
+fn close<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let code = call.to_number(args.get(1).unwrap_or(&Value::Undefined))?;
+    let reason = call.to_string(args.get(2).unwrap_or(&Value::Undefined))?;
+    command(call, args, Command::Close(if code.is_finite() { code as u16 } else { 1000 }, reason))
 }
 
 /// A socket's thread: connects to `url`, then passes on what's read and what's to send, until
@@ -226,138 +182,44 @@ fn wait_briefly(socket: &mut WebSocket<MaybeTlsStream<TcpStream>>) -> Result<(),
     stream.set_read_timeout(Some(READ_WAIT)).map_err(|e| e.to_string())
 }
 
-fn ready_state<H: Clone>(call: &mut dyn Call<H>, socket: &H) -> Result<f64, Error> {
-    Ok(match call.get(socket, "readyState")? {
-        Value::Number(state) => state,
-        _ => CLOSED,
-    })
-}
-
-/// The channel to `socket`'s thread, while it runs.
-fn commands<H: Clone>(call: &mut dyn Call<H>, socket: &H) -> Result<Option<Sender<Command>>, Error> {
-    let Value::Number(number) = call.get(socket, "_socket")? else {
-        return Ok(None);
-    };
-    Ok(call.host()?.borrow().sockets.iter().find(|s| f64::from(s.number) == number).map(|s| s.commands.clone()))
-}
-
-/// `socket.send(data)`: text, or the bytes of an `ArrayBuffer`, a view or a `Blob`.
-fn send<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let Value::Js(socket) = this else {
-        return Err(Error::Type("not a WebSocket".into()));
-    };
-    let state = ready_state(call, socket)?;
-    if state == CONNECTING {
-        return Err(Error::Dom("InvalidStateError", "the WebSocket isn't open yet".into()));
-    }
-    let command = match args.first() {
-        Some(Value::Js(data)) if crate::blob::is_blob(call, data)? => Command::Binary(crate::blob::blob_bytes(call, &Value::Js(data.clone()))?),
-        Some(Value::Js(data)) => match call.bytes(data) {
-            Ok(bytes) => Command::Binary(bytes),
-            Err(_) => Command::Text(call.to_string(&Value::Js(data.clone()))?),
-        },
-        Some(data) => Command::Text(call.to_string(data)?),
-        None => return Err(Error::Type("send: the data is missing".into())),
-    };
-    // A closing or closed socket sends nothing, as in browsers.
-    if state == OPEN
-        && let Some(commands) = commands(call, socket)?
-    {
-        let _ = commands.send(command);
-    }
-    Ok(Value::Undefined)
-}
-
-/// `socket.close(code, reason)`: a code of 1000 or 3000 to 4999, a reason of 123 bytes at most.
-fn close<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let Value::Js(socket) = this else {
-        return Err(Error::Type("not a WebSocket".into()));
-    };
-    let code = match args.first() {
-        None | Some(Value::Undefined) => 1000,
-        Some(code) => {
-            let code = call.to_number(code)?;
-            if code != 1000.0 && !(3000.0..=4999.0).contains(&code) {
-                return Err(Error::Dom("InvalidAccessError", format!("a WebSocket can't close with code {code}")));
-            }
-            code as u16
-        }
-    };
-    let reason = match args.get(1) {
-        None | Some(Value::Undefined) => String::new(),
-        Some(reason) => call.to_string(reason)?,
-    };
-    if reason.len() > 123 {
-        return Err(Error::Dom("SyntaxError", "a WebSocket's close reason is 123 bytes at most".into()));
-    }
-    if ready_state(call, socket)? >= CLOSING {
-        return Ok(Value::Undefined);
-    }
-    call.set(socket, "readyState", &Value::Number(CLOSING))?;
-    if let Some(commands) = commands(call, socket)? {
-        let _ = commands.send(Command::Close(code, reason));
-    }
-    Ok(Value::Undefined)
-}
-
-/// Fires the events of what the sockets' threads read, on the script's turn. The sockets stay where
-/// `send()` finds them while their events' listeners run.
+/// Hands what the sockets' threads read to their scripts' sockets (`{ type, … }`), on the script's
+/// turn. The sockets stay where `send()` finds them while their events' listeners run.
 pub(crate) fn poll<H: Clone>(call: &mut dyn Call<H>) -> Result<(), Error> {
     let arrived: Vec<(u32, H, Vec<Incoming>)> = call
         .host()?
         .borrow()
         .sockets
         .iter()
-        .map(|socket| (socket.number, socket.object.clone(), std::iter::from_fn(|| socket.incoming.try_recv().ok()).collect()))
+        .map(|socket| (socket.number, socket.receive.clone(), std::iter::from_fn(|| socket.incoming.try_recv().ok()).collect()))
         .filter(|(_, _, incoming): &(u32, H, Vec<Incoming>)| !incoming.is_empty())
         .collect();
-    for (number, socket, incoming) in arrived {
-        let target = Value::Js(socket.clone());
+    for (number, receive, incoming) in arrived {
         for incoming in incoming {
             let closed = matches!(incoming, Incoming::Closed { .. });
-            let event = match incoming {
-                Incoming::Open { protocol } => {
-                    call.set(&socket, "readyState", &Value::Number(OPEN))?;
-                    call.set(&socket, "protocol", &Value::String(protocol))?;
-                    crate::events::new_event(call, "Event", "open", &[])?
-                }
-                Incoming::Text(text) => message(call, &socket, Value::String(text))?,
-                Incoming::Binary(bytes) => {
-                    let data = if matches!(call.get(&socket, "binaryType")?, Value::String(t) if t == "arraybuffer") {
-                        let array = call.new_uint8_array(&bytes)?;
-                        call.get(&array, "buffer")?
-                    } else {
-                        crate::blob::new_blob(call, &bytes, "")?
-                    };
-                    message(call, &socket, data)?
-                }
-                // As in browsers, the event says nothing of why; the console does.
-                Incoming::Error(message) => {
-                    let url = call.get(&socket, "url")?;
-                    let url = call.to_string(&url)?;
-                    call.host()?.borrow_mut().output.push(format!("WebSocket {url}: {message}"));
-                    crate::events::new_event(call, "Event", "error", &[])?
-                }
+            let fields = match incoming {
+                Incoming::Open { protocol } => vec![("type", Value::String("open".into())), ("protocol", Value::String(protocol))],
+                Incoming::Text(text) => vec![("type", Value::String("message".into())), ("data", Value::String(text))],
+                Incoming::Binary(bytes) => vec![("type", Value::String("message".into())), ("data", Value::Js(call.new_uint8_array(&bytes)?))],
+                Incoming::Error(message) => vec![("type", Value::String("error".into())), ("message", Value::String(message))],
                 Incoming::Closed { code, reason, clean } => {
-                    call.set(&socket, "readyState", &Value::Number(CLOSED))?;
                     call.host()?.borrow_mut().sockets.retain(|s| s.number != number);
-                    let members = [("code", Value::Number(f64::from(code))), ("reason", Value::String(reason)), ("wasClean", Value::Bool(clean))];
-                    crate::events::new_event(call, "CloseEvent", "close", &members)?
+                    vec![
+                        ("type", Value::String("close".into())),
+                        ("code", Value::Number(f64::from(code))),
+                        ("reason", Value::String(reason)),
+                        ("wasClean", Value::Bool(clean)),
+                    ]
                 }
             };
-            crate::events::fire(call, &target, &event)?;
+            let object = call.new_object()?;
+            for (key, value) in fields {
+                call.set(&object, key, &value)?;
+            }
+            call.call(&receive, &Value::Undefined, &[Value::Js(object)])?;
             if closed {
                 break;
             }
         }
     }
     Ok(())
-}
-
-/// A `message` event of `data`, from the socket's server.
-fn message<H: Clone>(call: &mut dyn Call<H>, socket: &H, data: Value<H>) -> Result<Value<H>, Error> {
-    let url = call.get(socket, "url")?;
-    let url = call.to_string(&url)?;
-    let origin = url::Url::parse(&url).map(|u| u.origin().ascii_serialization()).unwrap_or_default();
-    crate::events::new_event(call, "MessageEvent", "message", &[("data", data), ("origin", Value::String(origin))])
 }

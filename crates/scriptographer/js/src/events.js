@@ -11,6 +11,8 @@ const phases = { NONE: 0, CAPTURING_PHASE: 1, AT_TARGET: 2, BUBBLING_PHASE: 3 }
 // any object that adopts the prototypes (`AbortSignal`) has them:
 const listenersByTarget = new WeakMap()
 const states = new WeakMap()
+// The `on…` handlers of targets, by the event types they handle:
+const handlersByTarget = new WeakMap()
 
 export class EventTarget {
   addEventListener(type, callback, options) {
@@ -86,7 +88,7 @@ export class EventTarget {
           }
         } catch (err) {
           // A listener that throws is reported, and the others run:
-          console.error(`Uncaught ${formatError(err)}`)
+          report(err)
         }
         state.passive = false
         if (state.stopImmediately) break
@@ -277,6 +279,46 @@ setToStringTag(
   CloseEvent,
   ErrorEvent
 )
+
+// The `on…` event handlers of `Class`'s instances, for the event `types`.
+export function defineEventHandlers(Class, ...types) {
+  for (const type of types) {
+    defineAccessors(Class.prototype, {
+      [`on${type}`]: {
+        get() {
+          return handlersByTarget.get(this)?.[type] ?? null
+        },
+
+        set(handler) {
+          let handlers = handlersByTarget.get(this)
+          if (!handlers) {
+            handlers = {}
+            handlersByTarget.set(this, handlers)
+          }
+          handlers[type] = typeof handler === 'function' ? handler : null
+        }
+      }
+    })
+  }
+}
+
+// Fire `event` at `target`: to its `on…` handler for the event's type, then to
+// its listeners. Whether nothing prevented its default.
+export function fire(target, event) {
+  const handler = handlersByTarget.get(target)?.[event.type]
+  if (handler) {
+    try {
+      handler.call(target, event)
+    } catch (err) {
+      report(err)
+    }
+  }
+  return target.dispatchEvent(event)
+}
+
+function report(err) {
+  console.error(`Uncaught ${formatError(err)}`)
+}
 
 function getState(event) {
   const state = states.get(event)
