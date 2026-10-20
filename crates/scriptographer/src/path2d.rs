@@ -10,21 +10,22 @@ use crate::canvas::store;
 use crate::{Call, Error, Value, method};
 
 /// `new Path2D()`, `new Path2D(path)` (a copy) or `new Path2D(svgPathData)`.
-pub(crate) fn construct<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+pub(crate) fn construct<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let path = match args.first() {
         Some(Value::String(data)) => parse(data),
         Some(other) => path_of(call, other)?.unwrap_or_default(),
         None => BezPath::new(),
     };
-    let (object_class, prototype, registry) = {
+    let registry = {
         let host = call.host()?;
         let host = host.borrow();
-        let canvases = host.canvases.as_ref().ok_or_else(|| Error::Script("Path2D is not set up".into()))?;
-        (canvases.object.clone(), canvases.path_prototype.clone(), canvases.path_registry.clone())
+        host.canvases.as_ref().ok_or_else(|| Error::Script("Path2D is not set up".into()))?.path_registry.clone()
     };
-    let Value::Js(object) = method(call, &object_class, "create", &[Value::Js(prototype)])? else {
-        return Err(Error::Script("Object.create made nothing".into()));
+    // `this`, which `new` made from `new.target.prototype`: a subclass's instances stay its own.
+    let Value::Js(object) = this else {
+        return Err(Error::Type("Path2D needs 'new'".into()));
     };
+    let object = object.clone();
     let number = {
         let host = call.host()?;
         let mut host = host.borrow_mut();

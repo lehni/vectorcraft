@@ -141,6 +141,14 @@ fn pickers_give_handles<E: Engine>(name: &str) {
     std::fs::remove_dir_all(&folder).unwrap();
 }
 
+fn palettes_can_be_subclassed<E: Engine>() {
+    let script = "class Mine extends Palette { get count() { return Object.keys(this.components).length } }\n\
+        const palette = new Mine('Mine', { size: { type: 'number', value: 1 } })\n\
+        console.log(palette instanceof Mine, palette instanceof Palette, palette.count, palette.title)";
+    let (_, output) = run::<E>(script, vec![]);
+    assert_eq!(output, ["true true 1 Mine"]);
+}
+
 fn choose_color_is_a_prompt_with_one_color<E: Engine>() {
     let script = "console.log(Dialog.chooseColor(new Color('red')).green, Dialog.chooseColor())";
     let (questions, output) = run::<E>(script, vec![json!({"color": "#00ff00"}), Value::Null]);
@@ -287,6 +295,11 @@ macro_rules! engine_tests {
             #[test]
             fn file_dialogs_take_file_types() {
                 super::file_dialogs_take_file_types::<$engine>();
+            }
+
+            #[test]
+            fn palettes_can_be_subclassed() {
+                super::palettes_can_be_subclassed::<$engine>();
             }
 
             #[test]

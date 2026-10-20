@@ -54,7 +54,7 @@ fn classes<H: Clone>() -> Vec<Class<H>> {
     vec![
         (
             "Headers",
-            |call, _, args| new_headers(call, args.first()),
+            |call, this, args| new_headers(call, this, args.first()),
             vec![
                 ("get", |call, this, args| {
                     let name = name(call, args.first())?;
@@ -115,10 +115,12 @@ fn classes<H: Clone>() -> Vec<Class<H>> {
         ),
         (
             "Blob",
-            |call, _, args| {
+            |call, this, args| {
                 let bytes = parts(call, args.first())?;
                 let kind = option_text(call, args.get(1), "type")?.unwrap_or_default().to_ascii_lowercase();
-                new_blob(call, &bytes, &kind)
+                let blob = made(call, this, |c| &c.blob)?;
+                fill_blob(call, &blob, &bytes, &kind)?;
+                Ok(Value::Js(blob))
             },
             vec![
                 ("text", |call, this, _| match blob_bytes(call, this) {
@@ -162,8 +164,8 @@ fn classes<H: Clone>() -> Vec<Class<H>> {
         ("File", construct_file, vec![]),
         (
             "FormData",
-            |call, _, _| {
-                let form = create(call, |c| &c.form_data)?;
+            |call, this, _| {
+                let form = made(call, this, |c| &c.form_data)?;
                 let entries = call.new_array(&[])?;
                 call.set(&form, "_entries", &Value::Js(entries))?;
                 Ok(Value::Js(form))
@@ -231,12 +233,12 @@ fn classes<H: Clone>() -> Vec<Class<H>> {
         ),
         (
             "Request",
-            |call, _, args| new_request(call, args.first(), args.get(1)),
-            vec![("clone", |call, this, _| new_request(call, Some(this), None))],
+            |call, this, args| new_request(call, this, args.first(), args.get(1)),
+            vec![("clone", |call, this, _| new_request(call, &Value::Undefined, Some(this), None))],
         ),
         (
             "Response",
-            |call, _, args| {
+            |call, this, args| {
                 let (bytes, kind) = match args.first() {
                     None | Some(Value::Undefined | Value::Null) => (Vec::new(), None),
                     Some(body) => body_bytes(call, body)?,
@@ -252,7 +254,7 @@ fn classes<H: Clone>() -> Vec<Class<H>> {
                 };
                 let status_text = option_text(call, init, "statusText")?.unwrap_or_default();
                 let headers = option_value(call, init, "headers")?;
-                let headers = new_headers(call, headers.as_ref())?;
+                let headers = new_headers(call, &Value::Undefined, headers.as_ref())?;
                 if let (Some(kind), Value::Js(headers)) = (kind, &headers)
                     && !headers_has(call, headers, "content-type")?
                 {
@@ -260,7 +262,7 @@ fn classes<H: Clone>() -> Vec<Class<H>> {
                     list.push(("content-type".into(), kind));
                     store_headers(call, &Value::Js(headers.clone()), &list)?;
                 }
-                new_response(call, status, &status_text, "", false, headers, &bytes)
+                new_response(call, this, Head { status, status_text: &status_text, url: "", redirected: false, headers }, &bytes)
             },
             vec![
                 ("text", |call, this, _| {
@@ -311,7 +313,7 @@ fn classes<H: Clone>() -> Vec<Class<H>> {
                         call.set(&copy, key, &value)?;
                     }
                     let headers = call.get(response, "headers")?;
-                    let headers = new_headers(call, Some(&headers))?;
+                    let headers = new_headers(call, &Value::Undefined, Some(&headers))?;
                     call.set(&copy, "headers", &headers)?;
                     call.set(&copy, "bodyUsed", &Value::Bool(false))?;
                     Ok(Value::Js(copy))
@@ -320,8 +322,8 @@ fn classes<H: Clone>() -> Vec<Class<H>> {
         ),
         (
             "AbortController",
-            |call, _, _| {
-                let controller = create(call, |c| &c.abort_controller)?;
+            |call, this, _| {
+                let controller = made(call, this, |c| &c.abort_controller)?;
                 let signal = new_signal(call)?;
                 call.set(&controller, "signal", &Value::Js(signal))?;
                 Ok(Value::Js(controller))
@@ -435,6 +437,15 @@ fn with<H: Clone, R>(call: &mut dyn Call<H>, f: impl FnOnce(&Classes<H>) -> R) -
 }
 
 /// A new object with the prototype `prototype` picks.
+/// The object a constructor fills: `into`, its `this`, which `new` made from `new.target.prototype`,
+/// so a subclass's instances stay its own; else a new one of the class, for one the host makes.
+fn made<H: Clone>(call: &mut dyn Call<H>, into: &Value<H>, prototype: impl FnOnce(&Classes<H>) -> &H) -> Result<H, Error> {
+    match into {
+        Value::Js(object) => Ok(object.clone()),
+        _ => create(call, prototype),
+    }
+}
+
 fn create<H: Clone>(call: &mut dyn Call<H>, prototype: impl FnOnce(&Classes<H>) -> &H) -> Result<H, Error> {
     let (object_class, prototype) = with(call, |c| (c.object.clone(), prototype(c).clone()))?;
     match method(call, &object_class, "create", &[Value::Js(prototype)])? {
@@ -542,8 +553,8 @@ fn combined(list: Vec<(String, String)>) -> Vec<(String, String)> {
 }
 
 /// `new Headers(init)`: from another `Headers`, `[[name, value], …]` or `{ name: value }`.
-fn new_headers<H: Clone>(call: &mut dyn Call<H>, init: Option<&Value<H>>) -> Result<Value<H>, Error> {
-    let made = create(call, |c| &c.headers)?;
+fn new_headers<H: Clone>(call: &mut dyn Call<H>, into: &Value<H>, init: Option<&Value<H>>) -> Result<Value<H>, Error> {
+    let made = made(call, into, |c| &c.headers)?;
     let mut list = Vec::new();
     if let Some(Value::Js(init)) = init {
         if matches!(call.get(init, "_list")?, Value::String(_)) {
@@ -757,8 +768,8 @@ fn multipart<H: Clone>(call: &mut dyn Call<H>, form: &Value<H>) -> Result<(Vec<u
 
 /// `new Request(input, init)`: `input` a URL or a `Request`, `init` with `method`, `headers`,
 /// `body` and `signal`.
-fn new_request<H: Clone>(call: &mut dyn Call<H>, input: Option<&Value<H>>, init: Option<&Value<H>>) -> Result<Value<H>, Error> {
-    let request = create(call, |c| &c.request)?;
+fn new_request<H: Clone>(call: &mut dyn Call<H>, into: &Value<H>, input: Option<&Value<H>>, init: Option<&Value<H>>) -> Result<Value<H>, Error> {
+    let request = made(call, into, |c| &c.request)?;
     let from = match input {
         Some(Value::Js(from)) if matches!(call.get(from, "method")?, Value::String(_)) => Some(from.clone()),
         _ => None,
@@ -784,7 +795,7 @@ fn new_request<H: Clone>(call: &mut dyn Call<H>, input: Option<&Value<H>>, init:
         None => "GET".to_owned(),
     };
     let headers = field(call, "headers")?;
-    let headers = new_headers(call, headers.as_ref())?;
+    let headers = new_headers(call, &Value::Undefined, headers.as_ref())?;
     let body = match option_value(call, init, "body")? {
         Some(Value::Null) | None => match &from {
             Some(from) => call.get(from, "_body")?,
@@ -824,26 +835,27 @@ fn new_request<H: Clone>(call: &mut dyn Call<H>, input: Option<&Value<H>>, init:
     Ok(Value::Js(request))
 }
 
-/// A `Response` as scripts read it.
-fn new_response<H: Clone>(
-    call: &mut dyn Call<H>,
+/// What a `Response` says before its body.
+struct Head<'a, H> {
     status: u16,
-    status_text: &str,
-    url: &str,
+    status_text: &'a str,
+    url: &'a str,
     redirected: bool,
     headers: Value<H>,
-    body: &[u8],
-) -> Result<Value<H>, Error> {
-    let response = create(call, |c| &c.response)?;
+}
+
+/// A `Response` as scripts read it: `into`, the constructor's `this`, else a new one.
+fn new_response<H: Clone>(call: &mut dyn Call<H>, into: &Value<H>, head: Head<H>, body: &[u8]) -> Result<Value<H>, Error> {
+    let response = made(call, into, |c| &c.response)?;
     let body = call.new_uint8_array(body)?;
     let fields = [
-        ("status", Value::Number(f64::from(status))),
-        ("statusText", Value::String(status_text.to_owned())),
-        ("ok", Value::Bool((200..300).contains(&status))),
-        ("url", Value::String(url.to_owned())),
-        ("redirected", Value::Bool(redirected)),
+        ("status", Value::Number(f64::from(head.status))),
+        ("statusText", Value::String(head.status_text.to_owned())),
+        ("ok", Value::Bool((200..300).contains(&head.status))),
+        ("url", Value::String(head.url.to_owned())),
+        ("redirected", Value::Bool(head.redirected)),
         ("type", Value::String("basic".into())),
-        ("headers", headers),
+        ("headers", head.headers),
         ("bodyUsed", Value::Bool(false)),
         ("_body", Value::Js(body)),
     ];
@@ -923,7 +935,7 @@ fn executor<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>
 /// `fetch(input, init)`: a Promise of the `Response`, rejected with a `TypeError` when the request
 /// fails, or with the signal's reason when it aborts.
 fn fetch<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let request = match new_request(call, args.first(), args.get(1)) {
+    let request = match new_request(call, &Value::Undefined, args.first(), args.get(1)) {
         Ok(Value::Js(request)) => request,
         Ok(_) => return rejected(call, Error::Script("fetch: no request".into())),
         Err(e) => return rejected(call, e),
@@ -1010,10 +1022,11 @@ pub(crate) fn poll<H: Clone>(call: &mut dyn Call<H>) -> Result<(), Error> {
         }
         match fetch.answer.try_recv() {
             Ok(Ok(answer)) => {
-                let headers = new_headers(call, None)?;
+                let headers = new_headers(call, &Value::Undefined, None)?;
                 let list: Vec<(String, String)> = answer.headers;
                 store_headers(call, &headers, &list)?;
-                let response = new_response(call, answer.status, &answer.status_text, &answer.url, answer.redirected, headers, &answer.body)?;
+                let head = Head { status: answer.status, status_text: &answer.status_text, url: &answer.url, redirected: answer.redirected, headers };
+                let response = new_response(call, &Value::Undefined, head, &answer.body)?;
                 call.call(&fetch.resolve, &Value::Undefined, &[response])?;
             }
             Ok(Err(message)) => fail(call, &fetch.reject, &message)?,

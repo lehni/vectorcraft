@@ -7,7 +7,6 @@ use crate::{Call, Engine, Error, HostFunction, Runtime, Value, define_accessor, 
 /// What the classes share: `Object`, and their prototypes.
 pub(crate) struct Classes<H> {
     object: H,
-    url: H,
     params: H,
 }
 
@@ -241,7 +240,7 @@ pub(crate) fn install<E: Engine>(runtime: &mut Runtime<E>, global: &E::Handle) -
         define_accessor(call, global, &params, "size", size, None)?;
         call.set(&params_class, "prototype", &Value::Js(params.clone()))?;
         call.set(global, "URLSearchParams", &Value::Js(params_class))?;
-        Ok(Some(Classes { object: object(call, global, "Object")?, url, params }))
+        Ok(Some(Classes { object: object(call, global, "Object")?, params }))
     })?;
     runtime.host.borrow_mut().urls = classes;
     Ok(())
@@ -282,9 +281,13 @@ fn create<H: Clone>(call: &mut dyn Call<H>, prototype: impl FnOnce(&Classes<H>) 
 }
 
 /// `new URL(url, base)`.
-fn construct_url<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+fn construct_url<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let url = parse(call, args.first(), args.get(1))?;
-    let made = create(call, |c| &c.url)?;
+    // `this`, which `new` made from `new.target.prototype`: a subclass's instances stay its own.
+    let Value::Js(made) = this else {
+        return Err(Error::Type("URL needs 'new'".into()));
+    };
+    let made = made.clone();
     call.set(&made, "_href", &Value::String(url.to_string()))?;
     Ok(Value::Js(made))
 }
@@ -337,7 +340,7 @@ fn search_params<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[Val
 
 /// `new URLSearchParams(init)`: from a query string (with or without `?`), `[[name, value], …]`,
 /// `{ name: value }` or another `URLSearchParams`.
-fn construct_params<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+fn construct_params<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let pairs: Vec<(String, String)> = match args.first() {
         None | Some(Value::Undefined | Value::Null) => Vec::new(),
         Some(Value::Js(init)) if matches!(call.get(init, "_list")?, Value::String(_)) => list(call, &Value::Js(init.clone()))?,
@@ -354,7 +357,11 @@ fn construct_params<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[
             url::form_urlencoded::parse(query.strip_prefix('?').unwrap_or(&query).as_bytes()).into_owned().collect()
         }
     };
-    let params = create(call, |c| &c.params)?;
+    // `this`, which `new` made from `new.target.prototype`: a subclass's instances stay its own.
+    let Value::Js(params) = this else {
+        return Err(Error::Type("URLSearchParams needs 'new'".into()));
+    };
+    let params = params.clone();
     store_list(call, &params, &pairs)?;
     Ok(Value::Js(params))
 }

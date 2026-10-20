@@ -7,14 +7,10 @@ use std::time::Instant;
 
 use crate::{Call, Engine, Error, Runtime, Value, method, object};
 
-/// What the APIs share: classes of the script's realm, the prototypes of `TextEncoder` and
-/// `TextDecoder`, and when the runtime started.
+/// What the APIs share: classes of the script's realm, and when the runtime started.
 pub(crate) struct Web<H> {
     promise: H,
     bytes: H,
-    object: H,
-    encoder: H,
-    decoder: H,
     started: Instant,
 }
 
@@ -58,14 +54,7 @@ pub(crate) fn install<E: Engine>(runtime: &mut Runtime<E>, global: &E::Handle) -
             call.set(&crypto, "randomUUID", &Value::Js(random_uuid))?;
             call.set(global, "crypto", &Value::Js(crypto))?;
         }
-        Ok(Web {
-            promise: object(call, global, "Promise")?,
-            bytes: object(call, global, "Uint8Array")?,
-            object: object(call, global, "Object")?,
-            encoder,
-            decoder,
-            started: Instant::now(),
-        })
+        Ok(Web { promise: object(call, global, "Promise")?, bytes: object(call, global, "Uint8Array")?, started: Instant::now() })
     })?;
     runtime.host.borrow_mut().web = Some(web);
     Ok(())
@@ -102,9 +91,9 @@ fn queue_microtask<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[V
 }
 
 /// `new TextEncoder()`.
-fn text_encoder<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let (object, encoder) = with_web(call, |web| (web.object.clone(), web.encoder.clone()))?;
-    method(call, &object, "create", &[Value::Js(encoder)])
+fn text_encoder<H: Clone>(_call: &mut dyn Call<H>, _this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
+    // `this`, which `new` made: its methods are its prototype's.
+    Ok(Value::Undefined)
 }
 
 /// `new TextDecoder([label])`: UTF-8 only, as `TextEncoder` writes.
@@ -115,8 +104,8 @@ fn text_decoder<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Valu
             return Err(Error::Script(format!("TextDecoder: only UTF-8 is supported, not {label}")));
         }
     }
-    let (object, decoder) = with_web(call, |web| (web.object.clone(), web.decoder.clone()))?;
-    method(call, &object, "create", &[Value::Js(decoder)])
+    // `this`, which `new` made: its methods are its prototype's.
+    Ok(Value::Undefined)
 }
 
 /// `encoder.encode(text)`: `text` as UTF-8, a `Uint8Array`.

@@ -197,6 +197,29 @@ fn scripts_run_webassembly() {
     assert_eq!(runtime.take_output(), ["object", "42", "43"]);
 }
 
+fn host_classes_can_be_subclassed<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    let script = "const classes = [[Blob, [['a']]], [File, [['a'], 'a.txt']], [LocalFile, ['a.txt']], [Headers, []], [Request, ['https://example.com/']],\n\
+         [Response, ['x']], [FormData, []], [AbortController, []], [OffscreenCanvas, [2, 2]], [ImageData, [1, 1]], [Path2D, []], [DOMMatrix, []],\n\
+         [DOMPoint, [1, 2]], [DOMRect, [0, 0, 1, 1]], [DOMQuad, []], [URL, ['https://example.com/a']], [URLSearchParams, ['a=1']],\n\
+         [TextEncoder, []], [TextDecoder, []], [DOMException, ['m', 'NotFoundError']], [EventTarget, []], [Event, ['e']]]\n\
+         const failed = classes.filter(([Base, args]) => {\n\
+             class Sub extends Base { mine() { return 'mine' } }\n\
+             const made = new Sub(...args)\n\
+             return !(made instanceof Sub && made instanceof Base && made.mine() == 'mine')\n\
+         }).map(([Base]) => Base.name)\n\
+         console.log(failed.join() || 'all')\n\
+         class Text extends Blob { get length() { return this.size } }\n\
+         class Address extends URL { get file() { return this.pathname.split('/').pop() } }\n\
+         class Spot extends DOMPoint { get sum() { return this.x + this.y } }\n\
+         class Missing extends DOMException {}\n\
+         console.log(new Text(['abc']).length, new Address('https://a.b/c/d.txt').file, new Spot(1, 2).sum, new Missing('gone', 'NotFoundError').code)\n\
+         try { Blob(['a']) } catch (e) { console.log(e.name) }";
+    runtime.execute(&scope, script).unwrap();
+    assert_eq!(runtime.take_output(), ["all", "3 d.txt 3 8", "TypeError"]);
+}
+
 fn files_are_blobs_with_a_name<E: Engine>() {
     let mut runtime = Runtime::<E>::new().unwrap();
     let scope = runtime.create_scope(800.0, 600.0).unwrap();
@@ -1232,6 +1255,11 @@ macro_rules! engine_tests {
             #[test]
             fn scripts_await_at_the_top_level() {
                 super::scripts_await_at_the_top_level::<$engine>();
+            }
+
+            #[test]
+            fn host_classes_can_be_subclassed() {
+                super::host_classes_can_be_subclassed::<$engine>();
             }
 
             #[test]

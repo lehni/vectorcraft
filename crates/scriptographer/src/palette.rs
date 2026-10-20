@@ -44,12 +44,17 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
     let reset = engine.function("reset", reset)?;
     engine.with_call(|call| {
         call.host()?.borrow_mut().palette_reset = Some(reset);
+        // Of its own, as not every engine gives a constructor one: what subclasses extend.
+        let prototype = call.new_object()?;
+        call.set(&prototype, "constructor", &Value::Js(constructor.clone()))?;
+        call.set(&constructor, "prototype", &Value::Js(prototype.clone()))?;
+        crate::tag(call, global, &prototype, "Palette")?;
         call.set(global, "Palette", &Value::Js(constructor))
     })
 }
 
 /// `new Palette(title, components, values)`.
-fn palette<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+fn palette<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let title = match args.first() {
         Some(title) => call.to_string(title)?,
         None => String::new(),
@@ -71,7 +76,11 @@ fn palette<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]
             call.set(&values, name, &value)?;
         }
     }
-    let palette = call.new_object()?;
+    // `this`, which `new` made from `new.target.prototype`: a subclass's instances stay its own.
+    let Value::Js(palette) = this else {
+        return Err(Error::Type("Palette needs 'new'".into()));
+    };
+    let palette = palette.clone();
     call.set(&palette, "title", &Value::String(title.clone()))?;
     call.set(&palette, "components", &Value::Js(components.clone()))?;
     call.set(&palette, "values", &Value::Js(values.clone()))?;

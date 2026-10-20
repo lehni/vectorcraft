@@ -35,15 +35,12 @@ const CODES: [(&str, &str, u8); 25] = [
     ("DataCloneError", "DATA_CLONE_ERR", 25),
 ];
 
-/// The realm's error classes, and its `Object`.
+/// The realm's error classes.
 pub(crate) struct Classes<H> {
-    object: H,
     error: H,
     type_error: H,
     range_error: H,
     dom_exception: H,
-    /// `DOMException.prototype`, when the runtime made the class.
-    prototype: Option<H>,
 }
 
 /// Keeps the realm's error classes, and sets `DOMException` on `global` unless it has one.
@@ -52,8 +49,8 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
     engine.with_call(|call| {
         let error = object(call, global, "Error")?;
         let object_class = object(call, global, "Object")?;
-        let (dom_exception, prototype) = match call.get(global, "DOMException")? {
-            Value::Js(native) => (native, None),
+        let dom_exception = match call.get(global, "DOMException")? {
+            Value::Js(native) => native,
             _ => {
                 let error_prototype = call.get(&error, "prototype")?;
                 let Value::Js(prototype) = crate::method(call, &object_class, "create", &[error_prototype])? else {
@@ -68,24 +65,18 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
                 call.set(&constructor, "prototype", &Value::Js(prototype.clone()))?;
                 call.set(global, "DOMException", &Value::Js(constructor.clone()))?;
                 crate::tag(call, global, &prototype, "DOMException")?;
-                (constructor, Some(prototype))
+                constructor
             }
         };
-        let classes = Classes {
-            object: object_class,
-            type_error: object(call, global, "TypeError")?,
-            range_error: object(call, global, "RangeError")?,
-            error,
-            dom_exception,
-            prototype,
-        };
+        let classes =
+            Classes { type_error: object(call, global, "TypeError")?, range_error: object(call, global, "RangeError")?, error, dom_exception };
         call.host()?.borrow_mut().exceptions = Some(classes);
         Ok(())
     })
 }
 
 /// `new DOMException(message, name)`.
-fn construct<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+fn construct<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let message = match args.first() {
         Some(Value::Undefined) | None => String::new(),
         Some(message) => call.to_string(message)?,
@@ -94,13 +85,11 @@ fn construct<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H
         Some(Value::Undefined) | None => "Error".to_owned(),
         Some(name) => call.to_string(name)?,
     };
-    let classes = call.host()?.borrow().exceptions.as_ref().and_then(|c| Some((c.object.clone(), c.prototype.clone()?)));
-    let Some((object_class, prototype)) = classes else {
-        return Err(Error::Script("DOMException is not set up".into()));
+    // `this`, which `new` made from `new.target.prototype`: a subclass's instances stay its own.
+    let Value::Js(exception) = this else {
+        return Err(Error::Type("DOMException needs 'new'".into()));
     };
-    let Value::Js(exception) = crate::method(call, &object_class, "create", &[Value::Js(prototype)])? else {
-        return Err(Error::Script("Object.create made nothing".into()));
-    };
+    let exception = exception.clone();
     let code = CODES.iter().find(|(n, _, _)| *n == name).map_or(0, |(_, _, code)| *code);
     for (key, value) in [("name", Value::String(name)), ("message", Value::String(message)), ("code", Value::Number(f64::from(code)))] {
         call.set(&exception, key, &value)?;

@@ -29,7 +29,6 @@ pub(crate) const AREA: f64 = 16384.0 * 16384.0 / 4.0;
 /// pixels), and the pixels of every canvas and `ImageBitmap`, by its number; and the same for
 /// `Path2D`s.
 pub(crate) struct Canvases<H> {
-    prototype: H,
     image_data: H,
     gradient: H,
     pub object: H,
@@ -38,7 +37,6 @@ pub(crate) struct Canvases<H> {
     pub registry: Option<H>,
     pub surfaces: Vec<Option<Surface<H>>>,
     pub bitmap_prototype: H,
-    pub path_prototype: H,
     pub path_registry: Option<H>,
     pub paths: Vec<Option<BezPath>>,
 }
@@ -182,7 +180,6 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
         let registry = finalization_registry(call, global, release)?;
         let path_registry = finalization_registry(call, global, release_path)?;
         call.host()?.borrow_mut().canvases = Some(Canvases {
-            prototype,
             image_data: image_data_prototype,
             gradient,
             object: object(call, global, "Object")?,
@@ -191,7 +188,6 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
             registry,
             surfaces: Vec::new(),
             bitmap_prototype,
-            path_prototype,
             path_registry,
             paths: Vec::new(),
         });
@@ -228,20 +224,21 @@ fn pixels(n: f64) -> Result<u16, Error> {
 }
 
 /// `new OffscreenCanvas(width, height)`: transparent black, with a context's defaults.
-fn offscreen_canvas<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+fn offscreen_canvas<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let (width, height) = (side(args.first())?, side(args.get(1))?);
     if f64::from(width) * f64::from(height) > AREA {
         return Err(Error::Script(format!("a canvas can't have {width} × {height} pixels")));
     }
-    let (object_class, prototype, registry) = {
+    let registry = {
         let host = call.host()?;
         let host = host.borrow();
-        let canvases = host.canvases.as_ref().ok_or_else(|| Error::Script("OffscreenCanvas is not set up".into()))?;
-        (canvases.object.clone(), canvases.prototype.clone(), canvases.registry.clone())
+        host.canvases.as_ref().ok_or_else(|| Error::Script("OffscreenCanvas is not set up".into()))?.registry.clone()
     };
-    let Value::Js(canvas) = method(call, &object_class, "create", &[Value::Js(prototype)])? else {
-        return Err(Error::Script("Object.create made nothing".into()));
+    // `this`, which `new` made from `new.target.prototype`: a subclass's instances stay its own.
+    let Value::Js(canvas) = this else {
+        return Err(Error::Type("OffscreenCanvas needs 'new'".into()));
     };
+    let canvas = canvas.clone();
     let number = {
         let host = call.host()?;
         let mut host = host.borrow_mut();
@@ -379,15 +376,17 @@ fn unpremultiply(p: PremulRgba8) -> [u8; 4] {
 }
 
 /// An `ImageData` of `width` × `height` with `bytes` (RGBA, not premultiplied).
-fn image_data<H: Clone>(call: &mut dyn Call<H>, width: u16, height: u16, bytes: &[u8]) -> Result<Value<H>, Error> {
+/// An `ImageData` of `width` × `height` `bytes`: `into`, the constructor's `this`, else a new one.
+fn image_data<H: Clone>(call: &mut dyn Call<H>, into: &Value<H>, width: u16, height: u16, bytes: &[u8]) -> Result<Value<H>, Error> {
     let (object_class, prototype, clamped) = {
         let host = call.host()?;
         let host = host.borrow();
         let canvases = host.canvases.as_ref().ok_or_else(|| Error::Script("ImageData is not set up".into()))?;
         (canvases.object.clone(), canvases.image_data.clone(), canvases.clamped.clone())
     };
-    let Value::Js(image) = method(call, &object_class, "create", &[Value::Js(prototype)])? else {
-        return Err(Error::Script("Object.create made nothing".into()));
+    let image = match into {
+        Value::Js(image) => image.clone(),
+        _ => crate::handle(method(call, &object_class, "create", &[Value::Js(prototype)])?, "ImageData")?,
     };
     let array = call.new_uint8_array(bytes)?;
     let buffer = call.get(&array, "buffer")?;
@@ -404,7 +403,7 @@ fn image_data<H: Clone>(call: &mut dyn Call<H>, width: u16, height: u16, bytes: 
 }
 
 /// `new ImageData(width, height)` or `new ImageData(data, width[, height])`.
-fn construct_image_data<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+fn construct_image_data<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     match args.first() {
         Some(Value::Js(data)) => {
             let bytes = call.bytes(data)?;
@@ -417,14 +416,14 @@ fn construct_image_data<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args
             if width == 0 || bytes.len() != usize::from(width) * usize::from(height) * 4 {
                 return Err(Error::Script("ImageData: the data isn't width × height × 4 bytes".into()));
             }
-            image_data(call, width, height, &bytes)
+            image_data(call, this, width, height, &bytes)
         }
         _ => {
             let (width, height) = (side(args.first())?, side(args.get(1))?);
             if f64::from(width) * f64::from(height) > AREA {
                 return Err(Error::Script("ImageData: too large".into()));
             }
-            image_data(call, width, height, &vec![0; usize::from(width) * usize::from(height) * 4])
+            image_data(call, this, width, height, &vec![0; usize::from(width) * usize::from(height) * 4])
         }
     }
 }
@@ -466,7 +465,7 @@ fn get_image_data<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Val
         }
         bytes
     })?;
-    image_data(call, sw, sh, &bytes)
+    image_data(call, &Value::Undefined, sw, sh, &bytes)
 }
 
 /// `putImageData(imageData, x, y[, dirtyX, dirtyY, dirtyWidth, dirtyHeight])`: the pixels replace

@@ -730,7 +730,20 @@ pub(crate) fn matrix_init<H: Clone>(call: &mut dyn Call<H>, value: Option<&Value
 // Constructors and static methods.
 
 /// The constructor of `KINDS[K]`.
-fn construct<H: Clone, const K: usize>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+fn construct<H: Clone, const K: usize>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let made = instance::<H, K>(call, args)?;
+    // With the prototype `new` gave `this`, so a subclass's instances stay its own.
+    if let (Value::Js(made), Value::Js(this)) = (&made, this) {
+        let object_class =
+            call.host()?.borrow().geometry.as_ref().map(|g| g.object.clone()).ok_or_else(|| Error::Script("geometry is not set up".into()))?;
+        let prototype = method(call, &object_class, "getPrototypeOf", &[Value::Js(this.clone())])?;
+        method(call, &object_class, "setPrototypeOf", &[Value::Js(made.clone()), prototype])?;
+    }
+    Ok(made)
+}
+
+/// The instance `new` of the class `K` makes with `args`.
+fn instance<H: Clone, const K: usize>(call: &mut dyn Call<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let Some((kind, _)) = KINDS.get(K) else {
         return Err(Error::Type("Illegal constructor".into()));
     };
