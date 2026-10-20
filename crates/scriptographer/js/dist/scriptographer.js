@@ -5,6 +5,225 @@
       __defProp(target, name, { get: all[name], enumerable: true });
   };
 
+  // src/format-error.js
+  function formatError(err) {
+    const text = String(err);
+    const stack = err?.stack;
+    return typeof stack === "string" && stack.startsWith(text) ? stack : text;
+  }
+
+  // src/console.js
+  var maxDepth = 2;
+  var maxItems = 100;
+  function createConsole(print2) {
+    let indent = 0;
+    const counts = /* @__PURE__ */ new Map();
+    const timers = /* @__PURE__ */ new Map();
+    const write = (text) => print2(
+      text.split("\n").map((line) => "  ".repeat(indent) + line).join("\n")
+    );
+    const log = (...args) => write(format(args));
+    const now = () => globalThis.performance?.now() ?? Date.now();
+    const timeLog = (end, label = "default", ...data) => {
+      label = String(label);
+      if (timers.has(label)) {
+        let line = `${label}: ${(now() - timers.get(label)).toFixed(3)} ms`;
+        if (end) timers.delete(label);
+        else if (data.length) line += ` ${format(data)}`;
+        write(line);
+      } else {
+        write(`Timer '${label}' does not exist`);
+      }
+    };
+    const group = (...args) => {
+      if (args.length) log(...args);
+      indent++;
+    };
+    return {
+      log,
+      info: log,
+      warn: log,
+      error: log,
+      debug: log,
+      dirxml: log,
+      // The value as an object, strings quoted.
+      dir(value) {
+        write(inspect(value, 1));
+      },
+      // The line, then where it was called from.
+      trace(...args) {
+        const line = format(args);
+        const stack = (new Error().stack ?? "").split("\n").slice(1).map((line2) => line2.trim()).join("\n");
+        write((line ? `Trace: ${line}` : "Trace") + (stack ? `
+${stack}` : ""));
+      },
+      assert(condition, ...data) {
+        if (!condition) {
+          write(
+            data.length ? `Assertion failed: ${format(data)}` : "Assertion failed"
+          );
+        }
+      },
+      count(label = "default") {
+        label = String(label);
+        const count = (counts.get(label) ?? 0) + 1;
+        counts.set(label, count);
+        write(`${label}: ${count}`);
+      },
+      countReset(label = "default") {
+        label = String(label);
+        if (counts.has(label)) {
+          counts.set(label, 0);
+        } else {
+          write(`Count for '${label}' does not exist`);
+        }
+      },
+      time(label = "default") {
+        label = String(label);
+        if (timers.has(label)) {
+          write(`Timer '${label}' already exists`);
+        } else {
+          timers.set(label, now());
+        }
+      },
+      timeLog(label, ...data) {
+        timeLog(false, label, ...data);
+      },
+      timeEnd(label) {
+        timeLog(true, label);
+      },
+      group,
+      groupCollapsed: group,
+      groupEnd() {
+        indent = Math.max(0, indent - 1);
+      },
+      // An array's or object's items as rows, their properties as columns.
+      table(data, columns) {
+        if (data && typeof data === "object") {
+          write(formatTable(data, columns));
+        } else {
+          log(data);
+        }
+      },
+      clear() {
+      }
+    };
+  }
+  function format(args) {
+    const parts = [];
+    let rest = args;
+    const [first, ...after] = args;
+    if (typeof first === "string" && first.includes("%")) {
+      rest = after;
+      parts.push(
+        first.replace(/%([sdifoOc%])/g, (match, directive) => {
+          if (directive === "%") return "%";
+          if (!rest.length) return match;
+          const value = rest.shift();
+          switch (directive) {
+            case "s":
+              return inspect(value, 0);
+            case "d":
+            case "i": {
+              const number = Number(value);
+              return String(Number.isFinite(number) ? Math.trunc(number) : number);
+            }
+            case "f":
+              return String(Number(value));
+            case "o":
+            case "O":
+              return inspect(value, 1);
+            default:
+              return "";
+          }
+        })
+      );
+    }
+    for (const value of rest) parts.push(inspect(value, 0));
+    return parts.join(" ");
+  }
+  function inspect(value, depth) {
+    if (typeof value === "string") {
+      return depth === 0 ? value : `'${value}'`;
+    }
+    if (value === null || typeof value !== "object" && typeof value !== "function") {
+      return String(value);
+    }
+    const tag = Object.prototype.toString.call(value);
+    if (tag === "[object Array]") {
+      return depth > maxDepth ? "[Array]" : `[${getItems(
+        Array.from({ length: Math.min(value.length, maxItems) }, (_, i) => [
+          i,
+          value[i]
+        ]),
+        value.length,
+        (_, item) => inspect(item, depth + 1)
+      )}]`;
+    } else if (/^\[object (Async|Generator)?Function\]$/.test(tag)) {
+      return `\u0192 ${value.name}()`;
+    } else if (tag === "[object Error]") {
+      return formatError(value);
+    } else {
+      const written = String(value);
+      if (!written.startsWith("[object ")) {
+        return written;
+      } else if (depth > maxDepth) {
+        return "{\u2026}";
+      } else {
+        const name = value.constructor?.name;
+        const prefix = name && name !== "Object" ? `${name} ` : "";
+        const keys = Object.keys(value);
+        const members = getItems(
+          keys.slice(0, maxItems).map((key) => [key, value[key]]),
+          keys.length,
+          (key, member) => `${key}: ${inspect(member, depth + 1)}`
+        );
+        return `${prefix}{${members}}`;
+      }
+    }
+  }
+  function getItems(entries, total, write) {
+    const written = entries.map(([key, value]) => write(key, value));
+    if (total > entries.length) {
+      written.push(`\u2026 ${total - entries.length} more`);
+    }
+    return written.join(", ");
+  }
+  function formatTable(data, chosen) {
+    let columns = [];
+    const rows = Object.keys(data).slice(0, maxItems).map((key) => {
+      const row = data[key];
+      if (row !== null && typeof row === "object") {
+        const cells = {};
+        for (const column of Object.keys(row).slice(0, maxItems)) {
+          cells[column] = inspect(row[column], 1);
+          if (!columns.includes(column)) columns.push(column);
+        }
+        return { key, cells };
+      } else {
+        return { key, cells: {}, value: inspect(row, 1) };
+      }
+    });
+    if (chosen && typeof chosen === "object") {
+      columns = Array.from(chosen, String);
+    }
+    const hasValues = rows.some((row) => "value" in row);
+    const grid = [
+      ["(index)", ...columns, ...hasValues ? ["Value"] : []],
+      ...rows.map(({ key, cells, value }) => [
+        key,
+        ...columns.map((column) => cells[column] ?? ""),
+        ...hasValues ? [value ?? ""] : []
+      ])
+    ];
+    const widths = grid[0].map(
+      (_, i) => Math.max(...grid.map((row) => [...row[i]].length))
+    );
+    return grid.map(
+      (row) => `\u2502 ${row.map((cell, i) => cell + " ".repeat(widths[i] - [...cell].length)).join(" \u2502 ")} \u2502`
+    ).join("\n");
+  }
+
   // src/dialog.js
   function setupFileDialogs(Dialog) {
     Object.assign(Dialog, {
@@ -353,11 +572,6 @@
       value: Class.name,
       configurable: true
     });
-  }
-  function formatError(err) {
-    const text = String(err);
-    const stack = err?.stack;
-    return typeof stack === "string" && stack.startsWith(text) ? stack : text;
   }
   function getState(event) {
     const state = states.get(event);
@@ -939,6 +1153,10 @@
   }
 
   // src/index.js
+  var { print } = globalThis.__scriptographer;
+  delete globalThis.__scriptographer;
+  var console2 = createConsole(print);
+  setGlobals({ console: console2, print: console2.log });
   if (!globalThis.EventTarget) {
     setGlobals(events_exports);
   }

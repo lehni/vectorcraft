@@ -1,3 +1,5 @@
+import { formatError } from './format-error.js'
+
 // `EventTarget` and the event classes for scripts outside a browser, as the DOM
 // standard has them, to extend (`class Emitter extends EventTarget`). There's
 // no tree to propagate through: an event reaches its target only.
@@ -280,13 +282,6 @@ for (const Class of [
     value: Class.name,
     configurable: true
   })
-}
-
-// The error with its stack, where the engine's starts with it, as V8's does.
-function formatError(err) {
-  const text = String(err)
-  const stack = err?.stack
-  return typeof stack === 'string' && stack.startsWith(text) ? stack : text
 }
 
 function getState(event) {

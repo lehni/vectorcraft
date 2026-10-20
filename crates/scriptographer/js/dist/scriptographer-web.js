@@ -247,7 +247,6 @@
 
   // src/web/index.js
   var { ask } = globalThis.__scriptographer;
-  delete globalThis.__scriptographer;
   setupPickers(ask);
   globalThis.LocalFile = LocalFile;
 })();

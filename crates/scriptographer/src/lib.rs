@@ -2,7 +2,8 @@
 //!
 //! A [`Runtime`] loads Paper.js into a JavaScript [`Engine`]: V8 on desktop, the browser's engine
 //! on the web, Boa where V8 isn't available. The globals Paper.js needs from its host (`self`,
-//! `navigator`, `console`, `setInterval`) are written here once, over the engine interface. Each
+//! `navigator`, `console`, `setInterval`) are written here once, over the engine interface, or in
+//! JavaScript (`js/src`). Each
 //! [`Scope`] is a `PaperScope` with its own project and view, in which scripts run as PaperScript.
 
 #![forbid(unsafe_code)]
@@ -12,7 +13,6 @@ mod bitmap;
 mod canvas;
 mod clipboard;
 mod clone;
-mod console;
 mod dialog;
 #[cfg(not(target_arch = "wasm32"))]
 mod dom;
@@ -196,8 +196,6 @@ pub struct Host<H> {
     clipboard_promise: Option<H>,
     /// What `structuredClone()` uses of the realm.
     clone_classes: Option<clone::Classes<H>>,
-    /// The console's groups, counters and timers.
-    console: Option<console::Console<H>>,
     /// The script's `localStorage` and `sessionStorage`, and what their proxies use.
     local_storage: storage::Storage,
     session_storage: storage::Storage,
@@ -275,7 +273,6 @@ impl<H> Default for Host<H> {
             global: None,
             clipboard_promise: None,
             clone_classes: None,
-            console: None,
             local_storage: storage::Storage::default(),
             session_storage: storage::Storage::default(),
             storages: None,
@@ -328,18 +325,20 @@ impl<E: Engine> Runtime<E> {
         host.borrow_mut().global = Some(global.clone());
         exception::install(&mut engine, &global)?;
         // What's written in JavaScript, before the classes that build on it (`AbortSignal` on
-        // `EventTarget`): on the web, with the app's pickers to ask, which it takes off the global
-        // object.
+        // `EventTarget`), with `print()` for the script's output and on the web the app's pickers to
+        // ask, which it takes off the global object.
+        let print = engine.function("print", print)?;
         #[cfg(target_arch = "wasm32")]
-        {
-            let ask = engine.function("ask", dialog::ask_picker)?;
-            engine.with_call(|call| {
-                let host = call.new_object()?;
-                call.set(&host, "ask", &Value::Js(ask))?;
-                call.set(&global, "__scriptographer", &Value::Js(host))
-            })?;
-            engine.eval(SCRIPTOGRAPHER_WEB_JS)?;
-        }
+        let ask = engine.function("ask", dialog::ask_picker)?;
+        engine.with_call(|call| {
+            let host = call.new_object()?;
+            call.set(&host, "print", &Value::Js(print))?;
+            #[cfg(target_arch = "wasm32")]
+            call.set(&host, "ask", &Value::Js(ask))?;
+            call.set(&global, "__scriptographer", &Value::Js(host))
+        })?;
+        #[cfg(target_arch = "wasm32")]
+        engine.eval(SCRIPTOGRAPHER_WEB_JS)?;
         engine.eval(SCRIPTOGRAPHER_JS)?;
         storage::install(&mut engine, &global)?;
         install_globals(&mut engine)?;
@@ -368,8 +367,6 @@ impl<E: Engine> Runtime<E> {
         web_worker::install(&mut runtime.engine, &global)?;
         clone::install(&mut runtime.engine, &global)?;
         clipboard::install(&mut runtime.engine, &global)?;
-        // After `performance`, its clock.
-        console::install(&mut runtime.engine, &global)?;
         Ok(runtime)
     }
 
@@ -808,6 +805,14 @@ fn handle<H>(value: Value<H>, name: &str) -> Result<H, Error> {
         Value::Js(handle) => Ok(handle),
         _ => Err(Error::Script(format!("`{name}` is not an object"))),
     }
+}
+
+/// `print(text)`: a line of the script's output ([`Runtime::take_output`]), as the console writes
+/// it (`js/src/console.js`).
+fn print<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let line = call.to_string(args.first().unwrap_or(&Value::Undefined))?;
+    call.host()?.borrow_mut().output.push(line);
+    Ok(Value::Undefined)
 }
 
 /// The realm's class `name`, as scripts see it: one of the engine's, the runtime's, or of what's
