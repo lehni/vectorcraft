@@ -736,25 +736,55 @@ pub(crate) fn palettes(app: &mut VectorcraftApp, ctx: &egui::Context) {
 }
 
 /// Shows the dialogs scripts wait on, one at a time while no other dialog is open, and answers a
-/// dialog that closed without OK as Cancel would.
+/// dialog that closed without OK as Cancel would. The file dialogs are the app's file pickers.
 fn dialogs(app: &mut VectorcraftApp) {
     let open = app.ui.dialog.as_ref().filter(|d| d.kind == crate::dialogs::script::KIND).and_then(|d| d.fields.get("script")?.as_u64());
+    let picking = app.picks.is_waiting();
     let mut show = None;
     for script in app.scripts.running.iter_mut().chain(&mut app.scripts.console) {
         let Some(asking) = &mut script.asking else {
             continue;
         };
-        if asking.shown && open != Some(script.id) {
+        // Only one file picker opens at a time, so an open one is this script's.
+        let still_open = if is_pick(&asking.question) { picking } else { open == Some(script.id) };
+        if asking.shown && !still_open {
             script.worker.send(Request::Answer(crate::dialogs::script::cancelled(&asking.question)));
             script.asking = None;
-        } else if !asking.shown && show.is_none() && app.ui.dialog.is_none() {
+        } else if !asking.shown && show.is_none() && app.ui.dialog.is_none() && !picking {
             asking.shown = true;
             show = Some((script.id, asking.question.clone()));
         }
     }
-    if let Some((id, question)) = show {
-        crate::dialogs::script::open(app, id, &question);
+    match show {
+        Some((id, question)) if is_pick(&question) => pick(app, id, &question),
+        Some((id, question)) => crate::dialogs::script::open(app, id, &question),
+        None => {}
     }
+}
+
+/// Whether `question` is for a file dialog: `Dialog.fileOpen`, `fileSave` or `chooseDirectory`.
+fn is_pick(question: &Value) -> bool {
+    matches!(question["type"].as_str(), Some("fileOpen" | "fileSave" | "chooseDirectory"))
+}
+
+/// Shows the file picker the script `id` asks for in `question`, starting from its `path`. The
+/// path picked answers it; a picker closed without one answers it as cancelled ([`dialogs`]).
+fn pick(app: &mut VectorcraftApp, id: u64, question: &Value) {
+    let kind = question["type"].as_str().unwrap_or_default().to_owned();
+    let path = question["path"].as_str().map(PathBuf::from);
+    let name = path.as_deref().and_then(Path::file_name).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let folder = path.as_deref().and_then(Path::parent).filter(|p| !p.as_os_str().is_empty()).map(|p| p.to_string_lossy().into_owned());
+    let file = crate::FilePick { name, folder, filters: Vec::new() };
+    crate::picks::button(app, move |app| {
+        let picked = match kind.as_str() {
+            "fileOpen" => crate::picks::open(app, &file),
+            "fileSave" => crate::picks::save(app, &file),
+            _ => crate::picks::folder(app),
+        };
+        if let Some(picked) = picked {
+            answer(app, id, json!(picked));
+        }
+    });
 }
 
 /// The user's answer to the dialog the script `id` waits on.

@@ -1,13 +1,18 @@
 //! Scriptographer's `Dialog`: `Dialog.alert([title,] message)`, `Dialog.confirm([title,]
-//! message)` and `Dialog.prompt(title, components, values)`. Each one asks the host
-//! ([`Runtime::set_ask`]) and waits for the answer, which the user gives in a dialog the app shows:
-//! scripts block on them as they did in Scriptographer.
+//! message)`, `Dialog.prompt(title, components, values)`, the file dialogs
+//! `Dialog.fileOpen([message, filters, selectedFile])`, `Dialog.fileSave(…)` and
+//! `Dialog.chooseDirectory([message, selectedDirectory])`, and `Dialog.chooseColor([color])`. Each
+//! one asks the host ([`Runtime::set_ask`]) and waits for the answer, which the user gives in a
+//! dialog the app shows: scripts block on them as they did in Scriptographer.
 //!
 //! The host gets the question as JSON: `{type: 'alert' | 'confirm', title, message}`, or
 //! `{type: 'prompt', title, components: [{name, type, label, value, …}]}` with each component's
 //! definition as the script wrote it, its type filled in where the script left it out, and its
-//! value from `values` or the definition. It answers `true` (OK) or `false`, and for a prompt the
-//! values by name, or `null` (Cancel).
+//! value from `values` or the definition, or `{type: 'fileOpen' | 'fileSave' | 'chooseDirectory',
+//! path}` with the file or folder to start from. It answers `true` (OK) or `false`, for a prompt
+//! the values by name, for a file dialog the path, or `null` (Cancel). The file dialogs return
+//! the path as a string, and show every kind of file: the filters aren't used yet.
+//! `chooseColor` is a prompt with one colour.
 
 use serde_json::{Map, Value as Json, json};
 
@@ -39,12 +44,20 @@ pub(crate) fn install<E: Engine>(runtime: &mut Runtime<E>, global: &E::Handle) -
     let alert = runtime.engine.function("alert", alert)?;
     let confirm = runtime.engine.function("confirm", confirm)?;
     let prompt = runtime.engine.function("prompt", prompt)?;
+    let file_open = runtime.engine.function("fileOpen", |call, _, args| file(call, "fileOpen", args.get(2)))?;
+    let file_save = runtime.engine.function("fileSave", |call, _, args| file(call, "fileSave", args.get(2)))?;
+    let choose_directory = runtime.engine.function("chooseDirectory", |call, _, args| file(call, "chooseDirectory", args.get(1)))?;
+    let choose_color = runtime.engine.function("chooseColor", choose_color)?;
     let paper = runtime.paper.clone();
     let globals = runtime.engine.with_call(|call| {
         let dialog = call.new_object()?;
         call.set(&dialog, "alert", &Value::Js(alert))?;
         call.set(&dialog, "confirm", &Value::Js(confirm))?;
         call.set(&dialog, "prompt", &Value::Js(prompt))?;
+        call.set(&dialog, "fileOpen", &Value::Js(file_open))?;
+        call.set(&dialog, "fileSave", &Value::Js(file_save))?;
+        call.set(&dialog, "chooseDirectory", &Value::Js(choose_directory))?;
+        call.set(&dialog, "chooseColor", &Value::Js(choose_color))?;
         call.set(global, "Dialog", &Value::Js(dialog))?;
         Ok(Globals { json: object(call, global, "JSON")?, object: object(call, global, "Object")?, color: object(call, &paper, "Color")? })
     })?;
@@ -83,6 +96,34 @@ fn confirm<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Re
     Ok(Value::Bool(answer == Json::Bool(true)))
 }
 
+/// A file dialog of `kind`, starting from `path` when the script gives one: the path picked, or
+/// `null` when the user cancelled.
+fn file<H>(call: &mut dyn Call<H>, kind: &str, path: Option<&Value<H>>) -> Result<Value<H>, Error> {
+    let path = match path {
+        None | Some(Value::Undefined | Value::Null) => Json::Null,
+        Some(path) => Json::String(call.to_string(path)?),
+    };
+    Ok(match ask(call, json!({ "type": kind, "path": path }))? {
+        Json::String(path) => Value::String(path),
+        _ => Value::Null,
+    })
+}
+
+/// `Dialog.chooseColor([color])`: a prompt with one colour, the colour picked or `null`.
+fn choose_color<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let component = call.new_object()?;
+    call.set(&component, "type", &Value::String("color".into()))?;
+    if let Some(color) = args.first().filter(|c| !matches!(c, Value::Undefined | Value::Null)) {
+        call.set(&component, "value", color)?;
+    }
+    let components = call.new_object()?;
+    call.set(&components, "color", &Value::Js(component))?;
+    match ask_prompt(call, TITLE.into(), &components, None)? {
+        Value::Js(values) => call.get(&values, "color"),
+        other => Ok(other),
+    }
+}
+
 /// `Dialog.prompt(title, components, values)`: the values by name, put into `values` when given,
 /// or `null` when the user cancelled.
 fn prompt<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
@@ -97,6 +138,11 @@ fn prompt<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>])
         Some(Value::Js(values)) => Some(values.clone()),
         _ => None,
     };
+    ask_prompt(call, title, components, values)
+}
+
+/// Asks the prompt titled `title` with `components`, its values from `values` when given.
+fn ask_prompt<H: Clone>(call: &mut dyn Call<H>, title: String, components: &H, values: Option<H>) -> Result<Value<H>, Error> {
     let globals = globals(call)?;
     let list = describe(call, &globals, components, values.as_ref())?;
     let answer = ask(call, json!({ "type": "prompt", "title": title, "components": list }))?;

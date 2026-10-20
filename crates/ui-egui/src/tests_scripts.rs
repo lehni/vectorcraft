@@ -739,3 +739,25 @@ fn the_console_shows_when_a_script_prints() {
     app.run("ui.runScript", json!({ "path": loud.0.to_string_lossy() })).unwrap();
     assert_eq!(shown(&app), Some(true));
 }
+
+/// `Dialog.fileOpen` shows the app's file picker, starting where the script says; the path
+/// picked answers it, and a picker closed without one answers null.
+#[test]
+fn a_script_picks_a_file() {
+    let (mut app, _) = app();
+    let started = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let (seen, mut answers) = (started.clone(), vec![None, Some("/tmp/picked.svg".to_owned())]);
+    app.services.pick_open = Some(Box::new(move |pick: &crate::FilePick| {
+        seen.borrow_mut().push((pick.folder.clone(), pick.name.clone()));
+        answers.pop().flatten()
+    }));
+    let path = tempfile_path::Path::new("print(Dialog.fileOpen('Open', null, '/tmp/start.svg'))\nprint(Dialog.fileOpen())");
+    app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
+    let ctx = egui::Context::default();
+    for frame in 1..6 {
+        crate::scripts::frame(&mut app, &ctx, f64::from(frame));
+    }
+    assert_eq!(*started.borrow(), [(Some("/tmp".to_owned()), "start.svg".to_owned()), (None, String::new())]);
+    let log: Vec<&str> = app.scripts.log().iter().map(|l| l.text.as_str()).filter(|l| !l.ends_with("stopped")).collect();
+    assert_eq!(log, ["/tmp/picked.svg", "null"]);
+}

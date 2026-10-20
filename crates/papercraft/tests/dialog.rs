@@ -35,6 +35,32 @@ fn alert_and_confirm_ask_and_wait<E: Engine>() {
     assert_eq!(output, ["true"]);
 }
 
+fn file_dialogs_return_paths<E: Engine>() {
+    let script = "console.log(Dialog.fileOpen('Open', null, '/tmp/in.svg'))\n\
+        console.log(Dialog.fileSave())\n\
+        console.log(Dialog.chooseDirectory('Where?', '/tmp'))";
+    let (questions, output) = run::<E>(script, vec![json!("/tmp/b.svg"), Value::Null, json!("/tmp/out")]);
+    assert_eq!(
+        questions,
+        [
+            json!({"type": "fileOpen", "path": "/tmp/in.svg"}),
+            json!({"type": "fileSave", "path": null}),
+            json!({"type": "chooseDirectory", "path": "/tmp"})
+        ]
+    );
+    assert_eq!(output, ["/tmp/b.svg", "null", "/tmp/out"], "a cancelled dialog returns null");
+}
+
+fn choose_color_is_a_prompt_with_one_color<E: Engine>() {
+    let script = "console.log(Dialog.chooseColor(new Color('red')).green, Dialog.chooseColor())";
+    let (questions, output) = run::<E>(script, vec![json!({"color": "#00ff00"}), Value::Null]);
+    assert_eq!(
+        questions[0],
+        json!({"type": "prompt", "title": "PaperCraft", "components": [{"name": "color", "type": "color", "value": "#ff0000"}]})
+    );
+    assert_eq!(output, ["1 null"]);
+}
+
 fn prompt_returns_the_values<E: Engine>() {
     let script = "var values = { radius: 10 }\n\
         var result = Dialog.prompt('Circles', {\n\
@@ -132,6 +158,16 @@ macro_rules! engine_tests {
             #[test]
             fn alert_and_confirm_ask_and_wait() {
                 super::alert_and_confirm_ask_and_wait::<$engine>();
+            }
+
+            #[test]
+            fn file_dialogs_return_paths() {
+                super::file_dialogs_return_paths::<$engine>();
+            }
+
+            #[test]
+            fn choose_color_is_a_prompt_with_one_color() {
+                super::choose_color_is_a_prompt_with_one_color::<$engine>();
             }
 
             #[test]
