@@ -209,12 +209,12 @@ fn artboards_and_the_active_one<E: Engine>() {
         .execute(
             &scope,
             "project.artboards.forEach(function(a) { console.log(a.name, a.bounds) })\n\
-             console.log(project.activeArtboard.name, project.activeArtboard.bounds.width, document.activeArtboard.name)",
+             console.log(project.activeArtboard.name, project.activeArtboard.bounds.width)",
         )
         .unwrap();
     assert_eq!(
         runtime.take_output(),
-        ["Artboard 1 { x: 0, y: 0, width: 400, height: 300 }", "Artboard 2 { x: 500, y: 0, width: 200, height: 100 }", "Artboard 2 200 Artboard 2"]
+        ["Artboard 1 { x: 0, y: 0, width: 400, height: 300 }", "Artboard 2 { x: 500, y: 0, width: 200, height: 100 }", "Artboard 2 200"]
     );
 }
 

@@ -19,6 +19,8 @@ boa = ["dep:boa_engine"]
 vectorcraft-color = { workspace = true }
 vectorcraft-doc = { workspace = true }
 vectorcraft-geom = { workspace = true }
+# `atob` and `btoa`.
+vectorcraft-format = { workspace = true }
 boa_engine = { workspace = true, optional = true }
 serde_json = { workspace = true }
 # CSS colours for the canvas shim, as the SVG importer parses them.

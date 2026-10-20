@@ -11,11 +11,11 @@ fn runs_paperscript_with_console_and_paper_globals<E: Engine>() {
     runtime
         .execute(
             &scope,
-            "console.log('Hello World', document === project)\n\
+            "console.log('Hello World')\n\
              new Path.Circle({ center: view.bounds.center, radius: 100, fillColor: 'red' })",
         )
         .unwrap();
-    assert_eq!(runtime.take_output(), ["Hello World true"], "`document` is the project");
+    assert_eq!(runtime.take_output(), ["Hello World"]);
 
     let project: Value = serde_json::from_str(&runtime.export_json(&scope).unwrap()).unwrap();
     assert_eq!(project[0][0], "Layer");
@@ -140,6 +140,25 @@ fn files_read_write_and_list<E: Engine>(name: &str) {
     std::fs::remove_dir_all(&folder).unwrap();
 }
 
+fn scripts_have_a_dom<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')\n\
+             document.body.appendChild(svg)\n\
+             svg.setAttribute('width', '20')\n\
+             var clicks = 0\n\
+             svg.addEventListener('click', function() { clicks++ })\n\
+             svg.dispatchEvent(new window.Event('click'))\n\
+             console.log(document.querySelector('svg') === svg, svg.namespaceURI, clicks, document.body.innerHTML)\n\
+             console.log(atob(btoa('hé')), atob('aGk'))",
+        )
+        .unwrap();
+    assert_eq!(runtime.take_output(), ["true http://www.w3.org/2000/svg 1 <svg width=\"20\" />", "hé hi"]);
+}
+
 fn css_colors_resolve_without_a_canvas<E: Engine>() {
     let mut runtime = Runtime::<E>::new().unwrap();
     let scope = runtime.create_scope(800.0, 600.0).unwrap();
@@ -203,6 +222,11 @@ macro_rules! engine_tests {
             #[test]
             fn files_read_write_and_list() {
                 super::files_read_write_and_list::<$engine>(stringify!($module));
+            }
+
+            #[test]
+            fn scripts_have_a_dom() {
+                super::scripts_have_a_dom::<$engine>();
             }
 
             #[test]

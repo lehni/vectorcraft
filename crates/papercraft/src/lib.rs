@@ -10,6 +10,8 @@
 mod binding;
 mod canvas;
 mod dialog;
+#[cfg(not(target_arch = "wasm32"))]
+mod dom;
 mod engine;
 mod engines;
 mod file;
@@ -96,6 +98,9 @@ pub struct Host<H> {
     files: Option<file::Files<H>>,
     /// The script's folder, which relative paths of `File`s are in.
     directory: Option<std::path::PathBuf>,
+    /// `window` and `document` outside a browser.
+    #[cfg(not(target_arch = "wasm32"))]
+    dom: dom::Dom<H>,
     next_palette_id: u64,
     /// `script.preferences` as last taken, as JSON.
     preferences: String,
@@ -129,6 +134,8 @@ impl<H> Default for Host<H> {
             palette_reset: None,
             files: None,
             directory: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            dom: dom::Dom::None,
             next_palette_id: 0,
             preferences: String::new(),
             handlers: Vec::new(),
@@ -158,16 +165,14 @@ impl<E: Engine> Runtime<E> {
         dialog::install(&mut runtime, &global)?;
         palette::install(&mut runtime.engine, &global)?;
         file::install(&mut runtime, &global)?;
+        // After Paper.js, which would take a DOM for a browser's.
+        #[cfg(not(target_arch = "wasm32"))]
+        dom::install(&mut runtime, &global)?;
         Ok(runtime)
     }
 
     /// Creates a scope whose view has the given size.
     pub fn create_scope(&mut self, width: f64, height: f64) -> Result<Scope<E::Handle>, Error> {
-        let document = self.engine.function("document", |call, this, _| match this {
-            Value::Js(scope) => call.get(scope, "project"),
-            _ => Ok(Value::Undefined),
-        })?;
-        let global = self.engine.global()?;
         let paper = &self.paper;
         self.engine.with_call(|call| {
             let constructor = object(call, paper, "PaperScope")?;
@@ -175,10 +180,6 @@ impl<E: Engine> Runtime<E> {
             let size = object(call, paper, "Size")?;
             let size = call.construct(&size, &[Value::Number(width), Value::Number(height)])?;
             method(call, &scope, "setup", &[size])?;
-            // In scripts, `document` is the project, as the project is VectorCraft's document: a
-            // getter on the scope, which PaperScript makes a local name. Paper.js's own global
-            // `document` (the DOM's, when there is one) stays as it is.
-            define_getter(call, &global, &scope, "document", document)?;
             Ok(Scope(scope))
         })
     }
@@ -511,13 +512,16 @@ fn method<H: Clone>(call: &mut dyn Call<H>, owner: &H, key: &str, args: &[Value<
 
 /// The globals Paper.js expects in a web worker: `self` (the global object), `navigator`,
 /// `console`, the timers (`setInterval` for its frame loop) and `OffscreenCanvas` for CSS colours;
-/// and Scriptographer's `print()`, which logs as `console.log()` does.
+/// Scriptographer's `print()`, which logs as `console.log()` does; and the browser's `atob` and
+/// `btoa`.
 fn install_globals<E: Engine>(engine: &mut E, host: &Rc<RefCell<Host<E::Handle>>>) -> Result<(), Error> {
     let global = engine.global()?;
     let log = engine.function("log", console_log)?;
     let set_interval = engine.function("setInterval", |call, _, args| set_timer(call, args, true))?;
     let set_timeout = engine.function("setTimeout", |call, _, args| set_timer(call, args, false))?;
     let clear_timer = engine.function("clearInterval", clear_timer)?;
+    let atob = engine.function("atob", atob)?;
+    let btoa = engine.function("btoa", btoa)?;
     engine.with_call(|call| {
         call.set(&global, "self", &Value::Js(global.clone()))?;
         // Paper.js reads the platform from the user agent, for its key modifiers.
@@ -535,7 +539,9 @@ fn install_globals<E: Engine>(engine: &mut E, host: &Rc<RefCell<Host<E::Handle>>
         call.set(&global, "setTimeout", &Value::Js(set_timeout))?;
         // As in browsers, both clear either kind of timer.
         call.set(&global, "clearInterval", &Value::Js(clear_timer.clone()))?;
-        call.set(&global, "clearTimeout", &Value::Js(clear_timer))
+        call.set(&global, "clearTimeout", &Value::Js(clear_timer))?;
+        call.set(&global, "atob", &Value::Js(atob))?;
+        call.set(&global, "btoa", &Value::Js(btoa))
     })?;
     canvas::install(engine, &global, host)
 }
@@ -547,6 +553,32 @@ fn console_log<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -
     }
     call.host()?.borrow_mut().output.push(parts.join(" "));
     Ok(Value::Undefined)
+}
+
+/// `atob(base64)`: the bytes it encodes, each as the character of that code, as in browsers.
+fn atob<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let text = match args.first() {
+        Some(text) => call.to_string(text)?,
+        None => String::new(),
+    };
+    // Browsers accept the padding left out.
+    let padded = format!("{text}{}", "=".repeat((4 - text.trim().len() % 4) % 4));
+    let bytes = vectorcraft_format::base64_decode(&padded).ok_or_else(|| Error::Script("atob: not base64".into()))?;
+    Ok(Value::String(bytes.into_iter().map(char::from).collect()))
+}
+
+/// `btoa(text)`: `text`'s characters as bytes, in base64; characters above 255 throw, as in
+/// browsers.
+fn btoa<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let text = match args.first() {
+        Some(text) => call.to_string(text)?,
+        None => String::new(),
+    };
+    let bytes = text
+        .chars()
+        .map(|c| u8::try_from(u32::from(c)).map_err(|_| Error::Script("btoa: a character above 255".into())))
+        .collect::<Result<Vec<u8>, _>>()?;
+    Ok(Value::String(vectorcraft_format::base64_encode(&bytes)))
 }
 
 /// `setInterval(callback, delay)` when it `repeats`, else `setTimeout(callback, delay)`.
