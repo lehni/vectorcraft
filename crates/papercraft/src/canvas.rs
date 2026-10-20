@@ -3,8 +3,7 @@
 //! where the engine has one). A canvas is its own 2D context (`getContext('2d')` returns it), with
 //! `fillRect`, `clearRect`, `getImageData`, `putImageData`, `createImageData` and the `ImageData`
 //! class, `convertToBlob()` (PNG), and text measuring (`font`, `measureText()`) with the app's fonts
-//! and shaping (VectorCraft's text crate, harfrust). Paths, transforms, gradients and images come
-//! with the drawing step; until then the drawing calls do nothing and rectangles fill untransformed.
+//! and shaping (VectorCraft's text crate, harfrust). It draws as [`drawing`] describes.
 //!
 //! Paper.js resolves CSS colours with it (it fills a pixel with the colour and reads it back), and
 //! measures `PointText` with it.
@@ -89,10 +88,14 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
     let set_width = engine.function("width", |call, this, args| resize(call, this, args.first(), None))?;
     let set_height = engine.function("height", |call, this, args| resize(call, this, None, args.first()))?;
     let release = engine.function("release", release)?;
-    let get_fill = engine.function("fillStyle", |call, this, _| drawing::get_style(call, this, "_fillStyle"))?;
+    let get_fill = engine.function("fillStyle", |call, this, _| drawing::get_checked(call, this, "_fillStyle"))?;
     let set_fill = engine.function("fillStyle", |call, this, args| drawing::set_style(call, this, "_fillStyle", args.first()))?;
-    let get_stroke = engine.function("strokeStyle", |call, this, _| drawing::get_style(call, this, "_strokeStyle"))?;
+    let get_stroke = engine.function("strokeStyle", |call, this, _| drawing::get_checked(call, this, "_strokeStyle"))?;
     let set_stroke = engine.function("strokeStyle", |call, this, args| drawing::set_style(call, this, "_strokeStyle", args.first()))?;
+    let get_shadow = engine.function("shadowColor", |call, this, _| drawing::get_checked(call, this, "_shadowColor"))?;
+    let set_shadow = engine.function("shadowColor", |call, this, args| drawing::set_color(call, this, "_shadowColor", args.first()))?;
+    let get_filter = engine.function("filter", |call, this, _| drawing::get_checked(call, this, "_filter"))?;
+    let set_filter = engine.function("filter", |call, this, args| drawing::set_filter(call, this, "_filter", args.first()))?;
     let constructor = engine.constructor("OffscreenCanvas", offscreen_canvas)?;
     let image_data = engine.constructor("ImageData", construct_image_data)?;
     let add_color_stop = engine.function("addColorStop", drawing::add_color_stop)?;
@@ -107,6 +110,8 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
         define_accessor(call, global, &prototype, "width", width, Some(set_width))?;
         define_accessor(call, global, &prototype, "fillStyle", get_fill, Some(set_fill))?;
         define_accessor(call, global, &prototype, "strokeStyle", get_stroke, Some(set_stroke))?;
+        define_accessor(call, global, &prototype, "shadowColor", get_shadow, Some(set_shadow))?;
+        define_accessor(call, global, &prototype, "filter", get_filter, Some(set_filter))?;
         define_accessor(call, global, &prototype, "height", height, Some(set_height))?;
         call.set(&constructor, "prototype", &Value::Js(prototype.clone()))?;
         call.set(global, "OffscreenCanvas", &Value::Js(constructor))?;

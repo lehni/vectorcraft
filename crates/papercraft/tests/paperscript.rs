@@ -519,6 +519,54 @@ fn css_colors_resolve_without_a_canvas<E: Engine>() {
     assert_eq!(runtime.take_output(), ["#6495ed", "#ff8800", "#0080ff", "#00ff00", "#000000"]);
 }
 
+fn canvases_draw_shadows_and_filters<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "const canvas = new OffscreenCanvas(40, 40)\n\
+             const ctx = canvas.getContext('2d')\n\
+             const at = (x, y) => [...ctx.getImageData(x, y, 1, 1).data].join()\n\
+             const alpha = (x, y) => ctx.getImageData(x, y, 1, 1).data[3]\n\
+             ctx.save()\n\
+             ctx.scale(2, 2)\n\
+             ctx.shadowColor = 'blue'; ctx.shadowOffsetX = 15; ctx.shadowColor = 'nope'\n\
+             ctx.fillStyle = 'red'; ctx.fillRect(2.5, 2.5, 5, 5)\n\
+             console.log(at(10, 10), at(20, 10), at(30, 10), ctx.shadowColor)\n\
+             ctx.restore()\n\
+             console.log(ctx.shadowColor, ctx.shadowOffsetX)\n\
+             ctx.clearRect(0, 0, 40, 40)\n\
+             ctx.shadowColor = 'black'; ctx.shadowBlur = 8; ctx.fillRect(15, 15, 10, 10)\n\
+             console.log(alpha(20, 20), alpha(13, 20) > 0 && alpha(13, 20) < 255, alpha(0, 0))\n\
+             ctx.shadowColor = 'transparent'\n\
+             ctx.clearRect(0, 0, 40, 40)\n\
+             ctx.filter = 'blur(2px)'; ctx.filter = 'bogus(1px)'; ctx.fillRect(10, 10, 20, 20)\n\
+             console.log(ctx.filter, alpha(20, 20), alpha(10, 20) > 0 && alpha(10, 20) < 255, alpha(7, 20) > 0)\n\
+             ctx.clearRect(0, 0, 40, 40)\n\
+             ctx.filter = 'drop-shadow(10px 0 lime) brightness(50%)'; ctx.fillStyle = 'red'; ctx.fillRect(0, 0, 10, 10)\n\
+             console.log(at(5, 5), at(15, 5), at(25, 5))\n\
+             ctx.filter = 'none'\n\
+             ctx.clearRect(0, 0, 40, 40)\n\
+             // A clip right after a stroke under a transform is in pixels too.\n\
+             ctx.save(); ctx.scale(4, 4); ctx.beginPath(); ctx.moveTo(0, 9); ctx.lineTo(1, 9); ctx.stroke(); ctx.restore()\n\
+             ctx.save(); ctx.beginPath(); ctx.rect(0, 0, 20, 30); ctx.clip(); ctx.fillStyle = 'blue'; ctx.fillRect(0, 0, 40, 30); ctx.restore()\n\
+             console.log(at(5, 5), at(35, 5))",
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.take_output(),
+        [
+            "255,0,0,255 0,0,255,255 0,0,0,0 #0000ff",
+            "rgba(0, 0, 0, 0) 0",
+            "255 true 0",
+            "blur(2px) 255 true true",
+            "255,0,0,255 0,255,0,255 0,0,0,0",
+            "0,0,255,255 0,0,0,0",
+        ]
+    );
+}
+
 fn runtimes_live_side_by_side<E: Engine>() {
     // As the app runs them: a second script starts while the first keeps running, and the first
     // stops first.
@@ -649,6 +697,11 @@ macro_rules! engine_tests {
             #[test]
             fn runtimes_live_side_by_side() {
                 super::runtimes_live_side_by_side::<$engine>();
+            }
+
+            #[test]
+            fn canvases_draw_shadows_and_filters() {
+                super::canvases_draw_shadows_and_filters::<$engine>();
             }
 
             #[test]

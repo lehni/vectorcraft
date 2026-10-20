@@ -1,8 +1,9 @@
 //! Drawing on a canvas, as the browser's `CanvasRenderingContext2D` does, with vello_cpu: paths
 //! (`moveTo` … `roundRect`), `fill`, `stroke`, `clip`, the rectangles, text (`fillText`,
 //! `strokeText`, with the app's fonts), images (`drawImage` of a canvas), transforms,
-//! `save`/`restore`, line styles and dashes, colours, gradients and patterns, `globalAlpha` and
-//! `globalCompositeOperation`.
+//! `save`/`restore`, line styles and dashes, colours, gradients and patterns, `globalAlpha`,
+//! `globalCompositeOperation`, shadows, and `filter`'s `blur()` and `drop-shadow()` (its other
+//! functions are kept but change nothing: vello_cpu has no colour filters yet).
 //!
 //! A canvas collects what it draws in a vello_cpu scene and renders it onto its pixels only when
 //! they're read ([`Surface::flush`]): drawing many paths costs one render. As the standard has it,
@@ -14,14 +15,15 @@
 use std::str::FromStr;
 use std::sync::Arc;
 
+use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
 use vello_cpu::kurbo::{Affine, Arc as ArcSegment, BezPath, Cap, Join, PathEl, Point, Rect, Shape, Stroke, Vec2};
 use vello_cpu::peniko::{self, BlendMode, Color, ColorStop, Compose, Extend, Fill, ImageQuality, ImageSampler, Mix};
-use vello_cpu::{Pixmap, RenderContext, Resources};
+use vello_cpu::{Pixmap, RenderContext, RenderSettings, Resources};
 
 use crate::{Call, Error, Value};
 
 /// The context's properties `save()` keeps, with their values on a new canvas.
-pub(crate) const PROPERTIES: [(&str, Initial); 18] = [
+pub(crate) const PROPERTIES: [(&str, Initial); 21] = [
     ("fillStyle", Initial::Text("#000000")),
     ("strokeStyle", Initial::Text("#000000")),
     ("lineWidth", Initial::Number(1.0)),
@@ -39,6 +41,9 @@ pub(crate) const PROPERTIES: [(&str, Initial); 18] = [
     ("imageSmoothingQuality", Initial::Text("low")),
     ("shadowBlur", Initial::Number(0.0)),
     ("shadowColor", Initial::Text("rgba(0, 0, 0, 0)")),
+    ("shadowOffsetX", Initial::Number(0.0)),
+    ("shadowOffsetY", Initial::Number(0.0)),
+    ("filter", Initial::Text("none")),
     ("letterSpacing", Initial::Text("0px")),
 ];
 
@@ -113,7 +118,10 @@ impl<H> Surface<H> {
         let (width, height) = (self.pixmap.width(), self.pixmap.height());
         let pixmap = &self.pixmap;
         self.scene.get_or_insert_with(|| {
-            let mut scene = RenderContext::new(width, height);
+            // On the script's thread: the app's renderer turns on vello_cpu's threads, which a
+            // canvas doesn't need, and with which filters don't work.
+            let settings = RenderSettings { num_threads: 0, ..RenderSettings::default() };
+            let mut scene = RenderContext::new_with(width, height, settings);
             // Pixel for pixel: unscaled, sampled at the pixels' centres.
             let sampler = ImageSampler { x_extend: Extend::Pad, y_extend: Extend::Pad, quality: ImageQuality::Low, alpha: 1.0 };
             scene.set_paint(vello_cpu::Image { image: vello_cpu::ImageSource::Pixmap(Arc::new(pixmap.clone())), sampler });
@@ -122,22 +130,33 @@ impl<H> Surface<H> {
         })
     }
 
-    /// Draws with `draw` inside the clips, with `alpha` and `blend`.
-    fn draw(&mut self, alpha: f32, blend: BlendMode, draw: impl FnOnce(&mut RenderContext)) {
-        if self.pixmap.width() == 0 || self.pixmap.height() == 0 {
+    /// Draws with `draw` inside the clips, as `compositing` has it.
+    fn draw(&mut self, compositing: &Compositing, draw: impl FnOnce(&mut RenderContext)) {
+        let (width, height) = (f64::from(self.pixmap.width()), f64::from(self.pixmap.height()));
+        if width == 0.0 || height == 0.0 {
             return;
         }
+        let filters: Vec<Filter> = compositing.effects.iter().filter_map(|e| e.filter(width, height)).collect();
         let clips = self.clips.clone();
         let scene = self.scene();
+        // Clips and filters are in pixels.
+        scene.reset_transform();
         for (clip, rule) in &clips {
             scene.set_fill_rule(*rule);
             scene.push_clip_layer(clip);
         }
-        let layered = alpha < 1.0 || blend != BlendMode::default();
+        let layered = compositing.alpha < 1.0 || compositing.blend != BlendMode::default() || !filters.is_empty();
         if layered {
-            scene.push_layer(None, Some(blend), Some(alpha), None, None);
+            scene.push_layer(None, Some(compositing.blend), Some(compositing.alpha), None, None);
+        }
+        // The innermost layer's filter applies first.
+        for filter in filters.iter().rev() {
+            scene.push_filter_layer(filter.clone());
         }
         draw(scene);
+        for _ in &filters {
+            scene.pop_layer();
+        }
         if layered {
             scene.pop_layer();
         }
@@ -193,9 +212,8 @@ fn number_property<H>(call: &mut dyn Call<H>, this: &Value<H>, key: &str, defaul
 
 // Styles.
 
-/// `fillStyle` or `strokeStyle` (`key`), as the canvas keeps it: a colour in its normalized form,
-/// or a gradient or pattern.
-pub(crate) fn get_style<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, key: &str) -> Result<Value<H>, Error> {
+/// A property the canvas checks the values of (`fillStyle`, `filter`, …), as it keeps it in `key`.
+pub(crate) fn get_checked<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, key: &str) -> Result<Value<H>, Error> {
     property(call, this, key)
 }
 
@@ -211,13 +229,39 @@ pub(crate) fn set_style<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, key: 
         {
             Some(Value::Js(object.clone()))
         }
-        Some(Value::String(css)) => svgtypes::Color::from_str(css).ok().map(|c| Value::String(serialize(c))),
+        Some(Value::String(css)) => color_value(css),
         _ => None,
     };
     if let Some(kept) = kept {
         call.set(context, key, &kept)?;
     }
     Ok(Value::Undefined)
+}
+
+/// Setting `shadowColor` (kept in `key`): a CSS colour; anything else is ignored, as in browsers.
+pub(crate) fn set_color<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, key: &str, value: Option<&Value<H>>) -> Result<Value<H>, Error> {
+    if let (Value::Js(context), Some(Value::String(css))) = (this, value)
+        && let Some(kept) = color_value(css)
+    {
+        call.set(context, key, &kept)?;
+    }
+    Ok(Value::Undefined)
+}
+
+/// Setting `filter` (kept in `key`): a CSS filter, as given; anything else is ignored, as in
+/// browsers.
+pub(crate) fn set_filter<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, key: &str, value: Option<&Value<H>>) -> Result<Value<H>, Error> {
+    if let (Value::Js(context), Some(Value::String(css))) = (this, value)
+        && parse_filter(css).is_some()
+    {
+        call.set(context, key, &Value::String(css.clone()))?;
+    }
+    Ok(Value::Undefined)
+}
+
+/// A CSS colour as the canvas keeps it.
+fn color_value<H>(css: &str) -> Option<Value<H>> {
+    svgtypes::Color::from_str(css).ok().map(|c| Value::String(serialize(c)))
 }
 
 /// A colour as browsers give a canvas style back: `#rrggbb`, or `rgba(r, g, b, a)` when it's not
@@ -709,8 +753,144 @@ fn gradient<H: Clone>(call: &mut dyn Call<H>, object: &H, kind: &str) -> Result<
     Ok(Some(gradient.with_stops(stops.as_slice())))
 }
 
-/// `globalAlpha` and `globalCompositeOperation`, as vello_cpu has them.
-fn compositing<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>) -> Result<(f32, BlendMode), Error> {
+/// How a drawing lands on the canvas.
+struct Compositing {
+    /// `globalAlpha`.
+    alpha: f32,
+    /// `globalCompositeOperation`.
+    blend: BlendMode,
+    /// `filter`'s, then the shadow, applied in order.
+    effects: Vec<Effect>,
+}
+
+/// What `filter` and the shadow do to a drawing, in pixels, whatever the transform.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Effect {
+    /// A Gaussian blur of this standard deviation.
+    Blur(f64),
+    /// A shadow under the drawing, offset by `dx`, `dy`, blurred with the standard deviation `blur`.
+    Shadow { dx: f64, dy: f64, blur: f64, color: Color },
+}
+
+/// The largest blur, as a standard deviation in pixels: a wider one would make vello_cpu filter
+/// a layer far larger than the canvas.
+const MAX_BLUR: f64 = 128.0;
+
+impl Effect {
+    /// vello_cpu's filter for it on a canvas of `width` × `height`, none when it changes nothing.
+    fn filter(self, width: f64, height: f64) -> Option<Filter> {
+        let primitive = match self {
+            Effect::Blur(blur) if blur > 0.0 => FilterPrimitive::GaussianBlur { std_deviation: blur.min(MAX_BLUR) as f32, edge_mode: EdgeMode::None },
+            Effect::Shadow { dx, dy, blur, color } if color.components[3] > 0.0 && (blur > 0.0 || dx != 0.0 || dy != 0.0) => {
+                let blur = blur.min(MAX_BLUR);
+                // Farther off, the shadow misses the canvas.
+                if dx.abs() > width + 3.0 * blur || dy.abs() > height + 3.0 * blur {
+                    return None;
+                }
+                FilterPrimitive::DropShadow { dx: dx as f32, dy: dy as f32, std_deviation: blur as f32, color, edge_mode: EdgeMode::None }
+            }
+            _ => return None,
+        };
+        Some(Filter::from_primitive(primitive))
+    }
+}
+
+/// The effects of a CSS `filter` value, in order; `None` when it isn't one. Functions vello_cpu
+/// can't do yet (`brightness()`, `url()`, …) are valid and do nothing.
+fn parse_filter(css: &str) -> Option<Vec<Effect>> {
+    let mut rest = css.trim();
+    let mut effects = Vec::new();
+    if rest == "none" {
+        return Some(effects);
+    }
+    if rest.is_empty() {
+        return None;
+    }
+    while !rest.is_empty() {
+        let (name, after) = rest.split_once('(')?;
+        let (arguments, after) = closing(after)?;
+        let arguments = words(arguments);
+        match name.trim() {
+            "blur" => match arguments.as_slice() {
+                [] => {}
+                [radius] => effects.push(Effect::Blur(length(radius).filter(|r| *r >= 0.0)?)),
+                _ => return None,
+            },
+            "drop-shadow" => {
+                // The colour comes first or last.
+                let color = |word: &str| svgtypes::Color::from_str(word).ok().map(|c| Color::from_rgba8(c.red, c.green, c.blue, c.alpha));
+                let (color, lengths) = match arguments.split_first().zip(arguments.split_last()) {
+                    Some(((first, rest), _)) if color(first).is_some() => (color(first), rest),
+                    Some((_, (last, rest))) if color(last).is_some() => (color(last), rest),
+                    _ => (None, arguments.as_slice()),
+                };
+                let lengths: Vec<f64> = lengths.iter().map(|l| length(l)).collect::<Option<_>>()?;
+                let (dx, dy, blur) = match lengths.as_slice() {
+                    [dx, dy] => (*dx, *dy, 0.0),
+                    [dx, dy, blur] if *blur >= 0.0 => (*dx, *dy, *blur),
+                    _ => return None,
+                };
+                effects.push(Effect::Shadow { dx, dy, blur: blur / 2.0, color: color.unwrap_or(Color::BLACK) });
+            }
+            "brightness" | "contrast" | "grayscale" | "hue-rotate" | "invert" | "opacity" | "saturate" | "sepia" | "url" => {}
+            _ => return None,
+        }
+        rest = after.trim_start();
+    }
+    Some(effects)
+}
+
+/// The text up to the `)` closing a function, and the text after it.
+fn closing(text: &str) -> Option<(&str, &str)> {
+    let mut depth = 0;
+    for (i, c) in text.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' if depth == 0 => return Some((text.get(..i)?, text.get(i + 1..)?)),
+            ')' => depth -= 1,
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The space-separated words of `text`, a function's parentheses kept in its word.
+fn words(text: &str) -> Vec<&str> {
+    let mut words = Vec::new();
+    let (mut depth, mut start) = (0, None);
+    for (i, c) in text.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            c if c.is_whitespace() && depth == 0 => {
+                if let Some(from) = start.take() {
+                    words.extend(text.get(from..i));
+                }
+                continue;
+            }
+            _ => {}
+        }
+        start.get_or_insert(i);
+    }
+    if let Some(from) = start {
+        words.extend(text.get(from..));
+    }
+    words
+}
+
+/// A CSS length in pixels: `12px`, or `0`.
+fn length(word: &str) -> Option<f64> {
+    let number = match word.strip_suffix("px") {
+        Some(number) => number,
+        None if word == "0" => word,
+        None => return None,
+    };
+    number.parse::<f64>().ok().filter(|n| n.is_finite())
+}
+
+/// How drawing lands on the canvas now: `globalAlpha` and `globalCompositeOperation` as vello_cpu
+/// has them, `filter` and the shadow.
+fn compositing<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>) -> Result<Compositing, Error> {
     let alpha = number_property(call, this, "globalAlpha", 1.0)?.clamp(0.0, 1.0) as f32;
     let operation = text_property(call, this, "globalCompositeOperation")?;
     let (mix, compose) = match operation.as_str() {
@@ -741,7 +921,15 @@ fn compositing<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>) -> Result<(f32
         "luminosity" => (Mix::Luminosity, Compose::SrcOver),
         _ => (Mix::Normal, Compose::SrcOver),
     };
-    Ok((alpha, BlendMode::new(mix, compose)))
+    let mut effects = parse_filter(&text_property(call, this, "filter")?).unwrap_or_default();
+    if let Ok(c) = svgtypes::Color::from_str(&text_property(call, this, "shadowColor")?) {
+        let dx = number_property(call, this, "shadowOffsetX", 0.0)?;
+        let dy = number_property(call, this, "shadowOffsetY", 0.0)?;
+        // As for CSS shadows, the blur's standard deviation is half the `shadowBlur`.
+        let blur = number_property(call, this, "shadowBlur", 0.0)?.max(0.0) / 2.0;
+        effects.push(Effect::Shadow { dx, dy, blur, color: Color::from_rgba8(c.red, c.green, c.blue, c.alpha) });
+    }
+    Ok(Compositing { alpha, blend: BlendMode::new(mix, compose), effects })
 }
 
 /// Sets `style` as the paint, its coordinates those of `transform`.
@@ -774,12 +962,12 @@ fn fill_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, key: &str, path:
     let Some(style) = style(call, this, key)? else {
         return Ok(());
     };
-    let (alpha, blend) = compositing(call, this)?;
+    let compositing = compositing(call, this)?;
     let smooth = !matches!(property(call, this, "imageSmoothingEnabled")?, Value::Bool(false));
     surface(call, this, |s| {
         let transform = s.transform;
         let path = path.unwrap_or_else(|| s.path.clone());
-        s.draw(alpha, blend, |scene| {
+        s.draw(&compositing, |scene| {
             scene.reset_transform();
             scene.set_fill_rule(rule);
             paint(scene, style, transform, smooth);
@@ -822,7 +1010,7 @@ fn stroke_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, path: Option<B
     let Some(stroke) = line(call, this, &dash)? else {
         return Ok(());
     };
-    let (alpha, blend) = compositing(call, this)?;
+    let compositing = compositing(call, this)?;
     let smooth = !matches!(property(call, this, "imageSmoothingEnabled")?, Value::Bool(false));
     surface(call, this, |s| {
         let transform = s.transform;
@@ -831,7 +1019,7 @@ fn stroke_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, path: Option<B
             return;
         }
         let path = transform.inverse() * path.unwrap_or_else(|| s.path.clone());
-        s.draw(alpha, blend, |scene| {
+        s.draw(&compositing, |scene| {
             scene.set_transform(transform);
             scene.set_stroke(stroke);
             paint(scene, style, Affine::IDENTITY, smooth);
@@ -903,7 +1091,8 @@ pub(crate) fn clear_rect<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args
         surface(call, this, |s| {
             let path = rect_path(s, x, y, w, h);
             // Removing an opaque rectangle's coverage leaves only it transparent.
-            s.draw(1.0, BlendMode::new(Mix::Normal, Compose::DestOut), |scene| {
+            let clearing = Compositing { alpha: 1.0, blend: BlendMode::new(Mix::Normal, Compose::DestOut), effects: Vec::new() };
+            s.draw(&clearing, |scene| {
                 scene.reset_transform();
                 scene.set_fill_rule(Fill::NonZero);
                 scene.set_paint(Color::BLACK);
@@ -991,7 +1180,7 @@ pub(crate) fn draw_image<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args
     if source.width() == 0.0 || source.height() == 0.0 || destination.width() == 0.0 || destination.height() == 0.0 {
         return Ok(Value::Undefined);
     }
-    let (alpha, blend) = compositing(call, this)?;
+    let compositing = compositing(call, this)?;
     let smooth = !matches!(property(call, this, "imageSmoothingEnabled")?, Value::Bool(false));
     // The source rectangle, clipped to the image, maps onto the destination rectangle.
     let scale = Vec2::new(destination.width() / source.width(), destination.height() / source.height());
@@ -1011,7 +1200,7 @@ pub(crate) fn draw_image<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args
     surface(call, this, |s| {
         let transform = s.transform;
         let path = transform * shown.to_path(0.1);
-        s.draw(alpha, blend, |scene| {
+        s.draw(&compositing, |scene| {
             scene.reset_transform();
             scene.set_fill_rule(Fill::NonZero);
             paint(scene, Style::Pattern(pixels, Extend::Pad, Extend::Pad), transform * image_to_user, smooth);
@@ -1082,4 +1271,29 @@ pub(crate) fn create_pattern<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>,
     call.set(&pattern, "_image", image)?;
     call.set(&pattern, "_repetition", &Value::String(repetition))?;
     Ok(Value::Js(pattern))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Effect, parse_filter};
+    use vello_cpu::peniko::Color;
+
+    #[test]
+    fn filters_parse_as_browsers_read_them() {
+        let shadow = |dx, dy, blur, color| Effect::Shadow { dx, dy, blur, color };
+        assert_eq!(parse_filter("none"), Some(vec![]));
+        assert_eq!(parse_filter(" blur(3px) "), Some(vec![Effect::Blur(3.0)]));
+        assert_eq!(parse_filter("blur()"), Some(vec![]));
+        assert_eq!(parse_filter("drop-shadow(1px 2px)"), Some(vec![shadow(1.0, 2.0, 0.0, Color::BLACK)]));
+        assert_eq!(parse_filter("drop-shadow(rgb(255, 0, 0) 1px 0 4px)"), Some(vec![shadow(1.0, 0.0, 2.0, Color::from_rgb8(255, 0, 0))]));
+        assert_eq!(
+            parse_filter("drop-shadow(1px 2px 4px red) blur(1px)"),
+            Some(vec![shadow(1.0, 2.0, 2.0, Color::from_rgb8(255, 0, 0)), Effect::Blur(1.0)])
+        );
+        // Valid, though vello_cpu can't do them yet.
+        assert_eq!(parse_filter("sepia(1) blur(2px) url(#f)"), Some(vec![Effect::Blur(2.0)]));
+        for invalid in ["", "blur(-1px)", "blur(1em)", "blur(2px", "drop-shadow(1px)", "drop-shadow(1px 2px -3px)", "glow(1px)", "blur(1px) x"] {
+            assert_eq!(parse_filter(invalid), None, "{invalid}");
+        }
+    }
 }

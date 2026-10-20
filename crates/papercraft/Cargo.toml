@@ -23,6 +23,8 @@ vectorcraft-geom = { workspace = true }
 vectorcraft-text = { workspace = true }
 # The canvas's pixels, and drawing on them, as the app's renderer draws.
 vello_cpu = { workspace = true }
+# vello_cpu's filters, for shadows and `filter`.
+vello_common = { version = "0.2", default-features = false }
 # `atob` and `btoa`.
 vectorcraft-format = { workspace = true }
 # Resolving `import` specifiers against modules from the web.
@@ -35,6 +37,8 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 vectorcraft-engine = { workspace = true }
+# vello_cpu as the app builds it, with its threads.
+vello_cpu = { workspace = true, features = ["multithreading"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 v8 = { workspace = true, optional = true }
