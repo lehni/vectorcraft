@@ -1,5 +1,5 @@
 import { formatError } from './format-error.js'
-import { setToStringTag } from './to-string-tag.js'
+import { defineAccessors, defineValues, setToStringTag } from './define.js'
 
 // `EventTarget` and the event classes for scripts outside a browser, as the DOM
 // standard has them, to extend (`class Emitter extends EventTarget`). There's
@@ -255,20 +255,18 @@ for (const Class of [
   ErrorEvent
 ]) {
   for (const name of fields[Class.name]) {
-    Object.defineProperty(Class.prototype, name, {
-      get() {
-        return getState(this)[name]
-      },
-      configurable: true,
-      enumerable: true
+    defineAccessors(Class.prototype, {
+      [name]: {
+        get() {
+          return getState(this)[name]
+        }
+      }
     })
   }
 }
 
-for (const [name, value] of Object.entries(phases)) {
-  for (const target of [Event, Event.prototype]) {
-    Object.defineProperty(target, name, { value, enumerable: true })
-  }
+for (const target of [Event, Event.prototype]) {
+  defineValues(target, phases, { enumerable: true })
 }
 
 setToStringTag(

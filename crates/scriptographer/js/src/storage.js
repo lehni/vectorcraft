@@ -1,5 +1,5 @@
 import { natives } from './natives.js'
-import { setToStringTag } from './to-string-tag.js'
+import { setToStringTag } from './define.js'
 
 // `localStorage` and `sessionStorage` for scripts outside a browser. The
 // runtime keeps their items, and a script's `localStorage` in its file. Items

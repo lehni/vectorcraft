@@ -1,5 +1,5 @@
 import { ReadOnlyFileHandle } from './pickers.js'
-import { setToStringTag } from '../to-string-tag.js'
+import { setToStringTag } from '../define.js'
 
 // The handle each `LocalFile` changes its file through. Its instances are made
 // with `Reflect.construct(File, ...)`, so its constructor never runs on them.

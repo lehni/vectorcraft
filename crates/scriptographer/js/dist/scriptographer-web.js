@@ -120,13 +120,19 @@
     setTimeout(() => URL.revokeObjectURL(url), 6e4);
   }
 
-  // src/to-string-tag.js
+  // src/define.js
+  function defineValues(target, values, attributes = {}) {
+    for (const key of Reflect.ownKeys(values)) {
+      Object.defineProperty(target, key, { value: values[key], ...attributes });
+    }
+  }
   function setToStringTag(...classes) {
     for (const Class of classes) {
-      Object.defineProperty(Class.prototype, Symbol.toStringTag, {
-        value: Class.name,
-        configurable: true
-      });
+      defineValues(
+        Class.prototype,
+        { [Symbol.toStringTag]: Class.name },
+        { configurable: true }
+      );
     }
   }
 

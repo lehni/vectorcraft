@@ -1,5 +1,5 @@
 import { natives } from './natives.js'
-import { setToStringTag } from './to-string-tag.js'
+import { setToStringTag } from './define.js'
 
 // `Blob` and `File` for scripts outside a browser. Their bytes arrive whole: no
 // streams.

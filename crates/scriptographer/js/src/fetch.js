@@ -1,6 +1,6 @@
 import { Blob, File, getBytes } from './blob.js'
 import { natives } from './natives.js'
-import { setToStringTag } from './to-string-tag.js'
+import { setToStringTag } from './define.js'
 
 // The browser's `fetch()` for scripts outside a browser, with `Headers`,
 // `FormData`, `Request` and `Response`. The runtime sends the requests, on

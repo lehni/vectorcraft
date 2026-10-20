@@ -1,6 +1,7 @@
 // What scripts see that's written in JavaScript, on every platform. The runtime
 // runs it before its own classes, which build on these.
 import { natives } from './natives.js'
+import { defineValues } from './define.js'
 import * as abort from './abort.js'
 import * as blob from './blob.js'
 import { createConsole } from './console.js'
@@ -46,11 +47,5 @@ setupFileDialogs((globalThis.Dialog ??= {}))
 
 // Set as the realm's own globals are: not enumerable.
 function setGlobals(values) {
-  for (const [name, value] of Object.entries(values)) {
-    Object.defineProperty(globalThis, name, {
-      value,
-      writable: true,
-      configurable: true
-    })
-  }
+  defineValues(globalThis, values, { writable: true, configurable: true })
 }

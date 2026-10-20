@@ -1,4 +1,4 @@
-import { setToStringTag } from './to-string-tag.js'
+import { defineValues, setToStringTag } from './define.js'
 
 // `DOMException` for scripts outside a browser: an `Error` with a `name`, and
 // the legacy `code` of the names that had one, as `INDEX_SIZE_ERR` and the
@@ -51,13 +51,14 @@ export class DOMException extends Error {
   }
 }
 
-for (const [index, [, constant]] of constants.entries()) {
-  for (const target of [DOMException, DOMException.prototype]) {
-    Object.defineProperty(target, constant, {
-      value: index + 1,
-      enumerable: true
-    })
-  }
+for (const target of [DOMException, DOMException.prototype]) {
+  defineValues(
+    target,
+    Object.fromEntries(
+      constants.map(([, constant], index) => [constant, index + 1])
+    ),
+    { enumerable: true }
+  )
 }
 
 setToStringTag(DOMException)

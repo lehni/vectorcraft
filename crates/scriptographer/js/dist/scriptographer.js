@@ -8,6 +8,31 @@
   // src/natives.js
   var natives = globalThis.__scriptographer;
 
+  // src/define.js
+  function defineValues(target, values, attributes = {}) {
+    for (const key of Reflect.ownKeys(values)) {
+      Object.defineProperty(target, key, { value: values[key], ...attributes });
+    }
+  }
+  function defineAccessors(target, accessors) {
+    for (const key of Reflect.ownKeys(accessors)) {
+      Object.defineProperty(target, key, {
+        ...accessors[key],
+        enumerable: true,
+        configurable: true
+      });
+    }
+  }
+  function setToStringTag(...classes) {
+    for (const Class of classes) {
+      defineValues(
+        Class.prototype,
+        { [Symbol.toStringTag]: Class.name },
+        { configurable: true }
+      );
+    }
+  }
+
   // src/abort.js
   var abort_exports = {};
   __export(abort_exports, {
@@ -31,16 +56,6 @@
     const text = String(err);
     const stack = err?.stack;
     return typeof stack === "string" && stack.startsWith(text) ? stack : text;
-  }
-
-  // src/to-string-tag.js
-  function setToStringTag(...classes) {
-    for (const Class of classes) {
-      Object.defineProperty(Class.prototype, Symbol.toStringTag, {
-        value: Class.name,
-        configurable: true
-      });
-    }
   }
 
   // src/events.js
@@ -262,19 +277,17 @@
     ErrorEvent
   ]) {
     for (const name of fields[Class.name]) {
-      Object.defineProperty(Class.prototype, name, {
-        get() {
-          return getState(this)[name];
-        },
-        configurable: true,
-        enumerable: true
+      defineAccessors(Class.prototype, {
+        [name]: {
+          get() {
+            return getState(this)[name];
+          }
+        }
       });
     }
   }
-  for (const [name, value] of Object.entries(phases)) {
-    for (const target of [Event, Event.prototype]) {
-      Object.defineProperty(target, name, { value, enumerable: true });
-    }
+  for (const target of [Event, Event.prototype]) {
+    defineValues(target, phases, { enumerable: true });
   }
   setToStringTag(
     EventTarget,
@@ -831,13 +844,14 @@ ${stack}` : ""));
       return codes.get(this.#name) ?? 0;
     }
   };
-  for (const [index, [, constant]] of constants.entries()) {
-    for (const target of [DOMException2, DOMException2.prototype]) {
-      Object.defineProperty(target, constant, {
-        value: index + 1,
-        enumerable: true
-      });
-    }
+  for (const target of [DOMException2, DOMException2.prototype]) {
+    defineValues(
+      target,
+      Object.fromEntries(
+        constants.map(([, constant], index) => [constant, index + 1])
+      ),
+      { enumerable: true }
+    );
   }
   setToStringTag(DOMException2);
 
@@ -1492,19 +1506,19 @@ ${value}\r
       throw new TypeError("Unable to parse a matrix from CSS outside a window.");
     }
   };
-  defineValues(
+  defineAttributes(
     DOMPointReadOnly,
     DOMPoint,
     ["x", "y", "z", "w"].map((name, index) => [name, index]),
     (point) => getPoint(point)
   );
-  defineValues(
+  defineAttributes(
     DOMRectReadOnly,
     DOMRect,
     ["x", "y", "width", "height"].map((name, index) => [name, index]),
     (rect) => getRect(rect)
   );
-  defineValues(
+  defineAttributes(
     DOMMatrixReadOnly,
     DOMMatrix,
     [
@@ -1528,24 +1542,20 @@ ${value}\r
     DOMMatrixReadOnly,
     DOMMatrix
   );
-  function defineValues(ReadOnly, Writable, entries, getValues, changed) {
+  function defineAttributes(ReadOnly, Writable, entries, getValues, changed) {
     for (const [name, index] of entries) {
       const get = function() {
         return getValues(this)[index];
       };
-      Object.defineProperty(ReadOnly.prototype, name, {
-        get,
-        configurable: true,
-        enumerable: true
-      });
-      Object.defineProperty(Writable.prototype, name, {
-        get,
-        set(value) {
-          getValues(this)[index] = +value;
-          changed?.(this, index, +value);
-        },
-        configurable: true,
-        enumerable: true
+      defineAccessors(ReadOnly.prototype, { [name]: { get } });
+      defineAccessors(Writable.prototype, {
+        [name]: {
+          get,
+          set(value) {
+            getValues(this)[index] = +value;
+            changed?.(this, index, +value);
+          }
+        }
       });
     }
   }
@@ -1854,12 +1864,6 @@ ${value}\r
   }
   setupFileDialogs(globalThis.Dialog ??= {});
   function setGlobals(values) {
-    for (const [name, value] of Object.entries(values)) {
-      Object.defineProperty(globalThis, name, {
-        value,
-        writable: true,
-        configurable: true
-      });
-    }
+    defineValues(globalThis, values, { writable: true, configurable: true });
   }
 })();

@@ -1,4 +1,4 @@
-import { setToStringTag } from './to-string-tag.js'
+import { defineAccessors, setToStringTag } from './define.js'
 
 // The Geometry Interfaces, for scripts outside a browser: `DOMPoint`,
 // `DOMRect`, `DOMQuad` and `DOMMatrix`, with their read-only versions. As in a
@@ -352,19 +352,19 @@ export class DOMMatrix extends DOMMatrixReadOnly {
 }
 
 // The values, read-only on one class and writable on the other:
-defineValues(
+defineAttributes(
   DOMPointReadOnly,
   DOMPoint,
   ['x', 'y', 'z', 'w'].map((name, index) => [name, index]),
   point => getPoint(point)
 )
-defineValues(
+defineAttributes(
   DOMRectReadOnly,
   DOMRect,
   ['x', 'y', 'width', 'height'].map((name, index) => [name, index]),
   rect => getRect(rect)
 )
-defineValues(
+defineAttributes(
   DOMMatrixReadOnly,
   DOMMatrix,
   [
@@ -390,24 +390,20 @@ setToStringTag(
   DOMMatrix
 )
 
-function defineValues(ReadOnly, Writable, entries, getValues, changed) {
+function defineAttributes(ReadOnly, Writable, entries, getValues, changed) {
   for (const [name, index] of entries) {
     const get = function () {
       return getValues(this)[index]
     }
-    Object.defineProperty(ReadOnly.prototype, name, {
-      get,
-      configurable: true,
-      enumerable: true
-    })
-    Object.defineProperty(Writable.prototype, name, {
-      get,
-      set(value) {
-        getValues(this)[index] = +value
-        changed?.(this, index, +value)
-      },
-      configurable: true,
-      enumerable: true
+    defineAccessors(ReadOnly.prototype, { [name]: { get } })
+    defineAccessors(Writable.prototype, {
+      [name]: {
+        get,
+        set(value) {
+          getValues(this)[index] = +value
+          changed?.(this, index, +value)
+        }
+      }
     })
   }
 }

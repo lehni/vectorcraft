@@ -1,6 +1,6 @@
 import { EventTarget, Event } from './events.js'
 import { formatError } from './format-error.js'
-import { setToStringTag } from './to-string-tag.js'
+import { setToStringTag } from './define.js'
 
 // `AbortController` and `AbortSignal`, for scripts outside a browser.
 
