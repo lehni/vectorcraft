@@ -81,6 +81,10 @@ impl Call<JsValue> for BoaCall<'_> {
         Ok(string.to_std_string_escaped())
     }
 
+    fn to_number(&mut self, value: &Value<JsValue>) -> Result<f64, Error> {
+        to_js(value).to_number(self.context).map_err(script_error)
+    }
+
     fn new_object(&mut self) -> Result<JsValue, Error> {
         Ok(JsObject::with_object_proto(self.context.intrinsics()).into())
     }

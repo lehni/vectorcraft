@@ -202,32 +202,13 @@ pub(crate) fn accessors<H: Clone>() -> [(HostFunction<H>, HostFunction<H>); PROP
 
 /// `value` as a property that takes `check` keeps it, or `None` when it doesn't take it.
 fn checked<H: Clone>(call: &mut dyn Call<H>, check: Check, value: Value<H>) -> Result<Option<Value<H>>, Error> {
-    let number = |call: &mut dyn Call<H>, value: &Value<H>| -> Result<f64, Error> {
-        Ok(match value {
-            Value::Number(n) => *n,
-            Value::Bool(b) => f64::from(u8::from(*b)),
-            Value::Null => 0.0,
-            Value::Undefined => f64::NAN,
-            // As `Number(value)`: blank text is 0.
-            _ => {
-                let text = call.to_string(value)?;
-                let text = text.trim();
-                if text.is_empty() { 0.0 } else { text.parse().unwrap_or(f64::NAN) }
-            }
-        })
-    };
+    let number = |call: &mut dyn Call<H>, value: &Value<H>| call.to_number(value);
     Ok(match check {
         Check::Positive => Some(number(call, &value)?).filter(|n| n.is_finite() && *n > 0.0).map(Value::Number),
         Check::Finite => Some(number(call, &value)?).filter(|n| n.is_finite()).map(Value::Number),
         Check::NonNegative => Some(number(call, &value)?).filter(|n| n.is_finite() && *n >= 0.0).map(Value::Number),
         Check::Fraction => Some(number(call, &value)?).filter(|n| (0.0..=1.0).contains(n)).map(Value::Number),
-        Check::Bool => Some(Value::Bool(match &value {
-            Value::Undefined | Value::Null => false,
-            Value::Bool(b) => *b,
-            Value::Number(n) => *n != 0.0 && !n.is_nan(),
-            Value::String(text) => !text.is_empty(),
-            Value::Js(_) => true,
-        })),
+        Check::Bool => Some(Value::Bool(crate::truthy(&value))),
         Check::Keyword(keywords) => {
             let text = call.to_string(&value)?;
             keywords.contains(&text.as_str()).then_some(Value::String(text))
@@ -783,18 +764,9 @@ pub(crate) fn transform<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args:
 /// identity.
 pub(crate) fn set_transform<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let m = match args.first() {
-        None | Some(Value::Undefined) => Some([1.0, 0.0, 0.0, 1.0, 0.0, 0.0]),
-        Some(Value::Js(matrix)) => {
-            let mut m = [0.0; 6];
-            for (slot, key) in m.iter_mut().zip(["a", "b", "c", "d", "e", "f"]) {
-                *slot = match call.get(matrix, key)? {
-                    Value::Number(n) => n,
-                    _ => f64::NAN,
-                };
-            }
-            m.iter().all(|n| n.is_finite()).then_some(m)
-        }
-        _ => finite(args, 0),
+        Some(Value::Number(_)) => finite(args, 0),
+        // A `DOMMatrix2DInit`, the identity without one.
+        init => Some(crate::geometry::matrix_init(call, init, true)?.coefficients()).filter(|m| m.iter().all(|n| n.is_finite())),
     };
     match m {
         Some(m) => set_transform_to(call, this, |_| Affine::new(m)),
@@ -809,12 +781,7 @@ pub(crate) fn reset_transform<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>,
 /// `getTransform()`: `{ a, b, c, d, e, f }`, as a `DOMMatrix` has them.
 pub(crate) fn get_transform<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
     let m = surface(call, this, |s| s.transform.as_coeffs())?;
-    let matrix = call.new_object()?;
-    for (key, value) in ["a", "b", "c", "d", "e", "f"].into_iter().zip(m) {
-        call.set(&matrix, key, &Value::Number(value))?;
-    }
-    call.set(&matrix, "is2D", &Value::Bool(true))?;
-    Ok(Value::Js(matrix))
+    crate::geometry::matrix_value(call, &crate::geometry::Matrix::new_2d(m))
 }
 
 // State.

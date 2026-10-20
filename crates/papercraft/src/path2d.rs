@@ -80,28 +80,18 @@ pub(crate) fn path_of<H>(call: &mut dyn Call<H>, value: &Value<H>) -> Result<Opt
     Ok(host.canvases.as_ref().and_then(|c| c.paths.get(number)).and_then(Option::as_ref).cloned())
 }
 
-/// `addPath(path, transform)`: adds `path`'s subpaths, through `transform` (a `DOMMatrix2DInit`:
-/// `a` … `f`) when there is one.
+/// `addPath(path, transform)`: adds `path`'s subpaths, through `transform` (a `DOMMatrix2DInit`)
+/// when there is one.
 pub(crate) fn add_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let Some(added) = args.first().map(|a| path_of(call, a)).transpose()?.flatten() else {
         return Err(Error::Type("addPath: not a Path2D".into()));
     };
-    let transform = match args.get(1) {
-        Some(Value::Js(matrix)) => {
-            let mut coefficients = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
-            for (coefficient, key) in coefficients.iter_mut().zip(["a", "b", "c", "d", "e", "f"]) {
-                if let Value::Number(n) = call.get(matrix, key)? {
-                    *coefficient = n;
-                }
-            }
-            // A matrix that isn't finite adds nothing, as in browsers.
-            if coefficients.iter().any(|c| !c.is_finite()) {
-                return Ok(Value::Undefined);
-            }
-            Affine::new(coefficients)
-        }
-        _ => Affine::IDENTITY,
-    };
+    let coefficients = crate::geometry::matrix_init(call, args.get(1), true)?.coefficients();
+    // A matrix that isn't finite adds nothing, as in browsers.
+    if coefficients.iter().any(|c| !c.is_finite()) {
+        return Ok(Value::Undefined);
+    }
+    let transform = Affine::new(coefficients);
     with_path(call, this, |path| path.extend(transform * added))?;
     Ok(Value::Undefined)
 }

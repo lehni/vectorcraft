@@ -47,6 +47,20 @@ pub struct V8 {
     context: v8::Global<v8::Context>,
 }
 
+impl Drop for V8 {
+    /// Frees the context's runtime state: it holds handles into the context, which would keep the
+    /// context alive in the isolate, which a thread's runtimes share, for as long as the thread.
+    fn drop(&mut self) {
+        // While the thread ends, its isolate may be gone already, with the context.
+        let _ = with_isolate(|isolate| {
+            let scope = pin!(v8::HandleScope::new(isolate));
+            let scope = &mut scope.init();
+            v8::Local::new(scope, &self.context).remove_slot::<ContextData>();
+            Ok(())
+        });
+    }
+}
+
 /// Starts V8, once per process.
 fn initialize() {
     static INITIALIZE: Once = Once::new();
@@ -214,6 +228,14 @@ impl Call<Handle> for V8Call<'_, '_, '_> {
         let value = to_v8(self.scope, value)?;
         let string = value.to_string(self.scope).ok_or_else(|| Error::Script("can't convert to a string".into()))?;
         Ok(string.to_rust_string_lossy(self.scope))
+    }
+
+    fn to_number(&mut self, value: &Value<Handle>) -> Result<f64, Error> {
+        if let Value::Number(n) = value {
+            return Ok(*n);
+        }
+        let value = to_v8(self.scope, value)?;
+        value.number_value(self.scope).ok_or_else(|| Error::Type("can't convert to a number".into()))
     }
 
     fn new_object(&mut self) -> Result<Handle, Error> {
@@ -384,4 +406,18 @@ fn to_v8<'s>(scope: &v8::PinScope<'s, '_>, value: &Value<Handle>) -> Result<v8::
         Value::String(value) => string(scope, value)?.into(),
         Value::Js(handle) => v8::Local::new(scope, handle),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_dropped_engine_frees_its_runtime_state() {
+        let host = Rc::new(RefCell::new(Host::default()));
+        let weak = Rc::downgrade(&host);
+        let engine = V8::new(host, |_| Ok(())).unwrap();
+        drop(engine);
+        assert!(weak.upgrade().is_none(), "the context still holds the host");
+    }
 }

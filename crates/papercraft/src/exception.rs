@@ -67,6 +67,7 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
                 }
                 call.set(&constructor, "prototype", &Value::Js(prototype.clone()))?;
                 call.set(global, "DOMException", &Value::Js(constructor.clone()))?;
+                crate::tag(call, global, &prototype, "DOMException")?;
                 (constructor, Some(prototype))
             }
         };

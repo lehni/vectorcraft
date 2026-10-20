@@ -156,23 +156,28 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
         define_accessor(call, global, &prototype, "height", height, Some(set_height))?;
         call.set(&constructor, "prototype", &Value::Js(prototype.clone()))?;
         call.set(global, "OffscreenCanvas", &Value::Js(constructor))?;
+        crate::tag(call, global, &prototype, "OffscreenCanvas")?;
         let gradient = call.new_object()?;
+        crate::tag(call, global, &gradient, "CanvasGradient")?;
         call.set(&gradient, "addColorStop", &Value::Js(add_color_stop))?;
         let image_data_prototype = call.new_object()?;
         call.set(&image_data, "prototype", &Value::Js(image_data_prototype.clone()))?;
         call.set(global, "ImageData", &Value::Js(image_data))?;
+        crate::tag(call, global, &image_data_prototype, "ImageData")?;
         let path_prototype = call.new_object()?;
         for (name, function) in path_methods {
             call.set(&path_prototype, name, &Value::Js(function))?;
         }
         call.set(&path_constructor, "prototype", &Value::Js(path_prototype.clone()))?;
         call.set(global, "Path2D", &Value::Js(path_constructor))?;
+        crate::tag(call, global, &path_prototype, "Path2D")?;
         let bitmap_prototype = call.new_object()?;
         call.set(&bitmap_prototype, "close", &Value::Js(bitmap_close))?;
         define_accessor(call, global, &bitmap_prototype, "width", bitmap_width, None)?;
         define_accessor(call, global, &bitmap_prototype, "height", bitmap_height, None)?;
         call.set(&bitmap_constructor, "prototype", &Value::Js(bitmap_prototype.clone()))?;
         call.set(global, "ImageBitmap", &Value::Js(bitmap_constructor))?;
+        crate::tag(call, global, &bitmap_prototype, "ImageBitmap")?;
         call.set(global, "createImageBitmap", &Value::Js(create_bitmap))?;
         let registry = finalization_registry(call, global, release)?;
         let path_registry = finalization_registry(call, global, release_path)?;

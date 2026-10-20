@@ -40,6 +40,9 @@ pub trait Call<H> {
     /// JavaScript's `String(value)`.
     fn to_string(&mut self, value: &Value<H>) -> Result<String, Error>;
 
+    /// JavaScript's `Number(value)`.
+    fn to_number(&mut self, value: &Value<H>) -> Result<f64, Error>;
+
     fn new_object(&mut self) -> Result<H, Error>;
 
     fn new_array(&mut self, elements: &[Value<H>]) -> Result<H, Error>;

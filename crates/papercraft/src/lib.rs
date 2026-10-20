@@ -20,6 +20,7 @@ mod exception;
 #[cfg(not(target_arch = "wasm32"))]
 mod fetch;
 mod file;
+mod geometry;
 pub mod host;
 mod modules;
 mod palette;
@@ -148,6 +149,8 @@ pub struct Host<H> {
     urls: Option<urls::Classes<H>>,
     /// The realm's error classes, for the exceptions host functions throw.
     exceptions: Option<exception::Classes<H>>,
+    /// What `DOMMatrix` and the other geometry classes share.
+    geometry: Option<geometry::Classes<H>>,
     next_palette_id: u64,
     /// `script.preferences` as last taken, as JSON.
     preferences: String,
@@ -197,6 +200,7 @@ impl<H> Default for Host<H> {
             #[cfg(not(target_arch = "wasm32"))]
             urls: None,
             exceptions: None,
+            geometry: None,
             next_palette_id: 0,
             preferences: String::new(),
             handlers: Vec::new(),
@@ -222,6 +226,7 @@ impl<E: Engine> Runtime<E> {
         let mut engine = E::new(host.clone(), prelude)?;
         let global = engine.global()?;
         exception::install(&mut engine, &global)?;
+        geometry::install(&mut engine, &global)?;
         install_globals(&mut engine)?;
         let paper = engine.with_call(|call| object(call, &global, "paper"))?;
         let load = engine.function("load", modules::load)?;
@@ -578,6 +583,30 @@ fn define_accessor<H: Clone>(call: &mut dyn Call<H>, global: &H, target: &H, nam
     let object_class = object(call, global, "Object")?;
     method(call, &object_class, "defineProperty", &[Value::Js(target.clone()), Value::String(name.into()), Value::Js(descriptor)])?;
     Ok(())
+}
+
+/// Names the objects of `prototype` `name` for `Object.prototype.toString()` (`[object
+/// DOMMatrix]`), through the realm's `Symbol.toStringTag`, as the browser's classes have it.
+pub(crate) fn tag<H: Clone>(call: &mut dyn Call<H>, global: &H, prototype: &H, name: &str) -> Result<(), Error> {
+    let symbol = object(call, global, "Symbol")?;
+    let to_string_tag = call.get(&symbol, "toStringTag")?;
+    let descriptor = call.new_object()?;
+    call.set(&descriptor, "value", &Value::String(name.into()))?;
+    call.set(&descriptor, "configurable", &Value::Bool(true))?;
+    let object_class = object(call, global, "Object")?;
+    method(call, &object_class, "defineProperty", &[Value::Js(prototype.clone()), to_string_tag, Value::Js(descriptor)])?;
+    Ok(())
+}
+
+/// JavaScript's `Boolean(value)`.
+pub(crate) fn truthy<H>(value: &Value<H>) -> bool {
+    match value {
+        Value::Undefined | Value::Null => false,
+        Value::Bool(b) => *b,
+        Value::Number(n) => *n != 0.0 && !n.is_nan(),
+        Value::String(text) => !text.is_empty(),
+        Value::Js(_) => true,
+    }
 }
 
 /// The handle in `value`, or an error naming what was expected.

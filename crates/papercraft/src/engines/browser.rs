@@ -96,6 +96,15 @@ impl Call<JsValue> for BrowserCall {
         })
     }
 
+    fn to_number(&mut self, value: &Value<JsValue>) -> Result<f64, Error> {
+        if let Value::Number(n) = value {
+            return Ok(*n);
+        }
+        // `Number(value)`, which throws for what can't convert.
+        let number: Function = Reflect::get(&js_sys::global(), &"Number".into()).map_err(js_error)?.dyn_into().map_err(js_error)?;
+        number.call1(&JsValue::UNDEFINED, &to_js(value)).map_err(js_error)?.as_f64().ok_or_else(|| Error::Type("can't convert to a number".into()))
+    }
+
     fn new_object(&mut self) -> Result<JsValue, Error> {
         Ok(Object::new().into())
     }

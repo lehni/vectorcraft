@@ -745,6 +745,44 @@ fn canvas_properties_ignore_what_they_dont_take<E: Engine>() {
     );
 }
 
+fn geometry_classes_are_the_browsers<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "const m = new DOMMatrix().translate(10, 20).scale(2)\n\
+             console.log(String(m), m.a, m.m41, m.is2D, m.isIdentity, Object.prototype.toString.call(m))\n\
+             const p = m.transformPoint(new DOMPoint(1, 1))\n\
+             console.log(p instanceof DOMPoint, p.x, p.y, String(m.inverse().multiply(m)), m instanceof DOMMatrixReadOnly)\n\
+             const r = new DOMMatrix([1, 0, 0, 1, 0, 0]).rotate(90)\n\
+             console.log(Math.round(r.b), Math.round(r.c), new DOMMatrix().rotate(0, 30, 0).is2D)\n\
+             m.m13 = 1\n\
+             console.log(m.is2D, String(DOMMatrix.fromMatrix({ a: 2, m22: 3 })))\n\
+             const thrown = f => { try { f() } catch (e) { return e.name } }\n\
+             console.log(thrown(() => DOMMatrix.fromMatrix({ a: 1, m11: 2 })), thrown(() => new DOMMatrix('matrix(1, 0, 0, 1, 0, 0)')), thrown(() => String(new DOMMatrix([NaN, 0, 0, 1, 0, 0]))))\n\
+             const rect = new DOMRect(10, 10, -5, 20)\n\
+             console.log(rect.left, rect.right, rect.top, rect.bottom, JSON.stringify(new DOMQuad({ x: 1, y: 2 }, { x: 5 }).getBounds()))\n\
+             const ctx = new OffscreenCanvas(1, 1).getContext('2d')\n\
+             ctx.setTransform(new DOMMatrix().translate(3, 4))\n\
+             console.log(ctx.getTransform() instanceof DOMMatrix, ctx.getTransform().e, ctx.getTransform().f, WebKitCSSMatrix === DOMMatrix)",
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.take_output(),
+        [
+            "matrix(2, 0, 0, 2, 10, 20) 2 10 true false [object DOMMatrix]",
+            "true 12 22 matrix(1, 0, 0, 1, 0, 0) true",
+            "1 -1 false",
+            "false matrix(2, 0, 0, 3, 0, 0)",
+            // `a` and `m11` disagree; no CSS outside a window; a matrix that isn't finite has no string.
+            "TypeError TypeError InvalidStateError",
+            "5 10 10 30 {\"x\":0,\"y\":0,\"width\":5,\"height\":2,\"top\":0,\"right\":5,\"bottom\":2,\"left\":0}",
+            "true 3 4 true",
+        ]
+    );
+}
+
 fn runtimes_live_side_by_side<E: Engine>() {
     // As the app runs them: a second script starts while the first keeps running, and the first
     // stops first.
@@ -905,6 +943,11 @@ macro_rules! engine_tests {
             #[test]
             fn canvas_properties_ignore_what_they_dont_take() {
                 super::canvas_properties_ignore_what_they_dont_take::<$engine>();
+            }
+
+            #[test]
+            fn geometry_classes_are_the_browsers() {
+                super::geometry_classes_are_the_browsers::<$engine>();
             }
 
             #[test]
