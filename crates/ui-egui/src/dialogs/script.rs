@@ -141,15 +141,18 @@ fn kind(c: &Value) -> &str {
 }
 
 /// Component `c` of a prompt or palette showing `value`, with its label: a row, a ruler or a line
-/// of text. Hidden components take no room, disabled ones are greyed.
+/// of text. Hidden components take no room, disabled ones are greyed, and `toolTip` shows over
+/// the row. A `fullSize` field takes the rest of the row.
 pub(crate) fn component(ui: &mut egui::Ui, layout: &Layout, c: &Value, value: &Value) -> Option<Edit> {
     let name = c["name"].as_str().unwrap_or_default();
     if c["visible"].as_bool() == Some(false) {
         return None;
     }
     let enabled = c["enabled"].as_bool().unwrap_or(true);
+    let full = c["fullSize"].as_bool() == Some(true);
+    let tip = c["toolTip"].as_str().filter(|t| !t.is_empty());
     let width = layout.field_width(c);
-    ui.add_enabled_ui(enabled, |ui| match kind(c) {
+    let response = ui.add_enabled_ui(enabled, |ui| match kind(c) {
         "ruler" | "menu-separator" => {
             widgets::divider(ui);
             None
@@ -159,9 +162,15 @@ pub(crate) fn component(ui: &mut egui::Ui, layout: &Layout, c: &Value, value: &V
             None
         }
         "button" => row(ui, layout, label(c), |ui| ui.button(text(value)).clicked().then_some(Edit::Click)),
-        kind => row(ui, layout, label(c), |ui| field(ui, layout, width, name, kind, c, value).map(Edit::Value)),
-    })
-    .inner
+        kind => row(ui, layout, label(c), |ui| {
+            let width = if full { ui.available_width() } else { width };
+            field(ui, layout, width, name, kind, c, value).map(Edit::Value)
+        }),
+    });
+    if let Some(tip) = tip {
+        response.response.on_hover_text(tip);
+    }
+    response.inner
 }
 
 /// A row: the component's label (the script's, as it is, with a colon), right-aligned in the label
@@ -188,8 +197,17 @@ fn field(ui: &mut egui::Ui, layout: &Layout, width: f32, name: &str, kind: &str,
     match kind {
         "number" => {
             let decimals = c["fractionDigits"].as_u64().unwrap_or(3) as usize;
-            let range = min.unwrap_or(f64::MIN)..=max.unwrap_or(f64::MAX);
-            widgets::range_field(ui, id, value.as_f64().unwrap_or(0.0), range, "", decimals, width).map(|v| json!(v))
+            let (lo, hi) = (min.unwrap_or(f64::MIN), max.unwrap_or(f64::MAX));
+            let v = value.as_f64().unwrap_or(0.0).clamp(lo, hi);
+            // Lengths are points shown in their unit, as Scriptographer's `units` had them.
+            let (unit, suffix) = units(c["units"].as_str().unwrap_or_default());
+            let edited = match (unit, c["steppers"].as_bool() == Some(true)) {
+                (Some(unit), true) => widgets::spin_field(ui, id, Some(v), unit, width, c["increment"].as_f64().unwrap_or(1.0), lo, &[]),
+                (Some(unit), false) => widgets::num_field(ui, id, Some(v), unit, width),
+                (None, true) => widgets::spin_plain(ui, id, v, suffix, decimals, width, c["increment"].as_f64().unwrap_or(1.0), lo, &[]),
+                (None, false) => widgets::range_field(ui, id, v, lo..=hi, suffix, decimals, width),
+            };
+            edited.map(|v| json!(v.clamp(lo, hi)))
         }
         "slider" | "range" => {
             // The track and a number field of fixed width beside it, together the field's width.
@@ -223,6 +241,21 @@ fn field(ui: &mut egui::Ui, layout: &Layout, width: f32, name: &str, kind: &str,
         }
         // Fonts and menu entries: not yet.
         _ => None,
+    }
+}
+
+/// Scriptographer's `units` of a number: a length unit its value shows in, or a suffix.
+fn units(name: &str) -> (Option<vectorcraft_doc::Unit>, &'static str) {
+    use vectorcraft_doc::Unit;
+    match name {
+        "point" => (Some(Unit::Points), ""),
+        "pica" => (Some(Unit::Picas), ""),
+        "inch" => (Some(Unit::Inches), ""),
+        "millimeter" => (Some(Unit::Millimeters), ""),
+        "centimeter" => (Some(Unit::Centimeters), ""),
+        "percent" => (None, "%"),
+        "degree" => (None, "°"),
+        _ => (None, ""),
     }
 }
 

@@ -761,3 +761,26 @@ fn a_script_picks_a_file() {
     let log: Vec<&str> = app.scripts.log().iter().map(|l| l.text.as_str()).filter(|l| !l.ends_with("stopped")).collect();
     assert_eq!(log, ["/tmp/picked.svg", "null"]);
 }
+
+/// A number with `units` shows its points in that unit, or with the unit's sign; with `steppers`
+/// it has arrows.
+#[test]
+fn palette_numbers_show_their_units() {
+    let (mut app, _) = app();
+    let path = tempfile_path::Path::new(
+        "new Palette('Units', {\n\
+             width: { type: 'number', label: 'Width', units: 'millimeter', value: 72 },\n\
+             angle: { type: 'number', label: 'Angle', units: 'degree', value: 45, steppers: true },\n\
+             share: { type: 'number', label: 'Share', units: 'percent', value: 50 }\n\
+         })",
+    );
+    app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
+    let ctx = egui::Context::default();
+    crate::theme::install_fonts(&ctx);
+    crate::scripts::frame(&mut app, &ctx, 0.5);
+    palettes_frame(&mut app, &ctx, vec![]);
+    let texts = palettes_frame(&mut app, &ctx, vec![]);
+    for s in ["25.4 mm", "45°", "50%"] {
+        assert!(texts.iter().any(|(t, _)| t == s), "{s} in {texts:?}");
+    }
+}
