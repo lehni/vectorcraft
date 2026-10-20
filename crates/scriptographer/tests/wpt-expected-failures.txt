@@ -125,35 +125,6 @@ html/canvas/offscreen/path-objects/2d.path.isPointInPath.winding.worker.js: isPo
 html/canvas/offscreen/path-objects/2d.path.isPointInStroke.scaleddashes.worker.js: isPointInStroke() should return correct results on dashed paths at high scale factors
 html/canvas/offscreen/path-objects/2d.path.isPointInpath.invalid.worker.js: Verify isPointInPath throws exceptions with invalid inputs.
 html/canvas/offscreen/path-objects/2d.path.lineTo.nonfinite.details.worker.js: lineTo() with Infinity/NaN for first arg still converts the second arg
-html/canvas/offscreen/path-objects/2d.path.roundrect.1.radius.dompoint.single.argument.worker.js: Verify that when one radius is given to roundRect() as a non-array argument, specified as a DOMPoint, it applies to all corners.
-html/canvas/offscreen/path-objects/2d.path.roundrect.1.radius.dompoint.worker.js: Verify that when one radius is given to roundRect(), specified as a DOMPoint, it applies to all corners.
-html/canvas/offscreen/path-objects/2d.path.roundrect.1.radius.dompointinit.single.argument.worker.js: Verify that when one radius is given to roundRect() as a non-array argument, specified as a DOMPointInit, applies to all corners.
-html/canvas/offscreen/path-objects/2d.path.roundrect.1.radius.dompointinit.worker.js: Verify that when one radius is given to roundRect(), specified as a DOMPointInit, applies to all corners.
-html/canvas/offscreen/path-objects/2d.path.roundrect.2.radii.1.dompoint.worker.js: Verify that when two radii are given to roundRect(), the first radius, specified as a DOMPoint, applies to the top-left and bottom-right corners.
-html/canvas/offscreen/path-objects/2d.path.roundrect.2.radii.1.dompointinit.worker.js: Verify that when two radii are given to roundRect(), the first radius, specified as a DOMPointInit, applies to the top-left and bottom-right corners.
-html/canvas/offscreen/path-objects/2d.path.roundrect.2.radii.2.dompoint.worker.js: Verify that when two radii are given to roundRect(), the second radius, specified as a DOMPoint, applies to the top-right and bottom-left corners.
-html/canvas/offscreen/path-objects/2d.path.roundrect.2.radii.2.dompointinit.worker.js: Verify that when two radii are given to roundRect(), the second radius, specified as a DOMPointInit, applies to the top-right and bottom-left corners.
-html/canvas/offscreen/path-objects/2d.path.roundrect.3.radii.1.dompoint.worker.js: Verify that when three radii are given to roundRect(), the first radius, specified as a DOMPoint, applies to the top-left corner.
-html/canvas/offscreen/path-objects/2d.path.roundrect.3.radii.1.dompointinit.worker.js: Verify that when three radii are given to roundRect(), the first radius, specified as a DOMPointInit, applies to the top-left corner.
-html/canvas/offscreen/path-objects/2d.path.roundrect.3.radii.2.dompoint.worker.js: Verify that when three radii are given to roundRect(), the second radius, specified as a DOMPoint, applies to the top-right and bottom-left corners.
-html/canvas/offscreen/path-objects/2d.path.roundrect.3.radii.2.dompointinit.worker.js: Verify that when three radii are given to roundRect(), the second radius, specified as a DOMPoint, applies to the top-right and bottom-left corners.
-html/canvas/offscreen/path-objects/2d.path.roundrect.3.radii.3.dompoint.worker.js: Verify that when three radii are given to roundRect(), the third radius, specified as a DOMPoint, applies to the bottom-right corner.
-html/canvas/offscreen/path-objects/2d.path.roundrect.3.radii.3.dompointinit.worker.js: Verify that when three radii are given to roundRect(), the third radius, specified as a DOMPointInit, applies to the bottom-right corner.
-html/canvas/offscreen/path-objects/2d.path.roundrect.4.radii.1.dompoint.worker.js: Verify that when four radii are given to roundRect(), the first radius, specified as a DOMPoint, applies to the top-left corner.
-html/canvas/offscreen/path-objects/2d.path.roundrect.4.radii.1.dompointinit.worker.js: Verify that when four radii are given to roundRect(), the first radius, specified as a DOMPointInit, applies to the top-left corner.
-html/canvas/offscreen/path-objects/2d.path.roundrect.4.radii.2.dompoint.worker.js: Verify that when four radii are given to roundRect(), the second radius, specified as a DOMPoint, applies to the top-right corner.
-html/canvas/offscreen/path-objects/2d.path.roundrect.4.radii.2.dompointinit.worker.js: Verify that when four radii are given to roundRect(), the second radius, specified as a DOMPointInit, applies to the top-right corner.
-html/canvas/offscreen/path-objects/2d.path.roundrect.4.radii.3.dompoint.worker.js: Verify that when four radii are given to roundRect(), the third radius, specified as a DOMPoint, applies to the bottom-right corner.
-html/canvas/offscreen/path-objects/2d.path.roundrect.4.radii.3.dompointinit.worker.js: Verify that when four radii are given to roundRect(), the third radius, specified as a DOMPointInit, applies to the bottom-right corner.
-html/canvas/offscreen/path-objects/2d.path.roundrect.4.radii.4.dompoint.worker.js: Verify that when four radii are given to roundRect(), the fourth radius, specified as a DOMPoint, applies to the bottom-left corner.
-html/canvas/offscreen/path-objects/2d.path.roundrect.4.radii.4.dompointinit.worker.js: Verify that when four radii are given to roundRect(), the fourth radius, specified as a DOMPointInit, applies to the bottom-left corner.
-html/canvas/offscreen/path-objects/2d.path.roundrect.badinput.worker.js: roundRect() throws or does not throw errors given the strange inputs.
-html/canvas/offscreen/path-objects/2d.path.roundrect.negative.worker.js: Untitled
-html/canvas/offscreen/path-objects/2d.path.roundrect.nonfinite.worker.js: roundRect() with Infinity/NaN is ignored
-html/canvas/offscreen/path-objects/2d.path.roundrect.radius.negative.worker.js: roundRect() with negative radius throws an exception
-html/canvas/offscreen/path-objects/2d.path.roundrect.radius.none.worker.js: Check that roundRect throws an RangeError if radii is an empty array.
-html/canvas/offscreen/path-objects/2d.path.roundrect.radius.toomany.worker.js: Check that roundRect throws an IndeSizeError if radii has more than four items.
-html/canvas/offscreen/path-objects/2d.path.roundrect.winding.worker.js: Untitled
 html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.double.worker.js: createImageData(w, h) double is converted to long
 html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.negative.worker.js: createImageData(sw, sh) takes the absolute magnitude of the size arguments
 html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.nonfinite.worker.js: createImageData() throws TypeError if arguments are not finite

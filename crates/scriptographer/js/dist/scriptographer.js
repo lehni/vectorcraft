@@ -808,6 +808,11 @@
     isPointInStroke(...args) {
       return callWithPath(this.#surface, "isPointInStroke", args, 2);
     }
+    roundRect(x, y, w, h, radii) {
+      checkArguments(arguments, 4, "roundRect");
+      const args = getRoundRect(x, y, w, h, radii);
+      if (args) canvas.methods.roundRect.call(this.#surface, ...args);
+    }
   };
   var contextMethods = {
     getImageData: 4,
@@ -823,7 +828,6 @@
     arcTo: 5,
     ellipse: 7,
     rect: 4,
-    roundRect: 4,
     fillRect: 4,
     strokeRect: 4,
     clearRect: 4,
@@ -921,6 +925,11 @@
     static {
       getPath = /* @__PURE__ */ __name((path) => path instanceof _Path2D ? path.#path : void 0, "getPath");
     }
+    roundRect(x, y, w, h, radii) {
+      checkArguments(arguments, 4, "roundRect");
+      const args = getRoundRect(x, y, w, h, radii);
+      if (args) canvas.pathMethods.roundRect.call(this.#path, ...args);
+    }
     addPath(path, transform) {
       checkArguments(arguments, 1, "addPath");
       canvas.pathMethods.addPath.call(this.#path, getPath(path), transform);
@@ -935,8 +944,7 @@
     "arc",
     "arcTo",
     "ellipse",
-    "rect",
-    "roundRect"
+    "rect"
   ]) {
     const counts = contextMethods[name];
     inject(Path2D.prototype, {
@@ -1075,6 +1083,29 @@
     return size;
   }
   __name(getSize, "getSize");
+  function getRoundRect(x, y, w, h, radii = 0) {
+    const list = isObject(radii) && typeof radii[Symbol.iterator] === "function" ? Array.from(radii) : [radii];
+    if (list.length < 1 || list.length > 4) {
+      throw new RangeError(
+        `Invalid roundRect() radii: ${list.length}, not 1 to 4.`
+      );
+    }
+    const corners = list.map((radius) => {
+      const { x: rx = 0, y: ry = 0 } = isObject(radius) || radius === void 0 ? radius ?? {} : { x: radius, y: radius };
+      return [+rx, +ry];
+    });
+    const numbers = [+x, +y, +w, +h, ...corners.flat()];
+    if (!numbers.every(Number.isFinite)) return null;
+    if (corners.flat().some((r) => r < 0)) {
+      throw new RangeError("Invalid roundRect() radius: it is negative.");
+    }
+    const [a, b = a, c = a, d = b] = corners;
+    let [ul, ur, lr, ll] = corners.length === 3 ? [a, b, c, b] : [a, b, c, d];
+    if (w < 0) [ul, ur, lr, ll] = [ur, ul, ll, lr];
+    if (h < 0) [ul, ur, lr, ll] = [ll, lr, ur, ul];
+    return [+x, +y, +w, +h, ...ul, ...ur, ...lr, ...ll];
+  }
+  __name(getRoundRect, "getRoundRect");
   function getSide(value) {
     const side = Math.trunc(Number(value));
     if (!(side > 0)) {

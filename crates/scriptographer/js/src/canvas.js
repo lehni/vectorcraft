@@ -176,6 +176,12 @@ export class OffscreenCanvasRenderingContext2D {
   isPointInStroke(...args) {
     return callWithPath(this.#surface, 'isPointInStroke', args, 2)
   }
+
+  roundRect(x, y, w, h, radii) {
+    checkArguments(arguments, 4, 'roundRect')
+    const args = getRoundRect(x, y, w, h, radii)
+    if (args) canvas.methods.roundRect.call(this.#surface, ...args)
+  }
 }
 
 // What the context does with numbers and text alone, and how many arguments
@@ -194,7 +200,6 @@ const contextMethods = {
   arcTo: 5,
   ellipse: 7,
   rect: 4,
-  roundRect: 4,
   fillRect: 4,
   strokeRect: 4,
   clearRect: 4,
@@ -307,6 +312,12 @@ export class Path2D {
     getPath = path => (path instanceof Path2D ? path.#path : undefined)
   }
 
+  roundRect(x, y, w, h, radii) {
+    checkArguments(arguments, 4, 'roundRect')
+    const args = getRoundRect(x, y, w, h, radii)
+    if (args) canvas.pathMethods.roundRect.call(this.#path, ...args)
+  }
+
   addPath(path, transform) {
     checkArguments(arguments, 1, 'addPath')
     canvas.pathMethods.addPath.call(this.#path, getPath(path), transform)
@@ -322,8 +333,7 @@ for (const name of [
   'arc',
   'arcTo',
   'ellipse',
-  'rect',
-  'roundRect'
+  'rect'
 ]) {
   const counts = contextMethods[name]
   inject(Path2D.prototype, {
@@ -490,6 +500,42 @@ function getSize(value) {
     throw new TypeError(`Invalid canvas size: '${value}'.`)
   }
   return size
+}
+
+// The rectangle and the horizontal and vertical radii of its top-left,
+// top-right, bottom-right and bottom-left corners as it shows, for
+// `roundRect()`: `radii` a number, a `DOMPointInit` or a list of one to four of
+// them, as CSS's `border-radius` takes them. Nothing for values that aren't
+// finite, which draw nothing.
+function getRoundRect(x, y, w, h, radii = 0) {
+  const list =
+    isObject(radii) && typeof radii[Symbol.iterator] === 'function'
+      ? Array.from(radii)
+      : [radii]
+  if (list.length < 1 || list.length > 4) {
+    throw new RangeError(
+      `Invalid roundRect() radii: ${list.length}, not 1 to 4.`
+    )
+  }
+  const corners = list.map(radius => {
+    const { x: rx = 0, y: ry = 0 } =
+      isObject(radius) || radius === undefined
+        ? radius ?? {}
+        : { x: radius, y: radius }
+    return [+rx, +ry]
+  })
+  const numbers = [+x, +y, +w, +h, ...corners.flat()]
+  if (!numbers.every(Number.isFinite)) return null
+  if (corners.flat().some(r => r < 0)) {
+    throw new RangeError('Invalid roundRect() radius: it is negative.')
+  }
+  // Top-left, top-right, bottom-right, bottom-left, as the list gives them:
+  const [a, b = a, c = a, d = b] = corners
+  let [ul, ur, lr, ll] = corners.length === 3 ? [a, b, c, b] : [a, b, c, d]
+  // Where the width or height is negative, the corners show swapped:
+  if (w < 0) [ul, ur, lr, ll] = [ur, ul, ll, lr]
+  if (h < 0) [ul, ur, lr, ll] = [ll, lr, ur, ul]
+  return [+x, +y, +w, +h, ...ul, ...ur, ...lr, ...ll]
 }
 
 // A side of an `ImageData`: a whole number of pixels, more than none.

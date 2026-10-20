@@ -689,45 +689,56 @@ pub(crate) fn arc_to<H: Clone, T: Target>(call: &mut dyn Call<H>, this: &Value<H
     Ok(Value::Undefined)
 }
 
-/// `roundRect(x, y, w, h, radii)`: a rectangle with rounded corners, the radii a number or a list
-/// of one to four (top-left, top-right, bottom-right, bottom-left, as CSS has them).
+/// `roundRect(x, y, w, h, ...radii)`: a rectangle with elliptical corners, the radii the
+/// horizontal and vertical ones of its top-left, top-right, bottom-right and bottom-left corners
+/// as it shows (`js/src/canvas.js` reads them as the standard has them). It's drawn from `(x, y)`
+/// towards `x + w`, then `y + h`, so a negative width or height draws it the other way round;
+/// radii that don't fit shrink together.
 pub(crate) fn round_rect<H: Clone, T: Target>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let Some([x, y, w, h]) = finite(args, 0) else {
+    let Some([x, y, w, h, radii @ ..]) = finite::<12, H>(args, 0) else {
         return Ok(Value::Undefined);
     };
-    let radii: Vec<f64> = match args.get(4) {
-        Some(Value::Number(r)) => vec![*r],
-        Some(Value::Js(list)) => {
-            let count = match call.get(list, "length")? {
-                Value::Number(n) if n.is_finite() && n >= 0.0 => n as usize,
-                _ => 0,
-            };
-            (0..count.min(4))
-                .map(|i| call.get(list, &i.to_string()).map(|v| if let Value::Number(n) = v { n } else { 0.0 }))
-                .collect::<Result<_, _>>()?
-        }
-        _ => vec![0.0],
-    };
-    if radii.iter().any(|r| !r.is_finite() || *r < 0.0) {
-        return Err(Error::Range("roundRect: a radius is negative".into()));
-    }
-    let [tl, tr, br, bl] = match radii.as_slice() {
-        [a] => [*a; 4],
-        [a, b] => [*a, *b, *a, *b],
-        [a, b, c] => [*a, *b, *c, *b],
-        [a, b, c, d] => [*a, *b, *c, *d],
-        _ => [0.0; 4],
-    };
-    // Radii that don't fit shrink together, as the standard says.
-    let fit = [(tl + tr) / w.abs(), (bl + br) / w.abs(), (tl + bl) / h.abs(), (tr + br) / h.abs()]
+    let corners: [Vec2; 4] = [0, 2, 4, 6].map(|i| Vec2::new(radii[i], radii[i + 1]));
+    let [ul, ur, lr, ll] = corners;
+    let fit = [(ul.x + ur.x) / w.abs(), (ll.x + lr.x) / w.abs(), (ul.y + ll.y) / h.abs(), (ur.y + lr.y) / h.abs()]
         .into_iter()
         .filter(|f| f.is_finite())
         .fold(1.0f64, f64::max);
-    let [tl, tr, br, bl] = [tl / fit, tr / fit, br / fit, bl / fit];
-    let rounded = vello_cpu::kurbo::RoundedRect::from_rect(Rect::new(x, y, x + w, y + h).abs(), (tl, tr, br, bl));
+    // The corners as drawn, each with its radii, as the rectangle shows them.
+    let points = [Point::new(x, y), Point::new(x + w, y), Point::new(x + w, y + h), Point::new(x, y + h)];
+    let radius = |p: Point| {
+        let (left, top) = (p.x == x.min(x + w), p.y == y.min(y + h));
+        let r = match (left, top) {
+            (true, true) => ul,
+            (false, true) => ur,
+            (false, false) => lr,
+            (true, false) => ll,
+        };
+        r / fit
+    };
+    // The sides' directions, from each corner to the next; a quarter ellipse's control points, as
+    // a cubic Bézier curve draws one.
+    let (sx, sy) = (if w < 0.0 { -1.0 } else { 1.0 }, if h < 0.0 { -1.0 } else { 1.0 });
+    let sides = [Vec2::new(sx, 0.0), Vec2::new(0.0, sy), Vec2::new(-sx, 0.0), Vec2::new(0.0, -sy)];
+    const K: f64 = 0.552_284_749_830_793_4;
     T::with(call, this, |pen| {
         let t = pen.transform;
-        pen.path.extend(t * rounded.to_path(0.1));
+        // Each corner's ends, along the side it's reached by and the side it leaves on: the
+        // horizontal radius along a horizontal side.
+        let ends = |i: usize| {
+            let (corner, r) = (points[i], radius(points[i]));
+            let (incoming, outgoing) = (sides[(i + 3) % 4], sides[i]);
+            let (r_in, r_out) = if i.is_multiple_of(2) { (r.y, r.x) } else { (r.x, r.y) };
+            (corner - incoming * r_in, incoming * r_in * K, corner + outgoing * r_out, outgoing * r_out * K)
+        };
+        let (_, _, start, _) = ends(0);
+        pen.path.move_to(t * start);
+        for i in [1, 2, 3, 0] {
+            let (from, from_handle, to, to_handle) = ends(i);
+            pen.path.line_to(t * from);
+            pen.path.curve_to(t * (from + from_handle), t * (to - to_handle), t * to);
+        }
+        pen.path.close_path();
         pen.path.move_to(t * Point::new(x, y));
     })?;
     Ok(Value::Undefined)

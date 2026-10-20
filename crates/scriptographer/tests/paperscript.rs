@@ -532,6 +532,29 @@ fn scripts_measure_text<E: Engine>() {
     assert_eq!(runtime.take_output(), ["10px sans-serif", "true true true true", "true 0", "true"], "bold is wider than twice the size alone");
 }
 
+/// `roundRect()`'s radii as the standard reads them: elliptical ones too, and the errors.
+fn round_rects_take_elliptical_radii<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "const thrown = f => { try { return f() } catch (e) { return e.name } }\n\
+             const ctx = new OffscreenCanvas(40, 20).getContext('2d')\n\
+             ctx.roundRect(0, 0, 40, 20, new DOMPoint(20, 10))\n\
+             ctx.fill()\n\
+             const alpha = (x, y) => ctx.getImageData(x, y, 1, 1).data[3]\n\
+             console.log(alpha(2, 2), alpha(20, 10), alpha(20, 1), alpha(1, 10))\n\
+             console.log(thrown(() => ctx.roundRect(0, 0, 1, 1, [])), thrown(() => ctx.roundRect(0, 0, 1, 1, [-1])), thrown(() => ctx.roundRect(0, 0, 1, 1, 0n)), ctx.roundRect(0, 0, 1, 1, [NaN]))",
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.take_output(),
+        ["0 255 255 255", "RangeError RangeError TypeError undefined"],
+        "an ellipse fills the rectangle, its corners empty"
+    );
+}
+
 /// Matrices read CSS's transform functions, as a window's do.
 fn matrices_read_css<E: Engine>() {
     let mut runtime = Runtime::<E>::new().unwrap();
@@ -1446,6 +1469,11 @@ macro_rules! engine_tests {
             #[test]
             fn matrices_read_css() {
                 super::matrices_read_css::<$engine>();
+            }
+
+            #[test]
+            fn round_rects_take_elliptical_radii() {
+                super::round_rects_take_elliptical_radii::<$engine>();
             }
 
             #[test]
