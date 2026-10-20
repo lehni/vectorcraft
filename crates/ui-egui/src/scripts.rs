@@ -563,8 +563,11 @@ fn pump(app: &mut VectorcraftApp, script: &mut Running, mut frame: Option<f64>, 
 
 /// Sends `work` to the script with the active document.
 fn send(app: &mut VectorcraftApp, script: &mut Running, work: Work) -> Result<(), String> {
-    let state = app.session.documents().iter().find(|d| d.uid == script.doc).ok_or("the script's document is closed")?;
+    let index = app.session.documents().iter().position(|d| d.uid == script.doc).ok_or("the script's document is closed")?;
+    let state = app.session.documents().get(index).ok_or("the script's document is closed")?;
     let (doc, selection) = (state.doc.clone(), state.selection.clone());
+    // The document's view has its active artboard, the script's `project.activeArtboard`.
+    let artboard = app.views.get(index).map_or(0, |v| v.artboard);
     script.busy = Some(match &work {
         Work::Execute(_) => Kind::Execute,
         Work::Frame(_) => Kind::Frame,
@@ -582,7 +585,7 @@ fn send(app: &mut VectorcraftApp, script: &mut Running, work: Work) -> Result<()
     });
     let paint = &app.session.paint;
     let style = vectorcraft_papercraft::host::current_style(&paint.fill, &paint.stroke, paint.stroke_width);
-    script.worker.send(Request::Run { doc, selection, style, work });
+    script.worker.send(Request::Run { doc, selection, artboard, style, work });
     Ok(())
 }
 

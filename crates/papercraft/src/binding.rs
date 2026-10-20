@@ -9,7 +9,7 @@ use vectorcraft_doc::{Document, Node, NodeId, Selection};
 
 use crate::host::{Columns, TYPE_NAMES, flags, item_json};
 use crate::writeback::{self, Change};
-use crate::{Call, Engine, Error, Runtime, Scope, Value, handle, method, object};
+use crate::{Call, Engine, Error, Runtime, Scope, Value, define_getter, handle, method, object};
 
 /// The document a runtime's project reads from.
 pub(crate) struct Bound {
@@ -26,19 +26,29 @@ pub struct Patch<H> {
 
 impl<E: Engine> Runtime<E> {
     /// Makes the document the host of `scope`'s project, and tracks the project's changes.
+    /// `project.artboards` lists the document's artboards and `project.activeArtboard` is the
+    /// active one: VectorCraft's, on top of Paper.js.
     pub fn bind(&mut self, scope: &Scope<E::Handle>, doc: Arc<Document>, selection: Selection) -> Result<(), Error> {
         let selected = selection.objects.clone();
         self.host.borrow_mut().bound = Some(Bound { doc, selection });
         let get_children = self.engine.function("getChildren", get_children)?;
         let get_item = self.engine.function("getItem", get_item)?;
         let get_ancestor_keys = self.engine.function("getAncestorKeys", get_ancestor_keys)?;
+        let artboards = self.engine.function("artboards", artboards)?;
+        let active_artboard = self.engine.function("activeArtboard", active_artboard)?;
+        let global = self.engine.global()?;
+        let paper = &self.paper;
         self.engine.with_call(|call| {
+            let rectangle = object(call, paper, "Rectangle")?;
+            call.host()?.borrow_mut().rectangle = Some(rectangle);
             let host = call.new_object()?;
             call.set(&host, "getChildren", &Value::Js(get_children))?;
             call.set(&host, "getItem", &Value::Js(get_item))?;
             call.set(&host, "getAncestorKeys", &Value::Js(get_ancestor_keys))?;
             let project = object(call, &scope.0, "project")?;
             method(call, &project, "setHost", &[Value::Js(host)])?;
+            define_getter(call, &global, &project, "artboards", artboards)?;
+            define_getter(call, &global, &project, "activeArtboard", active_artboard)?;
             call.set(&project, "trackChanges", &Value::Bool(true))?;
             register(call, &project, &selected)
         })
@@ -192,6 +202,41 @@ fn key<H>(args: &[Value<H>]) -> Option<NodeId> {
         Some(Value::Number(n)) if n.is_finite() && *n >= 0.0 => Some(NodeId(*n as u64)),
         _ => None,
     }
+}
+
+impl<E: Engine> Runtime<E> {
+    /// Makes artboard `index` of the document `project.activeArtboard`.
+    pub fn set_artboard(&mut self, index: usize) {
+        self.host.borrow_mut().artboard = index;
+    }
+}
+
+/// `project.artboards`: the document's artboards, in order, each as `{ name, bounds }`.
+fn artboards<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let boards = with_bound(call, |doc, _| doc.artboards.iter().map(|a| (a.name.clone(), a.rect)).collect::<Vec<_>>())?;
+    let list = boards.into_iter().map(|(name, rect)| artboard(call, name, rect).map(Value::Js)).collect::<Result<Vec<_>, _>>()?;
+    Ok(Value::Js(call.new_array(&list)?))
+}
+
+/// `project.activeArtboard`: the active one of `project.artboards` (the first when there is no
+/// such artboard), `null` without artboards.
+fn active_artboard<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let index = call.host()?.borrow().artboard;
+    match with_bound(call, |doc, _| doc.artboards.get(index).or(doc.artboards.first()).map(|a| (a.name.clone(), a.rect)))? {
+        Some((name, rect)) => Ok(Value::Js(artboard(call, name, rect)?)),
+        None => Ok(Value::Null),
+    }
+}
+
+/// An artboard as scripts see it: `{ name, bounds }`.
+fn artboard<H: Clone>(call: &mut dyn Call<H>, name: String, rect: vectorcraft_geom::Rect) -> Result<H, Error> {
+    let rectangle = call.host()?.borrow().rectangle.clone().ok_or_else(|| Error::Script("no document is bound".into()))?;
+    let board = call.new_object()?;
+    call.set(&board, "name", &Value::String(name))?;
+    let args = [rect.x0, rect.y0, rect.width(), rect.height()].map(Value::Number);
+    let bounds = call.construct(&rectangle, &args)?;
+    call.set(&board, "bounds", &bounds)?;
+    Ok(board)
 }
 
 /// Runs `f` with the bound document and selection.

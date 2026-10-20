@@ -713,3 +713,15 @@ fn a_tool_script_gets_the_systems_times() {
     let log: Vec<&str> = app.scripts.log().iter().map(|l| l.text.as_str()).collect();
     assert_eq!(log, ["down 1000", "drag 1012", "drag 0"]);
 }
+
+/// A script's `project.activeArtboard` is the artboard active in its document's view.
+#[test]
+fn a_script_knows_the_active_artboard() {
+    let (mut app, _) = app();
+    app.run("artboard.new", json!({"x": 500, "y": 0, "width": 200, "height": 100})).unwrap();
+    app.view_mut().unwrap().artboard = 1;
+    let path = tempfile_path::Path::new("console.log(project.activeArtboard.name, project.artboards.length)");
+    app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
+    let log: Vec<&str> = app.scripts.log().iter().map(|l| l.text.as_str()).collect();
+    assert_eq!(log, ["Artboard 2 2"]);
+}

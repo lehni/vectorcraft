@@ -197,6 +197,27 @@ fn selection_goes_both_ways<E: Engine>() {
     assert_eq!(runtime.selected_ids(&scope).unwrap().into_iter().collect::<Vec<_>>(), [b]);
 }
 
+fn artboards_and_the_active_one<E: Engine>() {
+    let (mut s, _, _) = document();
+    s.execute("artboard.new", &json!({"x": 500, "y": 0, "width": 200, "height": 100})).unwrap();
+    let st = s.active().unwrap();
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(400.0, 300.0).unwrap();
+    runtime.bind(&scope, st.doc.clone(), st.selection.clone()).unwrap();
+    runtime.set_artboard(1);
+    runtime
+        .execute(
+            &scope,
+            "project.artboards.forEach(function(a) { console.log(a.name, a.bounds) })\n\
+             console.log(project.activeArtboard.name, project.activeArtboard.bounds.width, document.activeArtboard.name)",
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.take_output(),
+        ["Artboard 1 { x: 0, y: 0, width: 400, height: 300 }", "Artboard 2 { x: 500, y: 0, width: 200, height: 100 }", "Artboard 2 200 Artboard 2"]
+    );
+}
+
 fn tool_scripts_get_pointer_events<E: Engine>() {
     use vectorcraft_papercraft::{Modifiers, MouseEvent};
     let (s, _, _) = document();
@@ -358,6 +379,11 @@ macro_rules! engine_tests {
             #[test]
             fn selection_goes_both_ways() {
                 super::selection_goes_both_ways::<$engine>();
+            }
+
+            #[test]
+            fn artboards_and_the_active_one() {
+                super::artboards_and_the_active_one::<$engine>();
             }
 
             #[test]

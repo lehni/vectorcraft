@@ -75,6 +75,10 @@ pub struct Host<H> {
     intervals: Vec<Interval<H>>,
     /// The document the project reads from ([`Runtime::bind`]).
     bound: Option<binding::Bound>,
+    /// The document's active artboard, `project.activeArtboard` ([`Runtime::set_artboard`]).
+    artboard: usize,
+    /// Paper.js's `Rectangle`, for `project.artboards`.
+    rectangle: Option<H>,
     /// The methods of every `OffscreenCanvas`, by name.
     canvas_methods: Vec<(&'static str, H)>,
     /// Answers the script's dialogs ([`Runtime::set_ask`]).
@@ -105,6 +109,8 @@ impl<H> Default for Host<H> {
             now: 0.0,
             intervals: Vec::new(),
             bound: None,
+            artboard: 0,
+            rectangle: None,
             canvas_methods: Vec::new(),
             ask: None,
             dialog_globals: None,
@@ -157,11 +163,7 @@ impl<E: Engine> Runtime<E> {
             // In scripts, `document` is the project, as the project is VectorCraft's document: a
             // getter on the scope, which PaperScript makes a local name. Paper.js's own global
             // `document` (the DOM's, when there is one) stays as it is.
-            let descriptor = call.new_object()?;
-            call.set(&descriptor, "get", &Value::Js(document))?;
-            call.set(&descriptor, "enumerable", &Value::Bool(true))?;
-            let object_class = object(call, &global, "Object")?;
-            method(call, &object_class, "defineProperty", &[Value::Js(scope.clone()), Value::String("document".into()), Value::Js(descriptor)])?;
+            define_getter(call, &global, &scope, "document", document)?;
             Ok(Scope(scope))
         })
     }
@@ -445,6 +447,16 @@ fn event_options<H>(call: &mut dyn Call<H>, modifiers: Modifiers) -> Result<H, E
     let options = call.new_object()?;
     call.set(&options, "modifiers", &Value::Js(held))?;
     Ok(options)
+}
+
+/// Defines the read-only property `name` of `target`, which `getter` gives.
+fn define_getter<H: Clone>(call: &mut dyn Call<H>, global: &H, target: &H, name: &str, getter: H) -> Result<(), Error> {
+    let descriptor = call.new_object()?;
+    call.set(&descriptor, "get", &Value::Js(getter))?;
+    call.set(&descriptor, "enumerable", &Value::Bool(true))?;
+    let object_class = object(call, global, "Object")?;
+    method(call, &object_class, "defineProperty", &[Value::Js(target.clone()), Value::String(name.into()), Value::Js(descriptor)])?;
+    Ok(())
 }
 
 /// The handle in `value`, or an error naming what was expected.

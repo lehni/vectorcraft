@@ -18,9 +18,9 @@ use crate::{Engine, Error, Modifiers, MouseEvent, PaletteEvent, Patch, PlatformE
 
 /// What the app asks a worker to do.
 pub enum Request {
-    /// Catch up with the document and the style new art takes in the app (as
+    /// Catch up with the document, its active artboard and the style new art takes in the app (as
     /// [`crate::host::current_style`] makes it), then do `work`.
-    Run { doc: Arc<Document>, selection: Selection, style: Json, work: Work },
+    Run { doc: Arc<Document>, selection: Selection, artboard: usize, style: Json, work: Work },
     /// The answer to [`Reply::Changes`]: `document.patch`'s result, and the document after it.
     /// `behind` when the document had changed in other ways since the patch's base.
     Applied { result: Json, doc: Arc<Document>, selection: Selection, behind: bool },
@@ -98,7 +98,10 @@ impl<E: Engine> Script<E> {
 
     fn handle(&mut self, request: Request) -> Vec<Reply> {
         match request {
-            Request::Run { doc, selection, style, work } => self.run(doc, selection, style, work),
+            Request::Run { doc, selection, artboard, style, work } => {
+                self.runtime.set_artboard(artboard);
+                self.run(doc, selection, style, work)
+            }
             // An answer no dialog waits for.
             Request::Answer(_) => Vec::new(),
             Request::Applied { result, doc, selection, behind } => match self.pending.take() {
