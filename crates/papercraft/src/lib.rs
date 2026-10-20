@@ -21,6 +21,8 @@ pub mod host;
 mod modules;
 mod palette;
 #[cfg(not(target_arch = "wasm32"))]
+mod urls;
+#[cfg(not(target_arch = "wasm32"))]
 mod web;
 pub mod worker;
 mod writeback;
@@ -127,6 +129,9 @@ pub struct Host<H> {
     fetches: Vec<fetch::Pending<H>>,
     #[cfg(not(target_arch = "wasm32"))]
     resolvers: Option<(H, H)>,
+    /// `URL` and `URLSearchParams` outside a browser.
+    #[cfg(not(target_arch = "wasm32"))]
+    urls: Option<urls::Classes<H>>,
     next_palette_id: u64,
     /// `script.preferences` as last taken, as JSON.
     preferences: String,
@@ -173,6 +178,8 @@ impl<H> Default for Host<H> {
             fetches: Vec::new(),
             #[cfg(not(target_arch = "wasm32"))]
             resolvers: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            urls: None,
             next_palette_id: 0,
             preferences: String::new(),
             handlers: Vec::new(),
@@ -213,6 +220,8 @@ impl<E: Engine> Runtime<E> {
         web::install(&mut runtime, &global)?;
         #[cfg(not(target_arch = "wasm32"))]
         fetch::install(&mut runtime, &global)?;
+        #[cfg(not(target_arch = "wasm32"))]
+        urls::install(&mut runtime, &global)?;
         Ok(runtime)
     }
 
@@ -535,10 +544,14 @@ fn event_options<H>(call: &mut dyn Call<H>, modifiers: Modifiers) -> Result<H, E
     Ok(options)
 }
 
-/// Defines the read-only property `name` of `target`, which `getter` gives.
-fn define_getter<H: Clone>(call: &mut dyn Call<H>, global: &H, target: &H, name: &str, getter: H) -> Result<(), Error> {
+/// Defines the property `name` of `target`, which `getter` gives and `setter`, when there is one,
+/// changes; read-only without it.
+fn define_accessor<H: Clone>(call: &mut dyn Call<H>, global: &H, target: &H, name: &str, getter: H, setter: Option<H>) -> Result<(), Error> {
     let descriptor = call.new_object()?;
     call.set(&descriptor, "get", &Value::Js(getter))?;
+    if let Some(setter) = setter {
+        call.set(&descriptor, "set", &Value::Js(setter))?;
+    }
     call.set(&descriptor, "enumerable", &Value::Bool(true))?;
     let object_class = object(call, global, "Object")?;
     method(call, &object_class, "defineProperty", &[Value::Js(target.clone()), Value::String(name.into()), Value::Js(descriptor)])?;

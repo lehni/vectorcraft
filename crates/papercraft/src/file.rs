@@ -10,7 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::engine::HostFunction;
-use crate::{Call, Engine, Error, Runtime, Value, define_getter, method, object};
+use crate::{Call, Engine, Error, Runtime, Value, define_accessor, method, object};
 
 /// What `File` objects share: their prototype, and `Object`, which makes them from it.
 pub(crate) struct Files<H> {
@@ -29,7 +29,7 @@ pub(crate) fn install<E: Engine>(runtime: &mut Runtime<E>, global: &E::Handle) -
             call.set(&prototype, name, &Value::Js(function))?;
         }
         for (name, getter) in getters {
-            define_getter(call, global, &prototype, name, getter)?;
+            define_accessor(call, global, &prototype, name, getter, None)?;
         }
         call.set(&constructor, "prototype", &Value::Js(prototype.clone()))?;
         call.set(global, "File", &Value::Js(constructor))?;

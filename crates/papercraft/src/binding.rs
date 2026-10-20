@@ -9,7 +9,7 @@ use vectorcraft_doc::{Document, Node, NodeId, Selection};
 
 use crate::host::{Columns, TYPE_NAMES, flags, item_json};
 use crate::writeback::{self, Change};
-use crate::{Call, Engine, Error, Runtime, Scope, Value, define_getter, handle, method, object};
+use crate::{Call, Engine, Error, Runtime, Scope, Value, define_accessor, handle, method, object};
 
 /// The document a runtime's project reads from.
 pub(crate) struct Bound {
@@ -47,8 +47,8 @@ impl<E: Engine> Runtime<E> {
             call.set(&host, "getAncestorKeys", &Value::Js(get_ancestor_keys))?;
             let project = object(call, &scope.0, "project")?;
             method(call, &project, "setHost", &[Value::Js(host)])?;
-            define_getter(call, &global, &project, "artboards", artboards)?;
-            define_getter(call, &global, &project, "activeArtboard", active_artboard)?;
+            define_accessor(call, &global, &project, "artboards", artboards, None)?;
+            define_accessor(call, &global, &project, "activeArtboard", active_artboard, None)?;
             call.set(&project, "trackChanges", &Value::Bool(true))?;
             register(call, &project, &selected)
         })

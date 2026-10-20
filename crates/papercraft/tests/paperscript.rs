@@ -330,6 +330,37 @@ fn scripts_import_from_the_web<E: Engine>() {
     assert_eq!(runtime.take_output(), [format!("import {address}/lib/mod.js"), format!("import {address}/dep.js"), "{ x: 41, y: 42 }".to_owned()]);
 }
 
+fn scripts_have_urls<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "const url = new URL('../b/c?x=1&y=two#top', 'https://user:pw@example.com:8080/a/index.html')\n\
+             console.log(url.href, url.origin, url.host, url.pathname, url.search, url.hash, url.username)\n\
+             url.searchParams.append('z', 'a b')\n\
+             url.hash = ''\n\
+             console.log(url.toString(), url.searchParams.get('y'), url.searchParams.size)\n\
+             url.search = '?q=1'\n\
+             console.log(url.searchParams.get('q'), url.searchParams.has('x'), JSON.stringify({ url }))\n\
+             const params = new URLSearchParams({ b: 2, a: 1 })\n\
+             params.sort()\n\
+             console.log(String(params), [...new URLSearchParams('?k=v&k=w').getAll('k')], URL.canParse('nope'), URL.canParse('/x', 'http://h'))\n\
+             try { new URL('nope') } catch (e) { console.log('invalid') }",
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.take_output(),
+        [
+            "https://user:pw@example.com:8080/b/c?x=1&y=two#top https://example.com:8080 example.com:8080 /b/c ?x=1&y=two #top user",
+            "https://user:pw@example.com:8080/b/c?x=1&y=two&z=a+b two 3",
+            "1 false {\"url\":\"https://user:pw@example.com:8080/b/c?q=1\"}",
+            "a=1&b=2 v,w false true",
+            "invalid"
+        ]
+    );
+}
+
 fn fetch_classes_work_alone<E: Engine>() {
     let mut runtime = Runtime::<E>::new().unwrap();
     let scope = runtime.create_scope(800.0, 600.0).unwrap();
@@ -457,6 +488,11 @@ macro_rules! engine_tests {
             #[test]
             fn scripts_import_from_the_web() {
                 super::scripts_import_from_the_web::<$engine>();
+            }
+
+            #[test]
+            fn scripts_have_urls() {
+                super::scripts_have_urls::<$engine>();
             }
 
             #[test]

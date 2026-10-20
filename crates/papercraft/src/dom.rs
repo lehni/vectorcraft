@@ -3,7 +3,7 @@
 //! build or query elements (d3's selections, SVG builders) work; there is no layout, network or
 //! rendering behind it. In a browser, scripts have the page's own.
 
-use crate::{Call, Engine, Error, Runtime, Value, define_getter, object};
+use crate::{Call, Engine, Error, Runtime, Value, define_accessor, object};
 
 /// linkedom 0.18.13 and its dependencies as one script, which sets the global `linkedom`
 /// (ISC, MIT and BSD-2-Clause; see `vendor/LICENSE-linkedom.txt`, and the file's first line for
@@ -23,8 +23,8 @@ pub(crate) fn install<E: Engine>(runtime: &mut Runtime<E>, global: &E::Handle) -
         }
         let function = object(call, global, "Function")?;
         call.host()?.borrow_mut().dom = Dom::Unloaded(function);
-        define_getter(call, global, global, "window", window)?;
-        define_getter(call, global, global, "document", document)
+        define_accessor(call, global, global, "window", window, None)?;
+        define_accessor(call, global, global, "document", document, None)
     })
 }
 
