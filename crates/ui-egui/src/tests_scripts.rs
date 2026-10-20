@@ -754,8 +754,9 @@ fn a_script_picks_a_file() {
         seen.borrow_mut().push((pick.folder.clone(), pick.name.clone(), pick.filters.clone()));
         answers.pop().flatten()
     }));
-    let path =
-        tempfile_path::Path::new("print(Dialog.openFile('Open', { SVG: 'svg', 'All Files': '*' }, '/tmp/start.svg'))\nprint(Dialog.openFile())");
+    let path = tempfile_path::Path::new(
+        "print((await Dialog.openFile({ types: { SVG: 'svg', 'All Files': '*' }, path: '/tmp/start.svg' })).path)\nprint(await Dialog.openFile())",
+    );
     app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
     let ctx = egui::Context::default();
     for frame in 1..6 {

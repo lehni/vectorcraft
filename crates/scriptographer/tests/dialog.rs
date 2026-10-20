@@ -35,10 +35,13 @@ fn alert_and_confirm_ask_and_wait<E: Engine>() {
     assert_eq!(output, ["true"]);
 }
 
-fn file_dialogs_return_paths<E: Engine>() {
-    let script = "console.log(Dialog.openFile('Open', null, '/tmp/in.svg'))\n\
-        console.log(Dialog.saveFile())\n\
-        console.log(Dialog.chooseDirectory('Where?', '/tmp'))";
+fn file_dialogs_return_local_files<E: Engine>() {
+    let script = "(async () => {\n\
+        const file = await Dialog.openFile({ path: '/tmp/in.svg' })\n\
+        console.log(file instanceof LocalFile, file.path)\n\
+        console.log(await Dialog.saveFile())\n\
+        console.log((await Dialog.chooseDirectory({ path: new LocalFile('/tmp') })).path)\n\
+    })()";
     let (questions, output) = run::<E>(script, vec![json!("/tmp/b.svg"), Value::Null, json!("/tmp/out")]);
     assert_eq!(
         questions,
@@ -48,12 +51,12 @@ fn file_dialogs_return_paths<E: Engine>() {
             json!({"type": "chooseDirectory", "path": "/tmp", "filters": []})
         ]
     );
-    assert_eq!(output, ["/tmp/b.svg", "null", "/tmp/out"], "a cancelled dialog returns null");
+    assert_eq!(output, ["true /tmp/b.svg", "null", "/tmp/out"], "a cancelled dialog gives null");
 }
 
 fn file_dialogs_take_file_types<E: Engine>() {
-    let script = "Dialog.openFile('Open', { Text: ['txt', '*.text'], SVG: 'svg', 'All Files': '*' })\n\
-        Dialog.saveFile('Save', ['Text Files (*.txt)', '*.txt;*.text', 'All Files', '*.*', '*.svg'])";
+    let script = "Dialog.openFile({ types: { Text: ['txt', '*.text'], SVG: 'svg', 'All Files': '*' } })\n\
+        Dialog.saveFile({ types: ['Text Files (*.txt)', '*.txt;*.text', 'All Files', '*.*', '*.svg'] })";
     let (questions, _) = run::<E>(script, vec![Value::Null, Value::Null]);
     assert_eq!(questions[0]["filters"], json!([["Text", ["txt", "text"]], ["SVG", ["svg"]], ["All Files", []]]), "in the order written");
     assert_eq!(
@@ -197,8 +200,8 @@ macro_rules! engine_tests {
             }
 
             #[test]
-            fn file_dialogs_return_paths() {
-                super::file_dialogs_return_paths::<$engine>();
+            fn file_dialogs_return_local_files() {
+                super::file_dialogs_return_local_files::<$engine>();
             }
 
             #[test]

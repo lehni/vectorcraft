@@ -23,9 +23,10 @@ mod events;
 mod exception;
 #[cfg(not(target_arch = "wasm32"))]
 mod fetch;
-mod file;
 mod geometry;
 pub mod host;
+#[cfg(not(target_arch = "wasm32"))]
+mod local_file;
 mod modules;
 mod palette;
 mod path2d;
@@ -131,11 +132,12 @@ pub struct Host<H> {
     palettes: Vec<palette::Palette<H>>,
     /// The `reset()` of every palette.
     palette_reset: Option<H>,
-    /// What `File` objects share.
-    files: Option<file::Files<H>>,
+    /// What `LocalFile` objects share.
+    #[cfg(not(target_arch = "wasm32"))]
+    files: Option<local_file::Files<H>>,
     /// The script's file, which its imports are relative to.
     file: Option<std::path::PathBuf>,
-    /// The script's folder, which relative paths of `File`s are in.
+    /// The script's folder, which relative paths of `LocalFile`s are in.
     directory: Option<std::path::PathBuf>,
     /// What `import` needs, once a script runs.
     loader: Option<modules::Loader<H>>,
@@ -193,6 +195,8 @@ pub struct Host<H> {
     preferences: String,
     /// The [`HANDLERS`] the scripts defined, by name.
     handlers: Vec<(&'static str, H)>,
+    /// Why a script with top-level `await` failed, once it did, for the call it happened in.
+    failure: Option<Error>,
 }
 
 struct Interval<H> {
@@ -220,6 +224,7 @@ impl<H> Default for Host<H> {
             dialog_globals: None,
             palettes: Vec::new(),
             palette_reset: None,
+            #[cfg(not(target_arch = "wasm32"))]
             files: None,
             file: None,
             directory: None,
@@ -260,6 +265,7 @@ impl<H> Default for Host<H> {
             language: None,
             preferences: String::new(),
             handlers: Vec::new(),
+            failure: None,
         }
     }
 }
@@ -312,7 +318,6 @@ impl<E: Engine> Runtime<E> {
         let mut runtime = Self { engine, host, paper, load };
         dialog::install(&mut runtime, &global)?;
         palette::install(&mut runtime.engine, &global)?;
-        file::install(&mut runtime, &global)?;
         // After Paper.js, which would take a DOM for a browser's.
         #[cfg(not(target_arch = "wasm32"))]
         dom::install(&mut runtime, &global)?;
@@ -320,6 +325,9 @@ impl<E: Engine> Runtime<E> {
         web::install(&mut runtime, &global)?;
         #[cfg(not(target_arch = "wasm32"))]
         fetch::install(&mut runtime, &global)?;
+        // After `File`, which it extends.
+        #[cfg(not(target_arch = "wasm32"))]
+        local_file::install(&mut runtime, &global)?;
         #[cfg(not(target_arch = "wasm32"))]
         urls::install(&mut runtime, &global)?;
         #[cfg(not(target_arch = "wasm32"))]
@@ -347,8 +355,27 @@ impl<E: Engine> Runtime<E> {
     }
 
     /// Compiles and runs `source` as PaperScript in `scope`, with its `import`s ([`modules`]). The
-    /// [`HANDLERS`] it defines are kept for [`Runtime::call_handler`].
+    /// [`HANDLERS`] it defines are kept for [`Runtime::call_handler`]: with top-level `await`, once
+    /// it has finished, and its failure is the error of this call, or of the frame it happens in
+    /// ([`Runtime::run_timers`]).
     pub fn execute(&mut self, scope: &Scope<E::Handle>, source: &str) -> Result<(), Error> {
+        let kept = self.engine.function("kept", |call, _, args| {
+            keep_handlers(call, args.first())?;
+            Ok(Value::Undefined)
+        })?;
+        let failed = self.engine.function("failed", |call, _, args| {
+            let reason = args.first().cloned().unwrap_or(Value::Undefined);
+            let mut message = call.to_string(&reason)?;
+            // The stack where the engine's starts with the error, as V8's does.
+            if let Value::Js(error) = &reason
+                && let Value::String(stack) = call.get(error, "stack")?
+                && stack.starts_with(&message)
+            {
+                message = stack;
+            }
+            call.host()?.borrow_mut().failure = Some(Error::Script(message));
+            Ok(Value::Undefined)
+        })?;
         let (paper, host, load) = (&self.paper, &self.host, &self.load);
         self.engine.with_call(|call| {
             let paperscript = object(call, paper, "PaperScript")?;
@@ -356,17 +383,15 @@ impl<E: Engine> Runtime<E> {
             let url = host.borrow().file.as_ref().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
             let options = modules::options(call, &url)?;
             let exports = method(call, &paperscript, "execute", &[Value::String(source.to_owned()), Value::Js(scope.0.clone()), Value::Js(options)])?;
-            if let Value::Js(exports) = exports {
-                for name in HANDLERS {
-                    if let Value::Js(handler) = call.get(&exports, name)? {
-                        let mut host = host.borrow_mut();
-                        host.handlers.retain(|(n, _)| n != &name);
-                        host.handlers.push((name, handler));
-                    }
+            // A script with top-level `await` gives a Promise of its exports.
+            match &exports {
+                Value::Js(promise) if matches!(call.get(promise, "then")?, Value::Js(_)) => {
+                    method(call, promise, "then", &[Value::Js(kept), Value::Js(failed)]).map(|_| ())
                 }
+                _ => keep_handlers(call, Some(&exports)),
             }
-            Ok(())
-        })
+        })?;
+        self.failure()
     }
 
     /// Runs `source` as a classic script in the realm's global scope, as a browser's `<script>`
@@ -448,7 +473,13 @@ impl<E: Engine> Runtime<E> {
                 call.call(&callback, &Value::Undefined, &[Value::Number(now)])?;
             }
             Ok(())
-        })
+        })?;
+        self.failure()
+    }
+
+    /// The failure of a script with top-level `await`, once it failed.
+    fn failure(&mut self) -> Result<(), Error> {
+        self.host.borrow_mut().failure.take().map_or(Ok(()), Err)
     }
 
     /// Whether the scripts have something left to run: a timer, which `onFrame` uses too, a frame
@@ -473,7 +504,7 @@ impl<E: Engine> Runtime<E> {
     }
 
     /// Sets the global `script`, as Scriptographer's: `script.file` and `script.directory`, the
-    /// script's file and its folder (`null` for code typed in the console), `script.keepAlive`,
+    /// script's file and its folder as `LocalFile`s (`null` for code typed in the console), `script.keepAlive`,
     /// which the script sets to keep running when another script runs, and
     /// `script.preferences`, the preferences the script last left ([`Runtime::take_preferences`]).
     /// Its `localStorage` is kept in the app's folder for them, when it has one and the script a
@@ -495,14 +526,20 @@ impl<E: Engine> Runtime<E> {
         }
         self.engine.with_call(|call| {
             let script = call.new_object()?;
-            let file = match file {
-                Some(file) => file::new_file(call, std::path::Path::new(file))?,
-                None => Value::Null,
-            };
-            let directory = match &directory {
-                Some(directory) => file::new_file(call, directory)?,
-                None => Value::Null,
-            };
+            // On the web, scripts have no files.
+            #[cfg(not(target_arch = "wasm32"))]
+            let (file, directory) = (
+                match file {
+                    Some(file) => local_file::new_local_file(call, std::path::Path::new(file))?,
+                    None => Value::Null,
+                },
+                match &directory {
+                    Some(directory) => local_file::new_local_file(call, directory)?,
+                    None => Value::Null,
+                },
+            );
+            #[cfg(target_arch = "wasm32")]
+            let (file, directory) = (Value::Null, Value::Null);
             call.set(&script, "file", &file)?;
             call.set(&script, "directory", &directory)?;
             call.set(&script, "keepAlive", &Value::Bool(false))?;
@@ -671,6 +708,22 @@ impl<E: Engine> Runtime<E> {
 }
 
 /// The options of an event Paper.js dispatches: the keys held.
+/// Keeps the [`HANDLERS`] in a script's `exports` for [`Runtime::call_handler`].
+fn keep_handlers<H: Clone>(call: &mut dyn Call<H>, exports: Option<&Value<H>>) -> Result<(), Error> {
+    let Some(Value::Js(exports)) = exports else {
+        return Ok(());
+    };
+    for name in HANDLERS {
+        if let Value::Js(handler) = call.get(exports, name)? {
+            let host = call.host()?;
+            let mut host = host.borrow_mut();
+            host.handlers.retain(|(n, _)| n != &name);
+            host.handlers.push((name, handler));
+        }
+    }
+    Ok(())
+}
+
 fn event_options<H>(call: &mut dyn Call<H>, modifiers: Modifiers) -> Result<H, Error> {
     let held = call.new_object()?;
     for (name, down) in [("shift", modifiers.shift), ("control", modifiers.control), ("alt", modifiers.alt), ("meta", modifiers.meta)] {

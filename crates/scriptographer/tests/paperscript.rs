@@ -124,40 +124,71 @@ fn animation_frames_run_once_a_frame<E: Engine>() {
     assert!(!runtime.is_running());
 }
 
-fn files_read_write_and_list<E: Engine>(name: &str) {
+fn local_files_read_write_and_list<E: Engine>(name: &str) {
     let folder = std::env::temp_dir().join(format!("scriptographer-files-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&folder);
     std::fs::create_dir_all(&folder).unwrap();
     let mut runtime = Runtime::<E>::new().unwrap();
     runtime.set_script(&Setup { file: Some(folder.join("script.js").to_string_lossy().into_owned()), ..Setup::default() }).unwrap();
     let scope = runtime.create_scope(800.0, 600.0).unwrap();
-    runtime
-        .execute(
-            &scope,
-            "var notes = new File('notes.txt')\n\
-             console.log(notes.exists(), notes.name, notes.extension, notes.parent.path == script.directory.path)\n\
-             notes.open()\n\
-             notes.writeln('one')\n\
-             notes.write('two')\n\
-             notes.close()\n\
-             try { notes.write('three') } catch (e) { console.log(e.message) }\n\
-             notes.open({ append: true })\n\
-             notes.writeln('')\n\
-             notes.close()\n\
-             console.log(notes.exists(), notes.size, notes.readLines().join('|'))\n\
-             var sub = new File(script.directory, 'sub')\n\
-             sub.makeDirectory()\n\
-             notes.copyTo(new File(sub, 'copy.txt'))\n\
-             console.log(script.directory.list(/\\.txt$/).map(function(f) { return f.name }).join())\n\
-             console.log(script.directory.list(null, true).length, sub.list(function(f) { return f.isFile() })[0].readAll())\n\
-             console.log(sub.remove(), sub.remove(true), sub.exists(), String(notes) == notes.path)",
-        )
-        .unwrap();
+    let script = "const notes = new LocalFile('notes.txt')\n\
+         console.log(notes instanceof File, notes instanceof Blob, await notes.exists(), notes.name, notes.extension, notes.type, notes.parent.path == script.directory.path)\n\
+         try { await notes.text() } catch (e) { console.log(e.name) }\n\
+         await notes.write('one\\n')\n\
+         await notes.append(new Blob(['two']))\n\
+         console.log(await notes.exists(), notes.size, await notes.text(), (await notes.bytes()).length, (await notes.arrayBuffer()).byteLength, await notes.slice(-3).text())\n\
+         console.log(await new Response(notes).text() == await notes.text(), (await new Response(new FormData()).text()).length >= 0)\n\
+         const sub = await script.directory.file('sub')\n\
+         await sub.makeDirectory()\n\
+         const copy = await notes.copyTo(new LocalFile(script.directory, 'sub', 'copy.txt'))\n\
+         console.log(sub.isDirectory, copy.path == sub.path + '/copy.txt', (await script.directory.list()).map(f => f.name).join())\n\
+         await copy.rename('moved.txt')\n\
+         console.log(copy.name, (await sub.list()).map(f => f.name).join())\n\
+         try { await sub.remove() } catch (e) { console.log(e.name) }\n\
+         await sub.remove({ recursive: true })\n\
+         console.log(await sub.exists(), String(notes) == notes.path, script.file.name, Object.prototype.toString.call(notes))";
+    runtime.execute(&scope, &format!("(async () => {{ try {{ {script} }} catch (e) {{ console.log('error', e.name, e.message) }} }})()")).unwrap();
+    settle(&mut runtime);
     assert_eq!(
         runtime.take_output(),
-        ["false notes.txt txt true", "File: not opened", "true 8 one|two", "notes.txt", "3 one\ntwo\n", "false true false true"]
+        [
+            "true true false notes.txt txt text/plain true",
+            "NotFoundError",
+            "true 7 one\ntwo 7 7 two",
+            "true true",
+            "true true notes.txt,sub",
+            "moved.txt moved.txt",
+            "InvalidModificationError",
+            "false true script.js [object LocalFile]"
+        ]
     );
     std::fs::remove_dir_all(&folder).unwrap();
+}
+
+fn scripts_await_at_the_top_level<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime.execute(&scope, "const two = await Promise.resolve(2)\nconsole.log(two)\nfunction onStop() { console.log('stopped') }").unwrap();
+    runtime.run_timers(0.0).unwrap();
+    assert!(runtime.call_handler("onStop").unwrap(), "its handlers, once it has finished");
+    assert_eq!(runtime.take_output(), ["2", "stopped"]);
+    let failure = runtime.execute(&scope, "await null\nthrow new Error('now')").unwrap_err();
+    assert!(failure.to_string().contains("now"), "a failure before it returns is its error: {failure}");
+    runtime.execute(&scope, "await new Promise(resolve => setTimeout(resolve, 0))\nthrow new Error('later')").unwrap();
+    let failure = runtime.run_timers(1.0).unwrap_err();
+    assert!(failure.to_string().contains("later"), "a failure in a frame is the frame's error: {failure}");
+}
+
+fn files_are_blobs_with_a_name<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    let script = "const file = new File(['<svg/>'], 'dot.svg', { type: 'Image/SVG+XML', lastModified: 42 })\n\
+         console.log(file instanceof Blob, File.prototype instanceof Blob, file.name, file.type, file.size, file.lastModified, await file.text())\n\
+         try { File(['a'], 'a.txt') } catch (e) { console.log(e.name) }\n\
+         try { new File(['a']) } catch (e) { console.log(e.name) }";
+    runtime.execute(&scope, &format!("(async () => {{ try {{ {script} }} catch (e) {{ console.log('error', e.name, e.message) }} }})()")).unwrap();
+    settle(&mut runtime);
+    assert_eq!(runtime.take_output(), ["true true dot.svg image/svg+xml 6 42 <svg/>", "TypeError", "TypeError"]);
 }
 
 fn scripts_have_a_dom<E: Engine>() {
@@ -1169,8 +1200,18 @@ macro_rules! engine_tests {
             }
 
             #[test]
-            fn files_read_write_and_list() {
-                super::files_read_write_and_list::<$engine>(stringify!($module));
+            fn local_files_read_write_and_list() {
+                super::local_files_read_write_and_list::<$engine>(stringify!($module));
+            }
+
+            #[test]
+            fn scripts_await_at_the_top_level() {
+                super::scripts_await_at_the_top_level::<$engine>();
+            }
+
+            #[test]
+            fn files_are_blobs_with_a_name() {
+                super::files_are_blobs_with_a_name::<$engine>();
             }
 
             #[test]

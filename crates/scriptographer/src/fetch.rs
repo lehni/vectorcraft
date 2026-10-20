@@ -121,20 +121,24 @@ fn classes<H: Clone>() -> Vec<Class<H>> {
                 new_blob(call, &bytes, &kind)
             },
             vec![
-                ("text", |call, this, _| {
-                    let bytes = blob_bytes(call, this)?;
-                    resolved(call, Value::String(String::from_utf8_lossy(&bytes).into_owned()))
+                ("text", |call, this, _| match blob_bytes(call, this) {
+                    Ok(bytes) => resolved(call, Value::String(String::from_utf8_lossy(&bytes).into_owned())),
+                    Err(e) => rejected(call, e),
                 }),
-                ("arrayBuffer", |call, this, _| {
-                    let bytes = blob_bytes(call, this)?;
-                    let array = call.new_uint8_array(&bytes)?;
-                    let buffer = call.get(&array, "buffer")?;
-                    resolved(call, buffer)
+                ("arrayBuffer", |call, this, _| match blob_bytes(call, this) {
+                    Ok(bytes) => {
+                        let array = call.new_uint8_array(&bytes)?;
+                        let buffer = call.get(&array, "buffer")?;
+                        resolved(call, buffer)
+                    }
+                    Err(e) => rejected(call, e),
                 }),
-                ("bytes", |call, this, _| {
-                    let bytes = blob_bytes(call, this)?;
-                    let array = call.new_uint8_array(&bytes)?;
-                    resolved(call, Value::Js(array))
+                ("bytes", |call, this, _| match blob_bytes(call, this) {
+                    Ok(bytes) => {
+                        let array = call.new_uint8_array(&bytes)?;
+                        resolved(call, Value::Js(array))
+                    }
+                    Err(e) => rejected(call, e),
                 }),
                 ("slice", |call, this, args| {
                     let bytes = blob_bytes(call, this)?;
@@ -154,6 +158,8 @@ fn classes<H: Clone>() -> Vec<Class<H>> {
                 }),
             ],
         ),
+        // A `Blob` with a name: its prototype extends `Blob`'s.
+        ("File", construct_file, vec![]),
         (
             "FormData",
             |call, _, _| {
@@ -381,6 +387,13 @@ pub(crate) fn install<E: Engine>(runtime: &mut Runtime<E>, global: &E::Handle) -
                 method(call, &reflect, "set", &[Value::Js(prototype.clone()), iterator.clone(), Value::Js(entries.clone())])?;
             }
             call.set(&constructor, "prototype", &Value::Js(prototype.clone()))?;
+            if name == "File" {
+                let blob = object(call, global, "Blob")?;
+                let blob_prototype = call.get(&blob, "prototype")?;
+                let object_class = object(call, global, "Object")?;
+                method(call, &object_class, "setPrototypeOf", &[Value::Js(prototype.clone()), blob_prototype])?;
+                method(call, &object_class, "setPrototypeOf", &[Value::Js(constructor.clone()), Value::Js(blob)])?;
+            }
             if name == "AbortSignal" {
                 call.set(&constructor, "abort", &Value::Js(signal_abort.clone()))?;
                 call.set(&constructor, "timeout", &Value::Js(signal_timeout.clone()))?;
@@ -393,7 +406,7 @@ pub(crate) fn install<E: Engine>(runtime: &mut Runtime<E>, global: &E::Handle) -
             prototypes.push(prototype);
         }
         call.set(global, "fetch", &Value::Js(fetch))?;
-        let [headers, blob, form_data, request, response, abort_controller, abort_signal]: [E::Handle; 7] =
+        let [headers, blob, _file, form_data, request, response, abort_controller, abort_signal]: [E::Handle; 8] =
             prototypes.try_into().map_err(|_| Error::Script("fetch: the classes didn't set up".into()))?;
         Ok(Some(Classes {
             object: object(call, global, "Object")?,
@@ -568,21 +581,47 @@ fn json_text(value: &serde_json::Value) -> String {
 /// A `Blob` of `bytes`, of MIME type `kind`.
 pub(crate) fn new_blob<H: Clone>(call: &mut dyn Call<H>, bytes: &[u8], kind: &str) -> Result<Value<H>, Error> {
     let blob = create(call, |c| &c.blob)?;
-    let array = call.new_uint8_array(bytes)?;
-    call.set(&blob, "_bytes", &Value::Js(array))?;
-    call.set(&blob, "size", &Value::Number(bytes.len() as f64))?;
-    call.set(&blob, "type", &Value::String(kind.to_owned()))?;
+    fill_blob(call, &blob, bytes, kind)?;
     Ok(Value::Js(blob))
 }
 
+/// Gives `blob` (a `Blob` or a `File`) `bytes` of MIME type `kind`.
+fn fill_blob<H: Clone>(call: &mut dyn Call<H>, blob: &H, bytes: &[u8], kind: &str) -> Result<(), Error> {
+    let array = call.new_uint8_array(bytes)?;
+    call.set(blob, "_bytes", &Value::Js(array))?;
+    call.set(blob, "size", &Value::Number(bytes.len() as f64))?;
+    call.set(blob, "type", &Value::String(kind.to_owned()))
+}
+
+/// `new File(parts, name, options)`, on `this`, the object `new` made: a `Blob` with a `name`, and
+/// a `lastModified` time (now unless `options` says), in milliseconds.
+fn construct_file<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let (Value::Js(file), Some(name)) = (this, args.get(1)) else {
+        return Err(Error::Type("File needs its parts and its name".into()));
+    };
+    let bytes = parts(call, args.first())?;
+    let name = call.to_string(name)?;
+    let kind = option_text(call, args.get(2), "type")?.unwrap_or_default().to_ascii_lowercase();
+    let last_modified = match option_value(call, args.get(2), "lastModified")? {
+        Some(time) => call.to_number(&time)?.trunc(),
+        None => std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64),
+    };
+    fill_blob(call, file, &bytes, &kind)?;
+    call.set(file, "name", &Value::String(name))?;
+    call.set(file, "lastModified", &Value::Number(last_modified))?;
+    call.set(file, "webkitRelativePath", &Value::String(String::new()))?;
+    Ok(Value::Undefined)
+}
+
 pub(crate) fn is_blob<H: Clone>(call: &mut dyn Call<H>, value: &H) -> Result<bool, Error> {
-    Ok(matches!(call.get(value, "_bytes")?, Value::Js(_)))
+    Ok(matches!(call.get(value, "_bytes")?, Value::Js(_)) || crate::local_file::is_local_file(call, value)?)
 }
 
 pub(crate) fn blob_bytes<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>) -> Result<Vec<u8>, Error> {
     match this {
         Value::Js(blob) => match call.get(blob, "_bytes")? {
             Value::Js(bytes) => call.bytes(&bytes),
+            _ if crate::local_file::is_local_file(call, blob)? => crate::local_file::read(call, this),
             _ => Err(Error::Script("not a Blob".into())),
         },
         _ => Err(Error::Script("not a Blob".into())),
@@ -615,7 +654,7 @@ fn part_bytes<H: Clone>(call: &mut dyn Call<H>, part: &Value<H>) -> Result<Vec<u
 }
 
 /// A body's bytes and the content type it implies: a string, bytes, a `Blob` or `FormData`.
-fn body_bytes<H: Clone>(call: &mut dyn Call<H>, body: &Value<H>) -> Result<(Vec<u8>, Option<String>), Error> {
+pub(crate) fn body_bytes<H: Clone>(call: &mut dyn Call<H>, body: &Value<H>) -> Result<(Vec<u8>, Option<String>), Error> {
     match body {
         Value::Js(object) if is_blob(call, object)? => {
             let kind = match call.get(object, "type")? {

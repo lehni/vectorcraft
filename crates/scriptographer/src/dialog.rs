@@ -1,18 +1,17 @@
 //! Scriptographer's `Dialog`: `Dialog.alert([title,] message)`, `Dialog.confirm([title,]
-//! message)`, `Dialog.prompt(title, components, values)`, the file dialogs
-//! `Dialog.openFile([message, filters, selectedFile])`, `Dialog.saveFile(…)` (Scriptographer's
-//! `fileOpen` and `fileSave`) and `Dialog.chooseDirectory([message, selectedDirectory])`, and
-//! `Dialog.chooseColor([color])`. Each
-//! one asks the host ([`Runtime::set_ask`]) and waits for the answer, which the user gives in a
-//! dialog the app shows: scripts block on them as they did in Scriptographer.
+//! message)`, `Dialog.prompt(title, components, values)`, `Dialog.chooseColor([color])`, and the
+//! file dialogs `Dialog.openFile({ types, path })`, `Dialog.saveFile(…)` and
+//! `Dialog.chooseDirectory({ path })`, Promises of a `LocalFile` or `null`. Each one asks the host
+//! ([`Runtime::set_ask`]) and waits for the answer, which the user gives in a dialog the app shows:
+//! scripts block on them as they did in Scriptographer.
 //!
 //! The host gets the question as JSON: `{type: 'alert' | 'confirm', title, message}`, or
 //! `{type: 'prompt', title, components: [{name, type, label, value, …}]}` with each component's
 //! definition as the script wrote it, its type filled in where the script left it out, and its
 //! value from `values` or the definition, or `{type: 'openFile' | 'saveFile' | 'chooseDirectory',
-//! path, filters}` with the file or folder to start from. It answers `true` (OK) or `false`, for a prompt
-//! the values by name, for a file dialog the path, or `null` (Cancel). The file dialogs return
-//! a `File`; their `filters` come as `[label, [extensions]]`.
+//! path, filters}` with the file or folder to start from. It answers `true` (OK) or `false`,
+//! for a prompt the values by name, for a file dialog the path, or `null` (Cancel). The file
+//! dialogs' `filters` come as `[label, [extensions]]`.
 //! `chooseColor` is a prompt with one colour.
 
 use serde_json::{Map, Value as Json, json};
@@ -45,9 +44,15 @@ pub(crate) fn install<E: Engine>(runtime: &mut Runtime<E>, global: &E::Handle) -
     let alert = runtime.engine.function("alert", alert)?;
     let confirm = runtime.engine.function("confirm", confirm)?;
     let prompt = runtime.engine.function("prompt", prompt)?;
-    let open_file = runtime.engine.function("openFile", |call, _, args| file(call, "openFile", args.get(1), args.get(2)))?;
-    let save_file = runtime.engine.function("saveFile", |call, _, args| file(call, "saveFile", args.get(1), args.get(2)))?;
-    let choose_directory = runtime.engine.function("chooseDirectory", |call, _, args| file(call, "chooseDirectory", None, args.get(1)))?;
+    #[cfg(not(target_arch = "wasm32"))]
+    let files = [
+        ("openFile", runtime.engine.function("openFile", |call, _, args| file(call, "openFile", args.first()))?),
+        ("saveFile", runtime.engine.function("saveFile", |call, _, args| file(call, "saveFile", args.first()))?),
+        ("chooseDirectory", runtime.engine.function("chooseDirectory", |call, _, args| file(call, "chooseDirectory", args.first()))?),
+    ];
+    // The web's file dialogs come with its `LocalFile`.
+    #[cfg(target_arch = "wasm32")]
+    let files: [(&str, E::Handle); 0] = [];
     let choose_color = runtime.engine.function("chooseColor", choose_color)?;
     let paper = runtime.paper.clone();
     let globals = runtime.engine.with_call(|call| {
@@ -55,9 +60,9 @@ pub(crate) fn install<E: Engine>(runtime: &mut Runtime<E>, global: &E::Handle) -
         call.set(&dialog, "alert", &Value::Js(alert))?;
         call.set(&dialog, "confirm", &Value::Js(confirm))?;
         call.set(&dialog, "prompt", &Value::Js(prompt))?;
-        call.set(&dialog, "openFile", &Value::Js(open_file))?;
-        call.set(&dialog, "saveFile", &Value::Js(save_file))?;
-        call.set(&dialog, "chooseDirectory", &Value::Js(choose_directory))?;
+        for (name, function) in files {
+            call.set(&dialog, name, &Value::Js(function))?;
+        }
         call.set(&dialog, "chooseColor", &Value::Js(choose_color))?;
         call.set(global, "Dialog", &Value::Js(dialog))?;
         Ok(Globals { json: object(call, global, "JSON")?, object: object(call, global, "Object")?, color: object(call, &paper, "Color")? })
@@ -97,27 +102,38 @@ fn confirm<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Re
     Ok(Value::Bool(answer == Json::Bool(true)))
 }
 
-/// A file dialog of `kind`, starting from `path` when the script gives one (a path or a `File`):
-/// the `File` picked, or `null` when the user cancelled.
-fn file<H: Clone>(call: &mut dyn Call<H>, kind: &str, filters: Option<&Value<H>>, path: Option<&Value<H>>) -> Result<Value<H>, Error> {
-    let path = match path {
-        None | Some(Value::Undefined | Value::Null) => Json::Null,
-        Some(path) => Json::String(call.to_string(path)?),
-    };
-    let filters = match filters {
-        Some(Value::Js(filters)) => file_types(call, filters)?,
-        _ => Vec::new(),
-    };
-    match ask(call, json!({ "type": kind, "path": path, "filters": filters }))? {
-        Json::String(path) => crate::file::new_file(call, std::path::Path::new(&path)),
-        _ => Ok(Value::Null),
-    }
+/// `Dialog.openFile(options)`, `saveFile(options)` and `chooseDirectory(options)`: a Promise of
+/// the `LocalFile` the user picked, or `null` when they cancelled. `options` are its file `types`
+/// (not for `chooseDirectory`) and the `path` it starts from (a path or a `LocalFile`; for
+/// `saveFile`, the file it suggests).
+#[cfg(not(target_arch = "wasm32"))]
+fn file<H: Clone>(call: &mut dyn Call<H>, kind: &str, options: Option<&Value<H>>) -> Result<Value<H>, Error> {
+    let picked = (|| {
+        let (types, path) = match options {
+            Some(Value::Js(options)) => (call.get(options, "types")?, call.get(options, "path")?),
+            _ => (Value::Undefined, Value::Undefined),
+        };
+        let path = match path {
+            Value::Undefined | Value::Null => Json::Null,
+            path => Json::String(call.to_string(&path)?),
+        };
+        let filters = match types {
+            Value::Js(types) if kind != "chooseDirectory" => file_types(call, &types)?,
+            _ => Vec::new(),
+        };
+        match ask(call, json!({ "type": kind, "path": path, "filters": filters }))? {
+            Json::String(path) => crate::local_file::new_local_file(call, std::path::Path::new(&path)),
+            _ => Ok(Value::Null),
+        }
+    })();
+    crate::local_file::settled(call, picked)
 }
 
 /// A file dialog's file types as `[label, [extensions]]`, the first the default, from `filters`:
 /// labels and their extensions in the script's order (`{ Text: ['txt', 'text'], SVG: 'svg',
 /// 'All Files': '*' }`), or Scriptographer's pairs of a label and its patterns (`['Text (*.txt)',
 /// '*.txt;*.text', 'All Files', '*.*']`). A type without extensions (`'*'`) shows every file.
+#[cfg(not(target_arch = "wasm32"))]
 fn file_types<H: Clone>(call: &mut dyn Call<H>, filters: &H) -> Result<Vec<Json>, Error> {
     let globals = globals(call)?;
     let pairs: Vec<(String, Json)> = match to_json(call, &globals, &Value::Js(filters.clone()))? {
