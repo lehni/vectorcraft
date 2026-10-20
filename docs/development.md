@@ -48,6 +48,19 @@ How the web shell (`apps/vectorcraft-web/src/web.rs`) differs from desktop:
 - **No control server:** browsers can't listen on TCP. To automate the web build, drive headless Chrome with `--remote-debugging-port`.
 - Quick smoke test: `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --enable-unsafe-webgpu --screenshot=web.png --window-size=1440,900 --virtual-time-budget=15000 http://127.0.0.1:8766/` (headless Chrome on macOS gets a real WebGPU adapter).
 
+## Scriptographer's JavaScript
+
+Scriptographer is a JavaScript scripting engine, so what its scripts see is written in JavaScript where that makes more sense than Rust (`crates/scriptographer/js/src`, ES modules), as Paper.js itself is. esbuild bundles the sources into `js/dist/scriptographer.js` (every platform) and `js/dist/scriptographer-web.js` (the web), which are committed and built into the runtime with `include_str!`, so building VectorCraft needs no Node. Changing the JavaScript needs Node 24 or newer and pnpm:
+
+```sh
+cd crates/scriptographer/js
+pnpm install
+pnpm run build          # the bundles in dist/, from src/
+pnpm run prettier:fix   # Prettier with Penere, as Dito.js formats
+```
+
+`cargo xtask ci` checks both (its `scriptographer-js` step): the sources formatted, and the bundles in `dist/` as `src/` builds them.
+
 ## Desktop graphics processor
 
 The canvas is rasterized on the CPU (`vectorcraft-render`, vello_cpu); the GPU (wgpu, through eframe) only composites the canvas texture and draws the UI, so any GPU that can show the window will do. The desktop app picks the window's adapter itself (`apps/vectorcraft/src/gpu.rs`, eframe's `native_adapter_selector`) and logs every adapter it found and the one it uses.

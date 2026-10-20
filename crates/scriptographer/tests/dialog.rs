@@ -41,17 +41,20 @@ fn file_dialogs_return_local_files<E: Engine>() {
         console.log(file instanceof LocalFile, file.path)\n\
         console.log(await Dialog.saveFile())\n\
         console.log((await Dialog.chooseDirectory({ path: new LocalFile('/tmp') })).path)\n\
+        console.log((await Dialog.openFiles({ types: { Text: 'txt' } })).map(file => file.name).join())\n\
     })()";
-    let (questions, output) = run::<E>(script, vec![json!("/tmp/b.svg"), Value::Null, json!("/tmp/out")]);
+    let answers = vec![json!("/tmp/b.svg"), Value::Null, json!("/tmp/out"), json!(["/tmp/a.txt", "/tmp/b.txt"])];
+    let (questions, output) = run::<E>(script, answers);
     assert_eq!(
         questions,
         [
             json!({"type": "openFile", "path": "/tmp", "filters": []}),
             json!({"type": "saveFile", "path": null, "filters": []}),
-            json!({"type": "chooseDirectory", "path": "/tmp", "filters": []})
+            json!({"type": "chooseDirectory", "path": "/tmp", "filters": []}),
+            json!({"type": "openFiles", "path": null, "filters": [["Text", ["txt"]]]})
         ]
     );
-    assert_eq!(output, ["true /tmp/b.svg", "null", "/tmp/out"], "a cancelled dialog gives null");
+    assert_eq!(output, ["true /tmp/b.svg", "null", "/tmp/out", "a.txt,b.txt"], "a cancelled dialog gives null");
     assert_eq!(questions[0]["path"], "/tmp", "open dialogs start in the file's directory");
 }
 

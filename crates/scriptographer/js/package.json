@@ -1,0 +1,21 @@
+{
+  "name": "@vectorcraft/scriptographer",
+  "private": true,
+  "type": "module",
+  "description": "What Scriptographer's scripts see, written in JavaScript: bundled into dist/, which the runtime loads",
+  "scripts": {
+    "build": "node build.js",
+    "check": "node build.js --check && pnpm run prettier",
+    "prettier": "prettier 'src/**/*.js' '*.js' --check",
+    "prettier:fix": "prettier 'src/**/*.js' '*.js' --write"
+  },
+  "engines": {
+    "node": ">= 24.0.0"
+  },
+  "packageManager": "pnpm@12.9.0",
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "prettier": "~3.9.10",
+    "prettier-plugin-penere": "^0.4.0"
+  }
+}

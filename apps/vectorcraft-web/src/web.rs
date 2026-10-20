@@ -483,60 +483,54 @@ fn services(inbox: Inbox, place_inbox: PlaceInbox, ctx: egui::Context, locks: Op
     }
 }
 
-/// The file picker for a script's file dialog, in the click on the app's Choose…: the browser's
-/// own where it has one (Chromium), which gives a handle the script writes through, else the
-/// `<input type="file">` one, whose file can only be read; saving without a picker downloads the
-/// file under the name the script suggests. `done` gets nothing when the user cancelled.
+/// The picker for a script (`question`: `type`, and the picker's `options` as JSON), in the click
+/// on the app's Choose…: the browser's own where it has one (Chromium), whose handles it gives, else
+/// `<input type="file">`, whose files it gives; saving without a picker gives the name to download
+/// as. `done` gets nothing when the user cancelled.
 fn script_pick(question: &serde_json::Value, done: Box<dyn FnOnce(Option<vectorcraft_ui_egui::Picked>)>) {
     use vectorcraft_ui_egui::Picked;
     let kind = question["type"].as_str().unwrap_or_default();
-    let name = question["name"].as_str().filter(|n| !n.is_empty()).unwrap_or("Untitled").to_owned();
-    let filters: Vec<(String, Vec<String>)> = question["filters"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|f| Some((f[0].as_str()?.to_owned(), f[1].as_array()?.iter().filter_map(|e| Some(e.as_str()?.to_owned())).collect())))
-        .collect();
-    let picker = if kind == "saveFile" { "showSaveFilePicker" } else { "showOpenFilePicker" };
+    let options = &question["options"];
+    let picker = match kind {
+        "saveFile" => "showSaveFilePicker",
+        "chooseDirectory" => "showDirectoryPicker",
+        _ => "showOpenFilePicker",
+    };
     let window: wasm_bindgen::JsValue = web_sys::window().map(Into::into).unwrap_or_default();
     match js_sys::Reflect::get(&window, &picker.into()).ok().and_then(|f| f.dyn_into::<js_sys::Function>().ok()) {
         Some(show) => {
-            // The types with extensions; one without shows every file, as the picker's own does.
-            let types: Vec<serde_json::Value> = filters
-                .iter()
-                .filter(|(_, extensions)| !extensions.is_empty())
-                .map(|(label, extensions)| {
-                    let dotted: Vec<String> = extensions.iter().map(|e| format!(".{e}")).collect();
-                    serde_json::json!({ "description": label, "accept": { "application/octet-stream": dotted } })
-                })
-                .collect();
-            let all = filters.is_empty() || filters.iter().any(|(_, extensions)| extensions.is_empty());
-            let mut options = serde_json::json!({ "types": types, "excludeAcceptAllOption": !all });
-            if kind == "saveFile" {
-                options["suggestedName"] = serde_json::json!(name);
-            }
             let options = js_sys::JSON::parse(&options.to_string()).unwrap_or_default();
             let Ok(promise) = show.call1(&window, &options).and_then(|p| p.dyn_into::<js_sys::Promise>()) else {
                 return done(None);
             };
             wasm_bindgen_futures::spawn_local(async move {
-                // Cancelled, the Promise rejects with an `AbortError`.
-                let picked = wasm_bindgen_futures::JsFuture::from(promise).await.ok();
-                // The open picker gives a list of handles, the save picker one.
-                let handle = match picked {
-                    Some(list) if js_sys::Array::is_array(&list) => js_sys::Array::from(&list).get(0),
-                    Some(handle) => handle,
-                    None => wasm_bindgen::JsValue::UNDEFINED,
-                };
-                done((!handle.is_undefined()).then_some(Picked::Handle(handle)));
+                // Cancelled, the Promise rejects with an `AbortError`. The open picker gives a list
+                // of handles, the others one.
+                let picked = wasm_bindgen_futures::JsFuture::from(promise)
+                    .await
+                    .ok()
+                    .map(|picked| if js_sys::Array::is_array(&picked) { js_sys::Array::from(&picked).to_vec() } else { vec![picked] });
+                done(picked.map(Picked::Items));
             });
         }
-        None if kind == "saveFile" => done(Some(Picked::Download(name))),
+        None if kind == "saveFile" => {
+            let name = options["suggestedName"].as_str().filter(|n| !n.is_empty()).unwrap_or("Untitled");
+            done(Some(Picked::Download(name.to_owned())));
+        }
         None => {
-            let dialog = filters.iter().fold(rfd::AsyncFileDialog::new(), |d, (label, extensions)| d.add_filter(label.as_str(), extensions));
+            // The picker's types, as `<input>`'s: their extensions without the dot.
+            let types = options["types"].as_array().into_iter().flatten();
+            let dialog = types.fold(rfd::AsyncFileDialog::new(), |dialog, kind| {
+                let label = kind["description"].as_str().unwrap_or_default();
+                let accepted = kind["accept"].as_object().into_iter().flat_map(|accept| accept.values());
+                let listed = accepted.flat_map(|v| v.as_array().cloned().unwrap_or_else(|| vec![v.clone()]));
+                let extensions: Vec<String> = listed.filter_map(|e| Some(e.as_str()?.trim_start_matches('.').to_owned())).collect();
+                dialog.add_filter(label, &extensions)
+            });
+            let multiple = options["multiple"].as_bool().unwrap_or(false);
             wasm_bindgen_futures::spawn_local(async move {
-                let file = dialog.pick_file().await;
-                done(file.map(|file| Picked::File(file.inner().clone().into())));
+                let files = if multiple { dialog.pick_files().await } else { dialog.pick_file().await.map(|file| vec![file]) };
+                done(files.map(|files| Picked::Items(files.iter().map(|file| file.inner().clone().into()).collect())));
             });
         }
     }

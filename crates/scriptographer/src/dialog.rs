@@ -1,14 +1,13 @@
 //! Scriptographer's `Dialog`: `Dialog.alert([title,] message)`, `Dialog.confirm([title,]
-//! message)`, `Dialog.prompt(title, components, values)`, `Dialog.chooseColor([color])`, and the
-//! file dialogs `Dialog.openFile({ types, path })`, `Dialog.saveFile(…)` and
-//! `Dialog.chooseDirectory({ path })`, Promises of a `LocalFile` or `null`. Each one asks the host
-//! ([`Runtime::set_ask`]) and waits for the answer, which the user gives in a dialog the app shows:
-//! scripts block on them as they did in Scriptographer.
+//! message)`, `Dialog.prompt(title, components, values)` and `Dialog.chooseColor([color])`. Each
+//! one asks the host ([`Runtime::set_ask`]) and waits for the answer, which the user gives in a
+//! dialog the app shows: scripts block on them as they did in Scriptographer. Its file dialogs are
+//! JavaScript, over the standard pickers (`js/src/dialog.js`).
 //!
 //! On the web, where scripts can't wait, `alert` and `confirm` are the browser's own, and `prompt`,
-//! `chooseColor` and the file dialogs give Promises: their questions wait in a queue the app takes
-//! one at a time ([`Runtime::take_question`]), and its answer settles them ([`Runtime::answer`],
-//! [`Runtime::picked`]).
+//! `chooseColor` and the pickers (`js/src/web/pickers.js`) give Promises: their questions wait in a
+//! queue the app takes one at a time ([`Runtime::take_question`]), and its answer settles them
+//! ([`Runtime::answer`], [`Runtime::picked`]).
 //!
 //! The host gets the question as JSON: `{type: 'alert' | 'confirm', title, message}`, or
 //! `{type: 'prompt', title, components: [{name, type, label, value, …}]}` with each component's
@@ -36,16 +35,11 @@ pub(crate) struct Globals<H> {
     json: H,
     object: H,
     color: H,
-    /// The global object, whose pickers the file dialogs show (on the web, its `alert` and
-    /// `confirm`).
+    /// The global object, whose `alert` and `confirm` the web's are.
+    #[cfg(target_arch = "wasm32")]
     global: H,
     #[cfg(target_arch = "wasm32")]
     promise: H,
-    /// What the file dialogs make of the pickers' answers: a `LocalFile`, or `null`.
-    #[cfg(not(target_arch = "wasm32"))]
-    picked: H,
-    #[cfg(not(target_arch = "wasm32"))]
-    cancelled: H,
 }
 
 impl<E: Engine> Runtime<E> {
@@ -60,36 +54,23 @@ pub(crate) fn install<E: Engine>(runtime: &mut Runtime<E>, global: &E::Handle) -
     let alert = runtime.engine.function("alert", alert)?;
     let confirm = runtime.engine.function("confirm", confirm)?;
     let prompt = runtime.engine.function("prompt", prompt)?;
-    let files = [
-        ("openFile", runtime.engine.function("openFile", |call, _, args| file(call, "openFile", args.first()))?),
-        ("saveFile", runtime.engine.function("saveFile", |call, _, args| file(call, "saveFile", args.first()))?),
-        ("chooseDirectory", runtime.engine.function("chooseDirectory", |call, _, args| file(call, "chooseDirectory", args.first()))?),
-    ];
     let choose_color = runtime.engine.function("chooseColor", choose_color)?;
-    #[cfg(not(target_arch = "wasm32"))]
-    let (picked, cancelled) = (runtime.engine.function("picked", picked)?, runtime.engine.function("cancelled", cancelled)?);
     let paper = runtime.paper.clone();
     let globals = runtime.engine.with_call(|call| {
         let dialog = call.new_object()?;
         call.set(&dialog, "alert", &Value::Js(alert))?;
         call.set(&dialog, "confirm", &Value::Js(confirm))?;
         call.set(&dialog, "prompt", &Value::Js(prompt))?;
-        for (name, function) in files {
-            call.set(&dialog, name, &Value::Js(function))?;
-        }
         call.set(&dialog, "chooseColor", &Value::Js(choose_color))?;
         call.set(global, "Dialog", &Value::Js(dialog))?;
         Ok(Globals {
             json: object(call, global, "JSON")?,
             object: object(call, global, "Object")?,
             color: object(call, &paper, "Color")?,
+            #[cfg(target_arch = "wasm32")]
             global: global.clone(),
             #[cfg(target_arch = "wasm32")]
             promise: object(call, global, "Promise")?,
-            #[cfg(not(target_arch = "wasm32"))]
-            picked,
-            #[cfg(not(target_arch = "wasm32"))]
-            cancelled,
         })
     })?;
     runtime.host.borrow_mut().dialog_globals = Some(globals);
@@ -154,92 +135,6 @@ fn browser_text<H>(call: &mut dyn Call<H>, args: &[Value<H>]) -> Result<String, 
     Ok(if title == TITLE { message } else { format!("{title}\n\n{message}") })
 }
 
-/// `Dialog.openFile(options)`, `saveFile(options)` and `chooseDirectory(options)`: a Promise of
-/// the `LocalFile` the user picked, or `null` when they cancelled, from the realm's
-/// `showOpenFilePicker()`, `showSaveFilePicker()` or `showDirectoryPicker()`. `options` are its
-/// file `types` (not for `chooseDirectory`) and the `path` it starts from (a path or a
-/// `LocalFile`; for `saveFile`, the file it suggests).
-#[cfg(not(target_arch = "wasm32"))]
-fn file<H: Clone>(call: &mut dyn Call<H>, kind: &str, options: Option<&Value<H>>) -> Result<Value<H>, Error> {
-    let globals = globals(call)?;
-    let (types, path) = match options {
-        Some(Value::Js(options)) => (call.get(options, "types")?, call.get(options, "path")?),
-        _ => (Value::Undefined, Value::Undefined),
-    };
-    let picker_options = call.new_object()?;
-    if let Value::Js(types) = types
-        && kind != "chooseDirectory"
-    {
-        // The types with extensions; one without shows every file, as the pickers' own does.
-        let mut accepted = Vec::new();
-        let mut all = false;
-        for kind in file_types(call, &types)? {
-            let (label, extensions) = (kind[0].as_str().unwrap_or_default(), kind[1].as_array().cloned().unwrap_or_default());
-            if extensions.is_empty() {
-                all = true;
-                continue;
-            }
-            let dotted: Vec<Json> = extensions.iter().filter_map(|e| e.as_str()).map(|e| Json::String(format!(".{e}"))).collect();
-            accepted.push(json!({ "description": label, "accept": { "application/octet-stream": dotted } }));
-        }
-        let accepted = from_json(call, &globals, &Json::Array(accepted))?;
-        call.set(&picker_options, "types", &accepted)?;
-        call.set(&picker_options, "excludeAcceptAllOption", &Value::Bool(!all))?;
-    }
-    if !matches!(path, Value::Undefined | Value::Null) {
-        let path = std::path::PathBuf::from(call.to_string(&path)?);
-        // A directory to start in, or a file: its directory, and for saving its name.
-        let (directory, name) =
-            if path.is_dir() { (Some(path.as_path()), None) } else { (path.parent().filter(|p| !p.as_os_str().is_empty()), path.file_name()) };
-        if let Some(directory) = directory {
-            let start = crate::file_system::new_handle(call, directory, true)?;
-            call.set(&picker_options, "startIn", &start)?;
-        }
-        if let (Some(name), "saveFile") = (name, kind) {
-            call.set(&picker_options, "suggestedName", &Value::String(name.to_string_lossy().into_owned()))?;
-        }
-    }
-    let picker = match kind {
-        "openFile" => "showOpenFilePicker",
-        "saveFile" => "showSaveFilePicker",
-        _ => "showDirectoryPicker",
-    };
-    let Value::Js(promise) = method(call, &globals.global, picker, &[Value::Js(picker_options)])? else {
-        return Err(Error::Script(format!("{picker} gave no Promise")));
-    };
-    method(call, &promise, "then", &[Value::Js(globals.picked), Value::Js(globals.cancelled)])
-}
-
-/// The file dialogs on the web: a question for the app, `{type, name, filters}` with the name to
-/// suggest for saving, which [`Runtime::picked`] answers with the `LocalFile`, or `null`.
-/// `chooseDirectory` rejects with a `NotSupportedError` for now.
-#[cfg(target_arch = "wasm32")]
-fn file<H: Clone>(call: &mut dyn Call<H>, kind: &str, options: Option<&Value<H>>) -> Result<Value<H>, Error> {
-    // A `LocalFile` on the web is a file, not yet a directory.
-    if kind == "chooseDirectory" {
-        let promise = globals(call)?.promise;
-        let reason = crate::exception::value(call, &Error::Dom("NotSupportedError", "Dialog.chooseDirectory() isn't on the web yet".into()))?;
-        return method(call, &promise, "reject", &[reason]);
-    }
-    let (types, path) = match options {
-        Some(Value::Js(options)) => (call.get(options, "types")?, call.get(options, "path")?),
-        _ => (Value::Undefined, Value::Undefined),
-    };
-    let filters = match types {
-        Value::Js(types) if kind != "chooseDirectory" => file_types(call, &types)?,
-        _ => Vec::new(),
-    };
-    // The web has no paths: only a file's name, to suggest.
-    let name = match path {
-        Value::Undefined | Value::Null => Json::Null,
-        path => {
-            let path = call.to_string(&path)?;
-            Json::String(path.rsplit(['/', '\\']).next().unwrap_or_default().to_owned())
-        }
-    };
-    ask_later(call, json!({ "type": kind, "name": name, "filters": filters }), Finish::File)
-}
-
 /// A question the app answers later (the web): it, whether the app has it, the script's Promise
 /// for the answer, and what makes the answer the script's value.
 #[cfg(target_arch = "wasm32")]
@@ -251,12 +146,30 @@ pub(crate) struct Asked<H> {
 }
 
 /// What makes an answer the script's value: a prompt's values (put into `values` when given),
-/// `chooseColor`'s colour, a file dialog's `LocalFile`.
+/// `chooseColor`'s colour, what a picker gave.
 #[cfg(target_arch = "wasm32")]
 pub(crate) enum Finish<H> {
     Prompt { list: Vec<Json>, values: Option<H> },
     Color { list: Vec<Json> },
-    File,
+    Picked,
+}
+
+/// What the app's pickers gave a script, on the web.
+#[cfg(target_arch = "wasm32")]
+pub enum Picked {
+    /// The browser's handles, or where it has none, the files picked.
+    Items(Vec<wasm_bindgen::JsValue>),
+    /// A file to save by downloading it, under this name.
+    Download(String),
+}
+
+/// `ask(question)`, for the web's pickers: the question, as JSON, in the queue for the app; a
+/// Promise of what was picked (a list of handles or files, or a name to download as), or `null`.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn ask_picker<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let globals = globals(call)?;
+    let question = to_json(call, &globals, args.first().unwrap_or(&Value::Undefined))?;
+    ask_later(call, question, Finish::Picked)
 }
 
 /// Puts `question` in the queue for the app; a Promise of the answer, as `finish` makes it.
@@ -293,94 +206,32 @@ impl<E: Engine> Runtime<E> {
                     Value::Js(values) => call.get(&values, "color")?,
                     other => other,
                 },
-                Finish::File => Value::Null,
+                Finish::Picked => Value::Null,
             };
             call.call(&resolve, &Value::Undefined, &[value]).map(|_| ())
         })
     }
 
-    /// What the user picked in the oldest question's file dialog: its `LocalFile`, or `null` for
-    /// nothing.
-    pub fn picked(&mut self, picked: Option<crate::web_file::Picked>) -> Result<(), Error> {
+    /// What the user picked in the oldest question's picker: a list of what the browser gave, or
+    /// of the name to download as, or `null` for nothing.
+    pub fn picked(&mut self, picked: Option<Picked>) -> Result<(), Error> {
         let Some(Asked { resolve, .. }) = self.host.borrow_mut().asked.pop_front() else {
             return Ok(());
         };
+        let page = |value| E::page_value(value).ok_or_else(|| Error::Script("files picked in the page need the browser's engine".into()));
+        let items = match picked {
+            Some(Picked::Items(items)) => Some(items.into_iter().map(|item| page(item).map(Value::Js)).collect::<Result<Vec<_>, _>>()?),
+            Some(Picked::Download(name)) => Some(vec![Value::String(name)]),
+            None => None,
+        };
         self.engine.with_call(|call| {
-            let value = match picked {
-                Some(picked) => crate::web_file::local_file::<E>(call, picked)?,
+            let value = match &items {
+                Some(items) => Value::Js(call.new_array(items)?),
                 None => Value::Null,
             };
             call.call(&resolve, &Value::Undefined, &[value]).map(|_| ())
         })
     }
-}
-
-/// The `LocalFile` of the handle a picker gave, or of the first of the handles.
-#[cfg(not(target_arch = "wasm32"))]
-fn picked<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let Some(Value::Js(picked)) = args.first() else {
-        return Ok(Value::Null);
-    };
-    let handle = match crate::file_system::path_of(call, picked)? {
-        Some(_) => Value::Js(picked.clone()),
-        None => call.get(picked, "0")?,
-    };
-    crate::local_file::from_handle(call, &handle)
-}
-
-/// `null` for a picker the user cancelled; any other failure stays one.
-#[cfg(not(target_arch = "wasm32"))]
-fn cancelled<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let reason = args.first().cloned().unwrap_or(Value::Undefined);
-    if let Value::Js(error) = &reason
-        && matches!(call.get(error, "name")?, Value::String(name) if name == "AbortError")
-    {
-        return Ok(Value::Null);
-    }
-    crate::local_file::rejected(call, reason)
-}
-
-/// A file dialog's file types as `[label, [extensions]]`, the first the default, from `filters`:
-/// labels and their extensions in the script's order (`{ Text: ['txt', 'text'], SVG: 'svg',
-/// 'All Files': '*' }`), or Scriptographer's pairs of a label and its patterns (`['Text (*.txt)',
-/// '*.txt;*.text', 'All Files', '*.*']`). A type without extensions (`'*'`) shows every file.
-fn file_types<H: Clone>(call: &mut dyn Call<H>, filters: &H) -> Result<Vec<Json>, Error> {
-    let globals = globals(call)?;
-    let pairs: Vec<(String, Json)> = match to_json(call, &globals, &Value::Js(filters.clone()))? {
-        Json::Array(list) => {
-            let strings: Vec<String> = list.iter().filter_map(|s| s.as_str().map(str::to_owned)).collect();
-            // A pattern without its label labels itself.
-            strings
-                .chunks(2)
-                .filter_map(|pair| match pair {
-                    [label, patterns] => Some((label.clone(), Json::String(patterns.clone()))),
-                    [patterns] => Some((patterns.clone(), Json::String(patterns.clone()))),
-                    _ => None,
-                })
-                .collect()
-        }
-        _ => {
-            let mut pairs = Vec::new();
-            for label in keys(call, &globals, filters)? {
-                let extensions = call.get(filters, &label)?;
-                pairs.push((label, to_json(call, &globals, &extensions)?));
-            }
-            pairs
-        }
-    };
-    Ok(pairs
-        .into_iter()
-        .map(|(label, extensions)| {
-            let patterns: Vec<String> = match extensions {
-                Json::Array(list) => list.iter().filter_map(|e| e.as_str().map(str::to_owned)).collect(),
-                Json::String(patterns) => patterns.split(';').map(str::to_owned).collect(),
-                _ => Vec::new(),
-            };
-            let extensions: Vec<&str> =
-                patterns.iter().map(|p| p.trim().trim_start_matches('*').trim_start_matches('.')).filter(|e| !e.is_empty() && *e != "*").collect();
-            json!([label, extensions])
-        })
-        .collect())
 }
 
 /// `Dialog.chooseColor([color])`: a prompt with one colour, the colour picked or `null`.

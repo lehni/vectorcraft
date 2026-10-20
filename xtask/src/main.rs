@@ -248,6 +248,19 @@ fn cmd_doctests() -> Result<(), String> {
     run(c, "cargo test --workspace --doc")
 }
 
+/// Scriptographer's JavaScript (`crates/scriptographer/js`): formatted with Prettier and Penere,
+/// and the bundles in its `dist/` built from its sources. Needs Node 24 or newer and pnpm.
+fn cmd_scriptographer_js() -> Result<(), String> {
+    let folder = root().join("crates/scriptographer/js");
+    for args in [&["install", "--frozen-lockfile"][..], &["run", "check"]] {
+        let mut c = Command::new("pnpm");
+        c.current_dir(&folder).args(args);
+        let line = format!("pnpm {} (in crates/scriptographer/js; needs Node 24+ and pnpm)", args.join(" "));
+        run(c, &line)?;
+    }
+    Ok(())
+}
+
 /// `cargo xtask ci`: each step in turn, stopping at the first that fails; the summary names the
 /// steps that passed and, after a failure, the one that failed and those skipped.
 fn cmd_ci() -> Result<(), String> {
@@ -291,6 +304,7 @@ fn cmd_ci() -> Result<(), String> {
                 run(c, "cargo test -p vectorcraft-ui-egui --no-default-features --test install_fonts")
             }),
         ),
+        ("scriptographer-js", Box::new(cmd_scriptographer_js)),
         ("pdf-deps", Box::new(|| pdf_deps::run(&root()))),
         ("assets", Box::new(|| assets::run(&root()))),
         ("brands", Box::new(|| brands::run(&root()))),

@@ -548,17 +548,21 @@ fn file_types<H: Clone>(call: &mut dyn Call<H>, options: Option<&H>) -> Result<V
     Ok(filters)
 }
 
-/// The directory the picker starts in: `startIn`, a handle (a file's: its directory) or one of
-/// the user's directories (`'desktop'`, `'documents'`, `'downloads'`, `'music'`, `'pictures'`,
-/// `'videos'`).
+/// The directory the picker starts in: `startIn`, a handle or a `LocalFile` (a file's: its
+/// directory) or one of the user's directories (`'desktop'`, `'documents'`, `'downloads'`,
+/// `'music'`, `'pictures'`, `'videos'`).
 fn start_in<H: Clone>(call: &mut dyn Call<H>, options: Option<&H>) -> Result<Option<PathBuf>, Error> {
     let Some(options) = options else {
         return Ok(None);
     };
     Ok(match call.get(options, "startIn")? {
         Value::Undefined | Value::Null => None,
+        // A handle, or a `LocalFile`, as `Dialog`'s file dialogs give:
         Value::Js(handle) => {
-            let path = path_of(call, &handle)?.ok_or_else(|| Error::Type("startIn is not a handle".into()))?;
+            let path = match path_of(call, &handle)? {
+                Some(path) => path,
+                None => crate::local_file::path(call, &Value::Js(handle))?,
+            };
             if path.is_dir() { Some(path) } else { path.parent().map(Path::to_path_buf) }
         }
         place => {

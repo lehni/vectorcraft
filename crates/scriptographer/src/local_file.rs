@@ -252,12 +252,6 @@ pub(crate) fn settled<H: Clone>(call: &mut dyn Call<H>, result: Result<Value<H>,
     }
 }
 
-/// A Promise rejected with `reason`, as it is.
-pub(crate) fn rejected<H: Clone>(call: &mut dyn Call<H>, reason: Value<H>) -> Result<Value<H>, Error> {
-    let promise = call.host()?.borrow().files.as_ref().map(|f| f.promise.clone()).ok_or_else(|| Error::Script("LocalFile is not set up".into()))?;
-    method(call, &promise, "reject", &[reason])
-}
-
 /// The bytes in the file `this` is, as they are now.
 pub(crate) fn read<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>) -> Result<Vec<u8>, Error> {
     let path = path(call, this)?;

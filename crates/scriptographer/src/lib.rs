@@ -38,9 +38,7 @@ mod urls;
 #[cfg(not(target_arch = "wasm32"))]
 mod web;
 #[cfg(target_arch = "wasm32")]
-mod web_file;
-#[cfg(target_arch = "wasm32")]
-pub use web_file::Picked;
+pub use dialog::Picked;
 #[cfg(not(target_arch = "wasm32"))]
 mod web_worker;
 #[cfg(not(target_arch = "wasm32"))]
@@ -89,6 +87,12 @@ const PAPER_JS: &str = include_str!(env!("SCRIPTOGRAPHER_PAPER_JS_PATH"));
 /// 0.5 Paper.js bundles when it finds it as `self.acorn`: scripts can use today's JavaScript.
 const ACORN: &str = include_str!("../vendor/acorn.js");
 
+/// What scripts see that's written in JavaScript (`js/src`, bundled by `pnpm run build`).
+const SCRIPTOGRAPHER_JS: &str = include_str!("../js/dist/scriptographer.js");
+/// What scripts see on the web that's written in JavaScript.
+#[cfg(target_arch = "wasm32")]
+const SCRIPTOGRAPHER_WEB_JS: &str = include_str!("../js/dist/scriptographer-web.js");
+
 /// The version of the Paper.js build scripts run with, as its header names it (`0.13.0-develop`).
 pub fn paper_version() -> &'static str {
     PAPER_JS.split_once("Paper.js v").and_then(|(_, rest)| rest.split_whitespace().next()).unwrap_or("")
@@ -135,9 +139,6 @@ pub struct Host<H> {
     /// The questions of the script's dialogs the app answers later (the web).
     #[cfg(target_arch = "wasm32")]
     asked: std::collections::VecDeque<dialog::Asked<H>>,
-    /// What `LocalFile`s on the web share.
-    #[cfg(target_arch = "wasm32")]
-    web_files: Option<web_file::Files<H>>,
     /// What `Dialog` uses of the script's realm.
     dialog_globals: Option<dialog::Globals<H>>,
     /// The palettes the script made, open.
@@ -239,8 +240,6 @@ impl<H> Default for Host<H> {
             ask: None,
             #[cfg(target_arch = "wasm32")]
             asked: Default::default(),
-            #[cfg(target_arch = "wasm32")]
-            web_files: None,
             dialog_globals: None,
             palettes: Vec::new(),
             palette_reset: None,
@@ -352,8 +351,6 @@ impl<E: Engine> Runtime<E> {
         local_file::install(&mut runtime, &global)?;
         #[cfg(not(target_arch = "wasm32"))]
         file_system::install(&mut runtime, &global)?;
-        #[cfg(target_arch = "wasm32")]
-        web_file::install(&mut runtime, &global)?;
         #[cfg(not(target_arch = "wasm32"))]
         urls::install(&mut runtime, &global)?;
         #[cfg(not(target_arch = "wasm32"))]
@@ -364,6 +361,19 @@ impl<E: Engine> Runtime<E> {
         clipboard::install(&mut runtime.engine, &global)?;
         // After `performance`, its clock.
         console::install(&mut runtime.engine, &global)?;
+        // What's written in JavaScript, once what it uses is there: on the web, with the app's
+        // pickers to ask, which it takes off the global object.
+        #[cfg(target_arch = "wasm32")]
+        {
+            let ask = runtime.engine.function("ask", dialog::ask_picker)?;
+            runtime.engine.with_call(|call| {
+                let host = call.new_object()?;
+                call.set(&host, "ask", &Value::Js(ask))?;
+                call.set(&global, "__scriptographer", &Value::Js(host))
+            })?;
+            runtime.engine.eval(SCRIPTOGRAPHER_WEB_JS)?;
+        }
+        runtime.engine.eval(SCRIPTOGRAPHER_JS)?;
         Ok(runtime)
     }
 
