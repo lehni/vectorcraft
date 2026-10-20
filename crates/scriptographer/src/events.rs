@@ -78,7 +78,8 @@ pub(crate) struct Classes<H> {
     remover: H,
     listeners: H,
     states: H,
-    /// The constructors of [`CLASSES`].
+    /// The constructors of [`CLASSES`], for the events the host fires.
+    #[cfg(not(target_arch = "wasm32"))]
     events: Vec<H>,
     performance: Option<H>,
 }
@@ -193,6 +194,7 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
             object: object_class,
             listeners: new_map(call)?,
             states: new_map(call)?,
+            #[cfg(not(target_arch = "wasm32"))]
             events: classes,
             performance: match call.get(global, "performance")? {
                 Value::Js(performance) => Some(performance),
@@ -496,6 +498,7 @@ fn dispatch_event<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Val
 
 /// A new event of the class `class` (one of [`CLASSES`]) and type `kind`, with `members` as its
 /// init dictionary, as the host fires them (`abort`, `message`).
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn new_event<H: Clone>(call: &mut dyn Call<H>, class: &str, kind: &str, members: &[(&str, Value<H>)]) -> Result<Value<H>, Error> {
     let at = CLASSES.iter().position(|(name, _)| *name == class).ok_or_else(|| Error::Script(format!("no event class {class}")))?;
     let constructor = shared(call)?.events.get(at).cloned().ok_or_else(|| Error::Script("events are not set up".into()))?;
@@ -508,6 +511,7 @@ pub(crate) fn new_event<H: Clone>(call: &mut dyn Call<H>, class: &str, kind: &st
 
 /// Fires `event` at `target`, as the host fires its events: to its `on…` handler for the event's
 /// type, then to its listeners.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn fire<H: Clone>(call: &mut dyn Call<H>, target: &Value<H>, event: &Value<H>) -> Result<bool, Error> {
     if let Value::Js(object) = target {
         let kind = state(call, event, "type")?;

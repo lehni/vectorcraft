@@ -102,6 +102,7 @@ fn pixels<H: Clone>(call: &mut dyn Call<H>, source: &H) -> Result<Arc<Pixmap>, E
 }
 
 /// The image in `bytes`, in any format the app reads, within the size a canvas may have.
+#[cfg(not(target_arch = "wasm32"))]
 fn decode(bytes: &[u8]) -> Result<Pixmap, String> {
     let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().map_err(|e| e.to_string())?;
     let mut limits = image::Limits::default();

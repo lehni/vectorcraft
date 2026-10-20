@@ -59,6 +59,8 @@ pub(crate) enum Data {
     Error(String, String, Option<String>),
     /// A boxed `Boolean`, `Number` or `String`.
     Boxed(String, Box<Data>),
+    /// A `Blob`: its bytes and type. (A browser's realm clones its own.)
+    #[cfg(not(target_arch = "wasm32"))]
     Blob(Vec<u8>, String),
     /// An `ImageData`: its pixels, width and height.
     Pixels(Box<Data>, f64, f64),
@@ -365,8 +367,6 @@ fn make<H: Clone>(call: &mut dyn Call<H>, global: &H, data: &Data, made: &mut Ve
         }
         #[cfg(not(target_arch = "wasm32"))]
         Data::Blob(bytes, kind) => crate::fetch::new_blob(call, bytes, kind)?,
-        #[cfg(target_arch = "wasm32")]
-        Data::Blob(..) => return Err(data_clone_error("a Blob")),
         Data::Geometry(class, values) => crate::geometry::deserialize(call, class, values)?.ok_or_else(|| data_clone_error(class))?,
     };
     made.push(value.clone());
