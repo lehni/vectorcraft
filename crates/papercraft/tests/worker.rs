@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use serde_json::json;
 use vectorcraft_engine::Session;
+use vectorcraft_papercraft::Setup;
 use vectorcraft_papercraft::worker::{Reply, Request, Work, Worker};
 
 const WAIT: Duration = Duration::from_secs(10);
@@ -19,7 +20,7 @@ fn session() -> Session {
 
 fn spawn(s: &Session) -> Worker {
     let st = s.active().unwrap();
-    Worker::spawn((400.0, 300.0), None, serde_json::json!({}), None, st.doc.clone(), st.selection.clone()).unwrap()
+    Worker::spawn((400.0, 300.0), Setup::default(), st.doc.clone(), st.selection.clone()).unwrap()
 }
 
 fn send(s: &Session, worker: &Worker, work: Work) {

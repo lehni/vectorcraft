@@ -236,6 +236,17 @@ pub struct Runtime<E: Engine> {
     load: E::Handle,
 }
 
+/// What the app gives a script when it starts: its file (none for code typed in the console), its
+/// `script.preferences` as it last left them, the folder the app keeps scripts' `localStorage`
+/// in, and the language the app's UI is in, as `navigator.language`.
+#[derive(Clone, Debug, Default)]
+pub struct Setup {
+    pub file: Option<String>,
+    pub preferences: serde_json::Value,
+    pub storage: Option<std::path::PathBuf>,
+    pub language: Option<String>,
+}
+
 /// A `PaperScope` with its own project and view.
 pub struct Scope<H>(H);
 
@@ -416,10 +427,12 @@ impl<E: Engine> Runtime<E> {
     /// Sets the global `script`, as Scriptographer's: `script.file` and `script.directory`, the
     /// script's file and its folder (`null` for code typed in the console), `script.keepAlive`,
     /// which the script sets to keep running when another script runs, and
-    /// `script.preferences`, `preferences` as the script last left them
-    /// ([`Runtime::take_preferences`]). Its `localStorage` is kept in `storage`, the app's folder
-    /// for them, when it has one and the script a file.
-    pub fn set_script(&mut self, file: Option<&str>, preferences: &serde_json::Value, storage: Option<&std::path::Path>) -> Result<(), Error> {
+    /// `script.preferences`, the preferences the script last left ([`Runtime::take_preferences`]).
+    /// Its `localStorage` is kept in the app's folder for them, when it has one and the script a
+    /// file; `navigator.language` is the app's.
+    pub fn set_script(&mut self, setup: &Setup) -> Result<(), Error> {
+        let Setup { file, preferences, storage, language } = setup;
+        let file = file.as_deref();
         let global = self.engine.global()?;
         let directory = file.and_then(|f| std::path::Path::new(f).parent()).map(std::path::Path::to_path_buf);
         {
@@ -451,7 +464,11 @@ impl<E: Engine> Runtime<E> {
             let globals = dialog::globals(call)?;
             let preferences = dialog::from_json(call, &globals, &preferences)?;
             call.set(&script, "preferences", &preferences)?;
-            call.set(&global, "script", &Value::Js(script))
+            call.set(&global, "script", &Value::Js(script))?;
+            if let (Some(language), Value::Js(navigator)) = (language, call.get(&global, "navigator")?) {
+                set_language(call, &navigator, language)?;
+            }
+            Ok(())
         })
     }
 
@@ -682,11 +699,19 @@ fn prelude<E: Engine>(engine: &mut E) -> Result<(), Error> {
         let navigator = call.new_object()?;
         let user_agent = format!("VectorCraft ({})", std::env::consts::OS);
         call.set(&navigator, "userAgent", &Value::String(user_agent))?;
+        set_language(call, &navigator, "en-US")?;
         call.set(&global, "navigator", &Value::Js(navigator))
     })?;
     engine.eval(ACORN)?;
     engine.eval(PAPER_JS)?;
     Ok(())
+}
+
+/// Sets `navigator.language` to `language`, and `navigator.languages` to a list of it.
+fn set_language<H: Clone>(call: &mut dyn Call<H>, navigator: &H, language: &str) -> Result<(), Error> {
+    call.set(navigator, "language", &Value::String(language.to_owned()))?;
+    let languages = call.new_array(&[Value::String(language.to_owned())])?;
+    call.set(navigator, "languages", &Value::Js(languages))
 }
 
 /// The host's globals Paper.js expects in a web worker, after the prelude: the timers

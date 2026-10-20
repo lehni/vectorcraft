@@ -3,7 +3,7 @@
 //! The same tests for every engine, through [`Runtime`].
 
 use serde_json::Value;
-use vectorcraft_papercraft::{Engine, Runtime};
+use vectorcraft_papercraft::{Engine, Runtime, Setup};
 
 fn runs_paperscript_with_console_and_paper_globals<E: Engine>() {
     let mut runtime = Runtime::<E>::new().unwrap();
@@ -129,7 +129,7 @@ fn files_read_write_and_list<E: Engine>(name: &str) {
     let _ = std::fs::remove_dir_all(&folder);
     std::fs::create_dir_all(&folder).unwrap();
     let mut runtime = Runtime::<E>::new().unwrap();
-    runtime.set_script(Some(&folder.join("script.js").to_string_lossy()), &serde_json::json!({}), None).unwrap();
+    runtime.set_script(&Setup { file: Some(folder.join("script.js").to_string_lossy().into_owned()), ..Setup::default() }).unwrap();
     let scope = runtime.create_scope(800.0, 600.0).unwrap();
     runtime
         .execute(
@@ -234,7 +234,7 @@ fn scripts_import_modules<E: Engine>(name: &str) {
     write("a.js", "import { b } from './b.js'\nexport const a = 1");
     write("b.js", "import { a } from './a.js'\nexport const b = 2");
     let mut runtime = Runtime::<E>::new().unwrap();
-    runtime.set_script(Some(&folder.join("script.js").to_string_lossy()), &serde_json::json!({}), None).unwrap();
+    runtime.set_script(&Setup { file: Some(folder.join("script.js").to_string_lossy().into_owned()), ..Setup::default() }).unwrap();
     let scope = runtime.create_scope(800.0, 600.0).unwrap();
     runtime
         .execute(
@@ -809,7 +809,7 @@ fn local_storage_lasts_and_session_storage_doesnt<E: Engine>(name: &str) {
     let (script, storage) = (folder.join("script.js").to_string_lossy().into_owned(), folder.join("storage"));
     let run = |source: &str| {
         let mut runtime = Runtime::<E>::new().unwrap();
-        runtime.set_script(Some(&script), &serde_json::json!({}), Some(&storage)).unwrap();
+        runtime.set_script(&Setup { file: Some(script.clone()), storage: Some(storage.clone()), ..Setup::default() }).unwrap();
         let scope = runtime.create_scope(800.0, 600.0).unwrap();
         runtime.execute(&scope, source).unwrap();
         runtime.take_output()
@@ -914,6 +914,15 @@ fn structured_clone_copies_as_browsers_do<E: Engine>() {
             "DataCloneError DataCloneError DataCloneError",
         ]
     );
+}
+
+fn navigator_speaks_the_apps_language<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime.execute(&scope, "console.log(navigator.language, navigator.languages.join())").unwrap();
+    runtime.set_script(&Setup { language: Some("de".into()), ..Setup::default() }).unwrap();
+    runtime.execute(&scope, "console.log(navigator.language, navigator.languages.join())").unwrap();
+    assert_eq!(runtime.take_output(), ["en-US en-US", "de de"]);
 }
 
 fn runtimes_live_side_by_side<E: Engine>() {
@@ -1101,6 +1110,11 @@ macro_rules! engine_tests {
             #[test]
             fn structured_clone_copies_as_browsers_do() {
                 super::structured_clone_copies_as_browsers_do::<$engine>();
+            }
+
+            #[test]
+            fn navigator_speaks_the_apps_language() {
+                super::navigator_speaks_the_apps_language::<$engine>();
             }
 
             #[test]
