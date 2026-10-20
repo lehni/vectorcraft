@@ -152,7 +152,10 @@ fn call_host(function: HostFunction<JsValue>, this: &JsValue, args: &[JsValue], 
     let args: Vec<_> = args.iter().cloned().map(from_js).collect();
     match function(&mut BoaCall { context }, &this, &args) {
         Ok(value) => Ok(to_js(&value)),
-        Err(error) => Err(JsNativeError::error().with_message(error.to_string()).into()),
+        Err(error) => match crate::exception::value(&mut BoaCall { context }, &error) {
+            Ok(thrown) => Err(JsError::from_opaque(to_js(&thrown))),
+            Err(_) => Err(JsNativeError::error().with_message(error.to_string()).into()),
+        },
     }
 }
 

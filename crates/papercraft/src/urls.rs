@@ -21,7 +21,7 @@ fn parts<H: Clone>() -> Vec<Part<H>> {
             |call, this, _| Ok(Value::String(parsed(call, this)?.to_string())),
             Some(|call, this, args| {
                 let href = text(call, args.first())?;
-                let url = url::Url::parse(&href).map_err(|e| Error::Script(format!("TypeError: invalid URL '{href}': {e}")))?;
+                let url = url::Url::parse(&href).map_err(|e| Error::Type(format!("invalid URL '{href}': {e}")))?;
                 store(call, this, &url)
             }),
         ),
@@ -264,7 +264,7 @@ fn parse<H>(call: &mut dyn Call<H>, url: Option<&Value<H>>, base: Option<&Value<
             url::Url::parse(&base).and_then(|base| base.join(&url))
         }
     };
-    parsed.map_err(|e| Error::Script(format!("TypeError: invalid URL '{url}': {e}")))
+    parsed.map_err(|e| Error::Type(format!("invalid URL '{url}': {e}")))
 }
 
 /// A new object with the prototype `prototype` picks.

@@ -466,7 +466,7 @@ pub(crate) fn arc<H: Clone, T: Target>(call: &mut dyn Call<H>, this: &Value<H>, 
         return Ok(Value::Undefined);
     };
     if r < 0.0 {
-        return Err(Error::Script("IndexSizeError: arc: the radius is negative".into()));
+        return Err(Error::Dom("IndexSizeError", "arc: the radius is negative".into()));
     }
     let counterclockwise = matches!(args.get(5), Some(Value::Bool(true)));
     T::with(call, this, |pen| pen.arc(Point::new(x, y), Vec2::new(r, r), 0.0, start, end, counterclockwise))?;
@@ -478,7 +478,7 @@ pub(crate) fn ellipse<H: Clone, T: Target>(call: &mut dyn Call<H>, this: &Value<
         return Ok(Value::Undefined);
     };
     if rx < 0.0 || ry < 0.0 {
-        return Err(Error::Script("IndexSizeError: ellipse: a radius is negative".into()));
+        return Err(Error::Dom("IndexSizeError", "ellipse: a radius is negative".into()));
     }
     let counterclockwise = matches!(args.get(7), Some(Value::Bool(true)));
     T::with(call, this, |pen| pen.arc(Point::new(x, y), Vec2::new(rx, ry), rotation, start, end, counterclockwise))?;
@@ -492,7 +492,7 @@ pub(crate) fn arc_to<H: Clone, T: Target>(call: &mut dyn Call<H>, this: &Value<H
         return Ok(Value::Undefined);
     };
     if r < 0.0 {
-        return Err(Error::Script("IndexSizeError: arcTo: the radius is negative".into()));
+        return Err(Error::Dom("IndexSizeError", "arcTo: the radius is negative".into()));
     }
     T::with(call, this, |pen| {
         let (p1, p2) = (Point::new(x1, y1), Point::new(x2, y2));
@@ -539,7 +539,7 @@ pub(crate) fn round_rect<H: Clone, T: Target>(call: &mut dyn Call<H>, this: &Val
         _ => vec![0.0],
     };
     if radii.iter().any(|r| !r.is_finite() || *r < 0.0) {
-        return Err(Error::Script("RangeError: roundRect: a radius is negative".into()));
+        return Err(Error::Range("roundRect: a radius is negative".into()));
     }
     let [tl, tr, br, bl] = match radii.as_slice() {
         [a] => [*a; 4],
@@ -1226,7 +1226,7 @@ pub(crate) fn stroke_text<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, arg
 /// dh)`, the image a canvas.
 pub(crate) fn draw_image<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let Some(image) = args.first() else {
-        return Err(Error::Script("TypeError: drawImage: no image".into()));
+        return Err(Error::Type("drawImage: no image".into()));
     };
     let pixels = crate::canvas::image_pixels(call, image)?;
     let (iw, ih) = (f64::from(pixels.width()), f64::from(pixels.height()));
@@ -1282,7 +1282,7 @@ pub(crate) fn draw_image<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args
 pub(crate) fn create_gradient<H: Clone>(call: &mut dyn Call<H>, kind: &str, args: &[Value<H>], count: usize) -> Result<Value<H>, Error> {
     let at: Vec<Value<H>> = (0..count).map(|i| Value::Number(number(args, i))).collect();
     if at.iter().any(|v| matches!(v, Value::Number(n) if !n.is_finite())) {
-        return Err(Error::Script(format!("TypeError: create{kind}Gradient: not finite")));
+        return Err(Error::Type(format!("create{kind}Gradient: not finite")));
     }
     let gradient = crate::canvas::new_gradient(call)?;
     let at = call.new_array(&at)?;
@@ -1302,14 +1302,14 @@ pub(crate) fn add_color_stop<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, 
     };
     let offset = number(args, 0);
     if !(0.0..=1.0).contains(&offset) {
-        return Err(Error::Script("IndexSizeError: addColorStop: the offset isn't between 0 and 1".into()));
+        return Err(Error::Dom("IndexSizeError", "addColorStop: the offset isn't between 0 and 1".into()));
     }
     let color = match args.get(1) {
         Some(color) => call.to_string(color)?,
         None => String::new(),
     };
     if css_color(&color).is_none() {
-        return Err(Error::Script(format!("SyntaxError: addColorStop: '{color}' isn't a colour")));
+        return Err(Error::Dom("SyntaxError", format!("addColorStop: '{color}' isn't a colour")));
     }
     for (key, value) in [("_offsets", Value::Number(offset)), ("_colors", Value::String(color))] {
         if let Value::Js(list) = call.get(gradient, key)? {
@@ -1322,7 +1322,7 @@ pub(crate) fn add_color_stop<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, 
 /// `createPattern(image, repetition)`: a `CanvasPattern` of a canvas.
 pub(crate) fn create_pattern<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let Some(image) = args.first() else {
-        return Err(Error::Script("TypeError: createPattern: no image".into()));
+        return Err(Error::Type("createPattern: no image".into()));
     };
     // The image's pixels as they are now.
     crate::canvas::image_pixels(call, image)?;
@@ -1332,7 +1332,7 @@ pub(crate) fn create_pattern<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>,
     };
     let repetition = if repetition.is_empty() { "repeat".to_owned() } else { repetition };
     if !matches!(repetition.as_str(), "repeat" | "repeat-x" | "repeat-y" | "no-repeat") {
-        return Err(Error::Script(format!("SyntaxError: createPattern: '{repetition}' isn't a repetition")));
+        return Err(Error::Dom("SyntaxError", format!("createPattern: '{repetition}' isn't a repetition")));
     }
     let pattern = call.new_object()?;
     call.set(&pattern, "_image", image)?;

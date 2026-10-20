@@ -15,8 +15,6 @@ pub(crate) struct Classes<H> {
     object: H,
     promise: H,
     json: H,
-    type_error: H,
-    error: H,
     function: H,
     headers: H,
     blob: H,
@@ -363,7 +361,7 @@ fn classes<H: Clone>() -> Vec<Class<H>> {
                     {
                         let reason = call.get(signal, "reason")?;
                         let reason = call.to_string(&reason)?;
-                        return Err(Error::Script(format!("AbortError: {reason}")));
+                        return Err(Error::Dom("AbortError", reason));
                     }
                     Ok(Value::Undefined)
                 }),
@@ -421,8 +419,6 @@ pub(crate) fn install<E: Engine>(runtime: &mut Runtime<E>, global: &E::Handle) -
             object: object(call, global, "Object")?,
             promise: object(call, global, "Promise")?,
             json: object(call, global, "JSON")?,
-            type_error: object(call, global, "TypeError")?,
-            error: object(call, global, "Error")?,
             function: executor,
             headers,
             blob,
@@ -498,10 +494,15 @@ fn resolved<H: Clone>(call: &mut dyn Call<H>, value: Value<H>) -> Result<Value<H
     method(call, &promise, "resolve", &[value])
 }
 
-/// A Promise rejected with a `TypeError` for `error`.
+/// A Promise rejected for `error`: with a `TypeError` unless it has a type of its own, as `fetch()`
+/// and the body readers reject.
 fn rejected<H: Clone>(call: &mut dyn Call<H>, error: Error) -> Result<Value<H>, Error> {
-    let (promise, type_error) = with(call, |c| (c.promise.clone(), c.type_error.clone()))?;
-    let reason = call.construct(&type_error, &[Value::String(error.to_string())])?;
+    let error = match error {
+        Error::Script(message) => Error::Type(message),
+        typed => typed,
+    };
+    let reason = crate::exception::value(call, &error)?;
+    let promise = with(call, |c| c.promise.clone())?;
     method(call, &promise, "reject", &[reason])
 }
 
@@ -839,7 +840,7 @@ fn take_body<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>) -> Result<Vec<u8
         return Err(Error::Script("not a Response".into()));
     };
     if matches!(call.get(response, "bodyUsed")?, Value::Bool(true)) {
-        return Err(Error::Script("TypeError: the body was read already".into()));
+        return Err(Error::Type("the body was read already".into()));
     }
     call.set(response, "bodyUsed", &Value::Bool(true))?;
     match call.get(response, "_body")? {
@@ -869,7 +870,7 @@ fn abort_signal<H: Clone>(call: &mut dyn Call<H>, signal: &Value<H>, reason: Opt
         return Ok(Value::Undefined);
     }
     let reason = match reason {
-        Some(Value::Undefined) | None => abort_error(call, "signal is aborted without reason")?,
+        Some(Value::Undefined) | None => crate::exception::value(call, &Error::Dom("AbortError", "signal is aborted without reason".into()))?,
         Some(reason) => reason,
     };
     call.set(signal, "aborted", &Value::Bool(true))?;
@@ -902,24 +903,11 @@ fn signal_timeout<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Va
     };
     let signal = new_signal(call)?;
     let abort = with(call, |c| c.abort.clone())?;
-    let reason = abort_error(call, "signal timed out")?;
-    if let Value::Js(reason) = &reason {
-        call.set(reason, "name", &Value::String("TimeoutError".into()))?;
-    }
+    let reason = crate::exception::value(call, &Error::Dom("TimeoutError", "signal timed out".into()))?;
     // `abort.bind(signal, reason)`, called when the time is up.
     let bound = method(call, &abort, "bind", &[Value::Js(signal.clone()), reason])?;
     crate::set_timer(call, &[bound, Value::Number(delay)], false)?;
     Ok(Value::Js(signal))
-}
-
-/// An `Error` named `AbortError`, as browsers give a `DOMException`.
-fn abort_error<H: Clone>(call: &mut dyn Call<H>, message: &str) -> Result<Value<H>, Error> {
-    let error = with(call, |c| c.error.clone())?;
-    let made = call.construct(&error, &[Value::String(message.to_owned())])?;
-    if let Value::Js(made) = &made {
-        call.set(made, "name", &Value::String("AbortError".into()))?;
-    }
-    Ok(made)
 }
 
 /// The executor of the Promise `fetch()` returns: keeps its `resolve` and `reject`.
@@ -1037,8 +1025,7 @@ pub(crate) fn poll<H: Clone>(call: &mut dyn Call<H>) -> Result<(), Error> {
 
 /// Rejects a request's Promise with a `TypeError`, as browsers do when a request fails.
 fn fail<H: Clone>(call: &mut dyn Call<H>, reject: &H, message: &str) -> Result<(), Error> {
-    let type_error = with(call, |c| c.type_error.clone())?;
-    let reason = call.construct(&type_error, &[Value::String(format!("fetch failed: {message}"))])?;
+    let reason = crate::exception::value(call, &Error::Type(format!("fetch failed: {message}")))?;
     call.call(reject, &Value::Undefined, &[reason])?;
     Ok(())
 }

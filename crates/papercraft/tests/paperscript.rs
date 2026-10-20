@@ -665,8 +665,8 @@ fn image_bitmaps_decode_crop_flip_and_resize<E: Engine>() {
                  console.log(big.width, big.height, at(big, 3, 3), at(big, 4, 0))\n\
                  console.log(at(await createImageBitmap(new ImageData(new Uint8ClampedArray([0, 255, 0, 255]), 1, 1)), 0, 0))\n\
                  decoded.close()\n\
-                 try { new OffscreenCanvas(1, 1).getContext('2d').drawImage(decoded, 0, 0) } catch (e) { console.log(decoded.width, e.message) }\n\
-                 try { await createImageBitmap(new Blob(['no image'])) } catch (e) { console.log(e.message.startsWith('InvalidStateError')) }\n\
+                 try { new OffscreenCanvas(1, 1).getContext('2d').drawImage(decoded, 0, 0) } catch (e) { console.log(decoded.width, e instanceof DOMException, e.name, e.message) }\n\
+                 try { await createImageBitmap(new Blob(['no image'])) } catch (e) { console.log(e.name) }\n\
              })()",
         )
         .unwrap();
@@ -678,8 +678,38 @@ fn image_bitmaps_decode_crop_flip_and_resize<E: Engine>() {
             "0,0,255,255",
             "8 4 255,0,0,255 0,0,255,255",
             "0,255,0,255",
-            "0 InvalidStateError: the image bitmap is closed",
-            "true",
+            "0 true InvalidStateError the image bitmap is closed",
+            "InvalidStateError",
+        ]
+    );
+}
+
+fn host_functions_throw_the_browsers_exceptions<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "const ctx = new OffscreenCanvas(1, 1).getContext('2d')\n\
+             const thrown = f => { try { f() } catch (e) { return e } }\n\
+             const range = thrown(() => ctx.arc(0, 0, -1, 0, 1))\n\
+             console.log(range instanceof DOMException, range instanceof Error, range.name, range.code, range.code === DOMException.INDEX_SIZE_ERR)\n\
+             console.log(String(range), Object.prototype.toString.call(range) !== '')\n\
+             console.log(thrown(() => new Path2D().addPath(1)) instanceof TypeError, thrown(() => ctx.roundRect(0, 0, 1, 1, -1)) instanceof RangeError)\n\
+             const own = new DOMException('gone', 'NotFoundError')\n\
+             console.log(own.name, own.message, own.code, new DOMException().name)\n\
+             const controller = new AbortController(); controller.abort()\n\
+             console.log(controller.signal.reason instanceof DOMException, controller.signal.reason.name)",
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.take_output(),
+        [
+            "true true IndexSizeError 1 true",
+            "IndexSizeError: arc: the radius is negative true",
+            "true true",
+            "NotFoundError gone 8 Error",
+            "true AbortError",
         ]
     );
 }
@@ -834,6 +864,11 @@ macro_rules! engine_tests {
             #[test]
             fn image_bitmaps_decode_crop_flip_and_resize() {
                 super::image_bitmaps_decode_crop_flip_and_resize::<$engine>();
+            }
+
+            #[test]
+            fn host_functions_throw_the_browsers_exceptions() {
+                super::host_functions_throw_the_browsers_exceptions::<$engine>();
             }
 
             #[test]

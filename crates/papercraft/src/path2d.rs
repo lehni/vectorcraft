@@ -62,7 +62,7 @@ fn number<H>(call: &mut dyn Call<H>, value: &Value<H>) -> Result<Option<usize>, 
 
 /// `f` with the path of the `Path2D` `this` is.
 pub(crate) fn with_path<H, R>(call: &mut dyn Call<H>, this: &Value<H>, f: impl FnOnce(&mut BezPath) -> R) -> Result<R, Error> {
-    let not_a_path = || Error::Script("TypeError: not a Path2D".into());
+    let not_a_path = || Error::Type("not a Path2D".into());
     let number = number(call, this)?.ok_or_else(not_a_path)?;
     let host = call.host()?;
     let mut host = host.borrow_mut();
@@ -84,7 +84,7 @@ pub(crate) fn path_of<H>(call: &mut dyn Call<H>, value: &Value<H>) -> Result<Opt
 /// `a` … `f`) when there is one.
 pub(crate) fn add_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let Some(added) = args.first().map(|a| path_of(call, a)).transpose()?.flatten() else {
-        return Err(Error::Script("TypeError: addPath: not a Path2D".into()));
+        return Err(Error::Type("addPath: not a Path2D".into()));
     };
     let transform = match args.get(1) {
         Some(Value::Js(matrix)) => {

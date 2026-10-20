@@ -132,7 +132,7 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
     let bitmap_width = engine.function("width", |call, this, _| bitmap::side(call, this, true))?;
     let bitmap_height = engine.function("height", |call, this, _| bitmap::side(call, this, false))?;
     let bitmap_close = engine.function("close", bitmap::close)?;
-    let bitmap_constructor = engine.constructor("ImageBitmap", |_, _, _| Err(Error::Script("TypeError: Illegal constructor".into())))?;
+    let bitmap_constructor = engine.constructor("ImageBitmap", |_, _, _| Err(Error::Type("Illegal constructor".into())))?;
     let create_bitmap = engine.function("createImageBitmap", bitmap::create)?;
     let get_fill = engine.function("fillStyle", |call, this, _| drawing::get_checked(call, this, "_fillStyle"))?;
     let set_fill = engine.function("fillStyle", |call, this, args| drawing::set_style(call, this, "_fillStyle", args.first()))?;
@@ -308,9 +308,9 @@ pub(crate) fn image_pixels<H>(call: &mut dyn Call<H>, image: &Value<H>) -> Resul
     if let Value::Js(object) = image
         && matches!(call.get(object, "_canvas")?, Value::Number(n) if n < 0.0)
     {
-        return Err(Error::Script("InvalidStateError: the image bitmap is closed".into()));
+        return Err(Error::Dom("InvalidStateError", "the image bitmap is closed".into()));
     }
-    with_pixmap(call, image, |pixmap| Arc::new(pixmap.clone())).map_err(|_| Error::Script("TypeError: the image isn't a canvas".into()))
+    with_pixmap(call, image, |pixmap| Arc::new(pixmap.clone())).map_err(|_| Error::Type("the image isn't a canvas".into()))
 }
 
 /// A new `CanvasGradient`.

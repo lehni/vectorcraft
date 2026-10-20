@@ -20,7 +20,7 @@ use crate::{Call, Error, Value, method};
 /// `resizeQuality`) as the options say.
 pub(crate) fn create<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let Some(Value::Js(source)) = args.first() else {
-        return Err(Error::Script("TypeError: createImageBitmap: not an image".into()));
+        return Err(Error::Type("createImageBitmap: not an image".into()));
     };
     let pixels = pixels(call, source)?;
     let (crop, options) = match args.get(1) {
@@ -30,7 +30,7 @@ pub(crate) fn create<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &
                 _ => f64::NAN,
             });
             if sw == 0.0 || sh == 0.0 || [sx, sy, sw, sh].iter().any(|n| n.is_nan()) {
-                return Err(Error::Script("RangeError: createImageBitmap: the crop is empty".into()));
+                return Err(Error::Range("createImageBitmap: the crop is empty".into()));
             }
             // A negative size extends left or up, as in browsers.
             (Rect::new(sx, sy, sx + sw, sy + sh).abs(), args.get(5))
@@ -44,7 +44,7 @@ pub(crate) fn create<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &
     let size = |value: Value<H>| match value {
         Value::Number(n) if (1.0..=SIDE).contains(&n) => Ok(Some(n.trunc())),
         Value::Undefined => Ok(None),
-        _ => Err(Error::Script("InvalidStateError: createImageBitmap: the size is out of range".into())),
+        _ => Err(Error::Dom("InvalidStateError", "createImageBitmap: the size is out of range".into())),
     };
     let (resize_width, resize_height) = (size(option(call, "resizeWidth")?)?, size(option(call, "resizeHeight")?)?);
     // One given size keeps the crop's proportions.
@@ -55,7 +55,7 @@ pub(crate) fn create<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &
         (None, None) => (crop.width(), crop.height()),
     };
     if !(1.0..=SIDE).contains(&width) || !(1.0..=SIDE).contains(&height) || width * height > AREA {
-        return Err(Error::Script("InvalidStateError: createImageBitmap: the bitmap would be too large".into()));
+        return Err(Error::Dom("InvalidStateError", "createImageBitmap: the bitmap would be too large".into()));
     }
     let flip = matches!(option(call, "imageOrientation")?, Value::String(o) if o == "flipY");
     let smooth = !matches!(option(call, "resizeQuality")?, Value::String(q) if q == "pixelated");
@@ -84,16 +84,16 @@ fn pixels<H: Clone>(call: &mut dyn Call<H>, source: &H) -> Result<Arc<Pixmap>, E
     #[cfg(not(target_arch = "wasm32"))]
     if crate::fetch::is_blob(call, source)? {
         let bytes = crate::fetch::blob_bytes(call, &Value::Js(source.clone()))?;
-        return decode(&bytes).map(Arc::new).map_err(|e| Error::Script(format!("InvalidStateError: createImageBitmap: {e}")));
+        return decode(&bytes).map(Arc::new).map_err(|e| Error::Dom("InvalidStateError", format!("createImageBitmap: {e}")));
     }
     if let Value::Js(data) = call.get(source, "data")? {
         let (w, h) = (call.get(source, "width")?, call.get(source, "height")?);
         let (Value::Number(w), Value::Number(h)) = (w, h) else {
-            return Err(Error::Script("TypeError: createImageBitmap: not an ImageData".into()));
+            return Err(Error::Type("createImageBitmap: not an ImageData".into()));
         };
         let bytes = call.bytes(&data)?;
         if !(w >= 0.0 && h >= 0.0 && w <= SIDE && h <= SIDE) || bytes.len() as f64 != w * h * 4.0 {
-            return Err(Error::Script("TypeError: createImageBitmap: not an ImageData".into()));
+            return Err(Error::Type("createImageBitmap: not an ImageData".into()));
         }
         let data = bytes.as_chunks::<4>().0.iter().map(|p| premultiply(*p)).collect();
         return Ok(Arc::new(Pixmap::from_parts(data, w as u16, h as u16)));

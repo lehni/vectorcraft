@@ -165,7 +165,11 @@ fn call_host(function: HostFunction<JsValue>, host: &BrowserHost, this: Value<Js
     let args: Vec<_> = args.iter().map(from_js).collect();
     match function(&mut BrowserCall { host: host.clone() }, &this, &args) {
         Ok(value) => Ok(to_js(&value)),
-        Err(error) => Err(js_sys::Error::new(&error.to_string()).into()),
+        // Of the script's realm, which `instanceof` sees.
+        Err(error) => match crate::exception::value(&mut BrowserCall { host: host.clone() }, &error) {
+            Ok(thrown) => Err(to_js(&thrown)),
+            Err(_) => Err(js_sys::Error::new(&error.to_string()).into()),
+        },
     }
 }
 

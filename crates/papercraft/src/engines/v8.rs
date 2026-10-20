@@ -314,9 +314,13 @@ fn call_host<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionCallbackArg
     match value {
         Ok(value) => result.set(value),
         Err(error) => {
-            if let Some(message) = v8::String::new(scope, &error.to_string()) {
-                let error = v8::Exception::error(scope, message);
-                scope.throw_exception(error);
+            let thrown = crate::exception::value(&mut V8Call { scope }, &error).and_then(|value| to_v8(scope, &value));
+            let thrown = match thrown {
+                Ok(thrown) => Some(thrown),
+                Err(_) => v8::String::new(scope, &error.to_string()).map(|message| v8::Exception::error(scope, message)),
+            };
+            if let Some(thrown) = thrown {
+                scope.throw_exception(thrown);
             }
         }
     }

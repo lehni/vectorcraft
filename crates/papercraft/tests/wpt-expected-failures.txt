@@ -51,8 +51,6 @@ drawing-images-to-the-canvas/2d.drawImage.broken.worker.js: Untitled
 drawing-images-to-the-canvas/2d.drawImage.negativedest.worker.js: Negative destination width/height represents the correct rectangle
 drawing-images-to-the-canvas/2d.drawImage.negativedir.worker.js: Negative dimensions do not affect the direction of the image
 drawing-images-to-the-canvas/2d.drawImage.negativesource.worker.js: Negative source width/height represents the correct rectangle
-drawing-images-to-the-canvas/2d.drawImage.null.worker.js: Untitled
-drawing-images-to-the-canvas/2d.drawImage.wrongtype.worker.js: Incorrect image types in drawImage do not match any defined overloads, so WebIDL throws a TypeError
 drawing-images-to-the-canvas/2d.drawImage.zerocanvas.worker.js: Untitled
 fill-and-stroke-styles/2d.fillStyle.colormix.worker.js: color-mix works as color input
 fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsl-3.worker.js: Untitled
@@ -74,20 +72,14 @@ fill-and-stroke-styles/2d.gradient.interpolate.zerosize.fillText.worker.js: Unti
 fill-and-stroke-styles/2d.gradient.interpolate.zerosize.stroke.worker.js: Untitled
 fill-and-stroke-styles/2d.gradient.interpolate.zerosize.strokeRect.worker.js: Untitled
 fill-and-stroke-styles/2d.gradient.interpolate.zerosize.strokeText.worker.js: Untitled
-fill-and-stroke-styles/2d.gradient.linear.nonfinite.worker.js: createLinearGradient() throws TypeError if arguments are not finite
-fill-and-stroke-styles/2d.gradient.object.invalidcolor.worker.js: Untitled
 fill-and-stroke-styles/2d.gradient.object.invalidoffset.worker.js: Untitled
 fill-and-stroke-styles/2d.gradient.object.return.worker.js: createLinearGradient() and createRadialGradient() returns objects implementing CanvasGradient
 fill-and-stroke-styles/2d.gradient.object.type.worker.js: window.CanvasGradient exists and has the right properties
 fill-and-stroke-styles/2d.gradient.radial.equal.worker.js: Untitled
 fill-and-stroke-styles/2d.gradient.radial.negative.worker.js: createRadialGradient() throws INDEX_SIZE_ERR if either radius is negative
-fill-and-stroke-styles/2d.gradient.radial.nonfinite.worker.js: createRadialGradient() throws TypeError if arguments are not finite
 fill-and-stroke-styles/2d.gradient.relativecolor.worker.js: Relative color works as CanvasGradient color input
 fill-and-stroke-styles/2d.pattern.basic.type.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.basic.zerocanvas.worker.js: Untitled
-fill-and-stroke-styles/2d.pattern.image.null.worker.js: Untitled
-fill-and-stroke-styles/2d.pattern.image.string.worker.js: Untitled
-fill-and-stroke-styles/2d.pattern.image.undefined.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.modify.canvas1.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.modify.canvas2.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.paint.norepeat.coord3.worker.js: Untitled
@@ -96,11 +88,7 @@ fill-and-stroke-styles/2d.pattern.paint.repeatx.coord1.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.paint.repeatx.outside.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.paint.repeaty.coord1.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.paint.repeaty.outside.worker.js: Untitled
-fill-and-stroke-styles/2d.pattern.repeat.case.worker.js: Untitled
-fill-and-stroke-styles/2d.pattern.repeat.nullsuffix.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.repeat.undefined.worker.js: Untitled
-fill-and-stroke-styles/2d.pattern.repeat.unrecognised.worker.js: Untitled
-fill-and-stroke-styles/2d.pattern.repeat.unrecognisednull.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.transform.identity.worker.js: Untitled
 fill-and-stroke-styles/2d.pattern.transform.infinity.worker.js: Untitled
 fill-and-stroke-styles/2d.strokeStyle.relativecolor.worker.js: Relative color works as color input
@@ -138,9 +126,6 @@ line-styles/2d.line.miter.invalid.worker.js: Setting miterLimit to invalid value
 line-styles/2d.line.miter.valid.worker.js: Setting miterLimit to valid values works
 line-styles/2d.line.width.invalid.worker.js: Setting lineWidth to invalid values is ignored
 line-styles/2d.line.width.valid.worker.js: Setting lineWidth to valid values works
-path-objects/2d.path.arc.negative.worker.js: arc() with negative radius throws INDEX_SIZE_ERR
-path-objects/2d.path.arcTo.negative.worker.js: arcTo() with negative radius throws an exception
-path-objects/2d.path.ellipse.basics.worker.js: Verify canvas throws error when drawing ellipse with negative radii.
 path-objects/2d.path.isPointInPath.basic.worker.js: Verify the winding rule in isPointInPath works for for rect path.
 path-objects/2d.path.isPointInPath.edge.worker.js: isPointInPath() counts points on the path as being inside
 path-objects/2d.path.isPointInPath.unclosed.worker.js: isPointInPath() works on unclosed subpaths

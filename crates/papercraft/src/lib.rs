@@ -16,6 +16,7 @@ mod dom;
 mod drawing;
 mod engine;
 mod engines;
+mod exception;
 #[cfg(not(target_arch = "wasm32"))]
 mod fetch;
 mod file;
@@ -78,9 +79,19 @@ pub fn paper_version() -> &'static str {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// A script threw, or Paper.js failed to load.
+    /// A script threw, or Paper.js failed to load; thrown to scripts as an `Error`.
     #[error("{0}")]
     Script(String),
+    /// A host function's `TypeError`: an argument of the wrong kind.
+    #[error("TypeError: {0}")]
+    Type(String),
+    /// A host function's `RangeError`: a number out of range.
+    #[error("RangeError: {0}")]
+    Range(String),
+    /// A host function's `DOMException` of this name (`IndexSizeError`, `InvalidStateError`,
+    /// `SyntaxError`, `AbortError` …), as browsers throw them.
+    #[error("{0}: {1}")]
+    Dom(&'static str, String),
 }
 
 /// The state behind the host functions of one runtime.
@@ -135,6 +146,8 @@ pub struct Host<H> {
     /// `URL` and `URLSearchParams` outside a browser.
     #[cfg(not(target_arch = "wasm32"))]
     urls: Option<urls::Classes<H>>,
+    /// The realm's error classes, for the exceptions host functions throw.
+    exceptions: Option<exception::Classes<H>>,
     next_palette_id: u64,
     /// `script.preferences` as last taken, as JSON.
     preferences: String,
@@ -183,6 +196,7 @@ impl<H> Default for Host<H> {
             resolvers: None,
             #[cfg(not(target_arch = "wasm32"))]
             urls: None,
+            exceptions: None,
             next_palette_id: 0,
             preferences: String::new(),
             handlers: Vec::new(),
@@ -206,8 +220,9 @@ impl<E: Engine> Runtime<E> {
     pub fn new() -> Result<Self, Error> {
         let host = Rc::new(RefCell::new(Host::default()));
         let mut engine = E::new(host.clone(), prelude)?;
-        install_globals(&mut engine)?;
         let global = engine.global()?;
+        exception::install(&mut engine, &global)?;
+        install_globals(&mut engine)?;
         let paper = engine.with_call(|call| object(call, &global, "paper"))?;
         let load = engine.function("load", modules::load)?;
         let mut runtime = Self { engine, host, paper, load };
