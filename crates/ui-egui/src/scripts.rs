@@ -964,11 +964,22 @@ pub(crate) fn tool_button(app: &mut VectorcraftApp, ui: &mut egui::Ui, center_x:
     });
 }
 
-/// An error from a script: in the log and the status bar.
+/// An error from a script: in the log, which shows, and the status bar.
 fn report(app: &mut VectorcraftApp, name: &str, error: &str) {
     let message = format!("{name}: {error}");
     app.scripts.push_log(message.clone(), true);
+    show_console(app);
     app.status(message);
+}
+
+/// Shows the PaperCraft Console when it isn't showing, as Scriptographer's did when a script
+/// printed.
+fn show_console(app: &mut VectorcraftApp) {
+    let params = json!({ "panel": crate::panels::papercraft_console::ID });
+    if crate::menus::checked(app, "window.panel", &params) != Some(true) {
+        // Showing a panel doesn't fail.
+        let _ = app.run("window.panel", params);
+    }
 }
 
 /// Applies a script's `patch` of `base`, adding to its undo step while nothing else changed the
@@ -1013,14 +1024,16 @@ fn write_back(
     Ok(())
 }
 
-/// Puts what a script printed in the log, and its last line in the status bar.
+/// Puts what a script printed in the log, which shows, and its last line in the status bar.
 fn show_output(app: &mut VectorcraftApp, output: Vec<String>) {
-    if let Some(last) = output.last() {
-        app.status(last.clone());
-    }
+    let Some(last) = output.last() else {
+        return;
+    };
+    app.status(last.clone());
     for line in output {
         app.scripts.push_log(line, false);
     }
+    show_console(app);
 }
 
 /// `ui.editScript {path}`: opens the script in the system's editor for it.

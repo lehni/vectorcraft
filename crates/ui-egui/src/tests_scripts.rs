@@ -725,3 +725,17 @@ fn a_script_knows_the_active_artboard() {
     let log: Vec<&str> = app.scripts.log().iter().map(|l| l.text.as_str()).collect();
     assert_eq!(log, ["Artboard 2 2"]);
 }
+
+/// The console shows when a script prints, as Scriptographer's did.
+#[test]
+fn the_console_shows_when_a_script_prints() {
+    let (mut app, _) = app();
+    let shown = |app: &VectorcraftApp| crate::menus::checked(app, "window.panel", &json!({ "panel": crate::panels::papercraft_console::ID }));
+    assert_ne!(shown(&app), Some(true));
+    let quiet = tempfile_path::Path::new("var a = 1");
+    app.run("ui.runScript", json!({ "path": quiet.0.to_string_lossy() })).unwrap();
+    assert_ne!(shown(&app), Some(true), "a script that prints nothing leaves it");
+    let loud = tempfile_path::Path::new("print('hello')");
+    app.run("ui.runScript", json!({ "path": loud.0.to_string_lossy() })).unwrap();
+    assert_eq!(shown(&app), Some(true));
+}
