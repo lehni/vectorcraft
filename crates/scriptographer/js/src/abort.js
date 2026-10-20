@@ -1,5 +1,6 @@
 import { EventTarget, Event } from './events.js'
 import { formatError } from './format-error.js'
+import { setToStringTag } from './to-string-tag.js'
 
 // `AbortController` and `AbortSignal`, for scripts outside a browser.
 
@@ -108,9 +109,4 @@ export class AbortController {
   }
 }
 
-for (const Class of [AbortSignal, AbortController]) {
-  Object.defineProperty(Class.prototype, Symbol.toStringTag, {
-    value: Class.name,
-    configurable: true
-  })
-}
+setToStringTag(AbortSignal, AbortController)

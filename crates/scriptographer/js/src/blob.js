@@ -1,4 +1,5 @@
 import { natives } from './natives.js'
+import { setToStringTag } from './to-string-tag.js'
 
 // `Blob` and `File` for scripts outside a browser. Their bytes arrive whole: no
 // streams.
@@ -64,12 +65,7 @@ export class File extends Blob {
   }
 }
 
-for (const Class of [Blob, File]) {
-  Object.defineProperty(Class.prototype, Symbol.toStringTag, {
-    value: Class.name,
-    configurable: true
-  })
-}
+setToStringTag(Blob, File)
 
 // The bytes of `blob`, which the runtime reads too, not copied.
 export function getBytes(blob) {

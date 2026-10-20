@@ -1,5 +1,6 @@
 import { Blob, File, getBytes } from './blob.js'
 import { natives } from './natives.js'
+import { setToStringTag } from './to-string-tag.js'
 
 // The browser's `fetch()` for scripts outside a browser, with `Headers`,
 // `FormData`, `Request` and `Response`. The runtime sends the requests, on
@@ -330,12 +331,7 @@ export class Response extends Body {
   }
 }
 
-for (const Class of [Headers, FormData, Request, Response]) {
-  Object.defineProperty(Class.prototype, Symbol.toStringTag, {
-    value: Class.name,
-    configurable: true
-  })
-}
+setToStringTag(Headers, FormData, Request, Response)
 
 // A Promise of the `Response`, rejected with a `TypeError` when the request
 // fails, or with the signal's reason when it aborts.

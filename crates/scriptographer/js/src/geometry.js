@@ -1,3 +1,5 @@
+import { setToStringTag } from './to-string-tag.js'
+
 // The Geometry Interfaces, for scripts outside a browser: `DOMPoint`,
 // `DOMRect`, `DOMQuad` and `DOMMatrix`, with their read-only versions. As in a
 // worker, there's no CSS to parse a matrix from.
@@ -378,7 +380,7 @@ defineValues(
   }
 )
 
-for (const Class of [
+setToStringTag(
   DOMPointReadOnly,
   DOMPoint,
   DOMRectReadOnly,
@@ -386,12 +388,7 @@ for (const Class of [
   DOMQuad,
   DOMMatrixReadOnly,
   DOMMatrix
-]) {
-  Object.defineProperty(Class.prototype, Symbol.toStringTag, {
-    value: Class.name,
-    configurable: true
-  })
-}
+)
 
 function defineValues(ReadOnly, Writable, entries, getValues, changed) {
   for (const [name, index] of entries) {

@@ -33,6 +33,16 @@
     return typeof stack === "string" && stack.startsWith(text) ? stack : text;
   }
 
+  // src/to-string-tag.js
+  function setToStringTag(...classes) {
+    for (const Class of classes) {
+      Object.defineProperty(Class.prototype, Symbol.toStringTag, {
+        value: Class.name,
+        configurable: true
+      });
+    }
+  }
+
   // src/events.js
   var phases = { NONE: 0, CAPTURING_PHASE: 1, AT_TARGET: 2, BUBBLING_PHASE: 3 };
   var listenersByTarget = /* @__PURE__ */ new WeakMap();
@@ -266,19 +276,14 @@
       Object.defineProperty(target, name, { value, enumerable: true });
     }
   }
-  for (const Class of [
+  setToStringTag(
     EventTarget,
     Event,
     CustomEvent,
     MessageEvent,
     CloseEvent,
     ErrorEvent
-  ]) {
-    Object.defineProperty(Class.prototype, Symbol.toStringTag, {
-      value: Class.name,
-      configurable: true
-    });
-  }
+  );
   function getState(event) {
     const state = states.get(event);
     if (!state) {
@@ -398,12 +403,7 @@
       abort(this.#signal, reason);
     }
   };
-  for (const Class of [AbortSignal, AbortController]) {
-    Object.defineProperty(Class.prototype, Symbol.toStringTag, {
-      value: Class.name,
-      configurable: true
-    });
-  }
+  setToStringTag(AbortSignal, AbortController);
 
   // src/blob.js
   var blob_exports = {};
@@ -458,12 +458,7 @@
       return "";
     }
   };
-  for (const Class of [Blob, File]) {
-    Object.defineProperty(Class.prototype, Symbol.toStringTag, {
-      value: Class.name,
-      configurable: true
-    });
-  }
+  setToStringTag(Blob, File);
   function getBytes(blob) {
     return bytesByBlob.get(blob)?.bytes ?? natives.readFile(blob);
   }
@@ -844,10 +839,7 @@ ${stack}` : ""));
       });
     }
   }
-  Object.defineProperty(DOMException2.prototype, Symbol.toStringTag, {
-    value: "DOMException",
-    configurable: true
-  });
+  setToStringTag(DOMException2);
 
   // src/fetch.js
   var fetch_exports = {};
@@ -1118,12 +1110,7 @@ ${stack}` : ""));
       );
     }
   };
-  for (const Class of [Headers, FormData, Request, Response]) {
-    Object.defineProperty(Class.prototype, Symbol.toStringTag, {
-      value: Class.name,
-      configurable: true
-    });
-  }
+  setToStringTag(Headers, FormData, Request, Response);
   async function fetch(input, init) {
     const request = new Request(input, init);
     const { method, url, headers, signal, redirect } = request;
@@ -1532,7 +1519,7 @@ ${value}\r
       }
     }
   );
-  for (const Class of [
+  setToStringTag(
     DOMPointReadOnly,
     DOMPoint,
     DOMRectReadOnly,
@@ -1540,12 +1527,7 @@ ${value}\r
     DOMQuad,
     DOMMatrixReadOnly,
     DOMMatrix
-  ]) {
-    Object.defineProperty(Class.prototype, Symbol.toStringTag, {
-      value: Class.name,
-      configurable: true
-    });
-  }
+  );
   function defineValues(ReadOnly, Writable, entries, getValues, changed) {
     for (const [name, index] of entries) {
       const get = function() {

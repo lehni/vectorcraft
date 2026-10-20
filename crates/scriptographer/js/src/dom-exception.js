@@ -1,3 +1,5 @@
+import { setToStringTag } from './to-string-tag.js'
+
 // `DOMException` for scripts outside a browser: an `Error` with a `name`, and
 // the legacy `code` of the names that had one, as `INDEX_SIZE_ERR` and the
 // other constants have them.
@@ -58,7 +60,4 @@ for (const [index, [, constant]] of constants.entries()) {
   }
 }
 
-Object.defineProperty(DOMException.prototype, Symbol.toStringTag, {
-  value: 'DOMException',
-  configurable: true
-})
+setToStringTag(DOMException)

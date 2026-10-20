@@ -120,6 +120,16 @@
     setTimeout(() => URL.revokeObjectURL(url), 6e4);
   }
 
+  // src/to-string-tag.js
+  function setToStringTag(...classes) {
+    for (const Class of classes) {
+      Object.defineProperty(Class.prototype, Symbol.toStringTag, {
+        value: Class.name,
+        configurable: true
+      });
+    }
+  }
+
   // src/web/local-file.js
   var handles = /* @__PURE__ */ new WeakMap();
   var LocalFile = class _LocalFile extends File {
@@ -240,10 +250,8 @@
     toString() {
       return this.name;
     }
-    get [Symbol.toStringTag]() {
-      return "LocalFile";
-    }
   };
+  setToStringTag(LocalFile);
 
   // src/web/index.js
   var { ask } = globalThis.__scriptographer;

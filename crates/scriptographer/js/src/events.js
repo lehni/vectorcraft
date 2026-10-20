@@ -1,4 +1,5 @@
 import { formatError } from './format-error.js'
+import { setToStringTag } from './to-string-tag.js'
 
 // `EventTarget` and the event classes for scripts outside a browser, as the DOM
 // standard has them, to extend (`class Emitter extends EventTarget`). There's
@@ -270,19 +271,14 @@ for (const [name, value] of Object.entries(phases)) {
   }
 }
 
-for (const Class of [
+setToStringTag(
   EventTarget,
   Event,
   CustomEvent,
   MessageEvent,
   CloseEvent,
   ErrorEvent
-]) {
-  Object.defineProperty(Class.prototype, Symbol.toStringTag, {
-    value: Class.name,
-    configurable: true
-  })
-}
+)
 
 function getState(event) {
   const state = states.get(event)
