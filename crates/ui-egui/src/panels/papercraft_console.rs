@@ -1,6 +1,6 @@
-//! The PaperCraft Console panel, as Scriptographer's console was: a line on top that runs
-//! PaperScript in the console's own project on the active document (Enter runs it, each line one
-//! undo step), and under it everything scripts printed, errors in the error colour.
+//! The PaperCraft Console panel, as Scriptographer's console was: a multi-line field on top where
+//! Return runs the line it ends as PaperScript, in the console's own project on the active document
+//! (each line one undo step), and under it everything scripts printed, errors in the error colour.
 
 use egui::Ui;
 use serde_json::json;
@@ -15,14 +15,21 @@ const INPUT: &str = "papercraft-console-input";
 
 pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
+    // A multi-line field, as Scriptographer's: Return goes to a new line as usual, and runs the line
+    // it ends. The text stays, to run lines again.
     let mut input: String = pstate(ui.ctx(), INPUT);
-    let field = ui.add(egui::TextEdit::singleline(&mut input).font(egui::TextStyle::Monospace).desired_width(f32::INFINITY));
-    if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !input.trim().is_empty() {
-        let code = std::mem::take(&mut input);
-        if let Err(e) = app.run("ui.evaluateScript", json!({ "code": code })) {
+    let entered = ui.input(|i| i.key_pressed(egui::Key::Enter) && i.modifiers.is_none());
+    let field = egui::TextEdit::multiline(&mut input).font(egui::TextStyle::Monospace).desired_rows(3).desired_width(f32::INFINITY).show(ui);
+    if entered
+        && field.response.has_focus()
+        && let Some(cursor) = field.cursor_range.map(|c| c.primary.index.0)
+    {
+        let line = ended_line(&input, cursor);
+        if !line.is_empty()
+            && let Err(e) = app.run("ui.evaluateScript", json!({ "code": line }))
+        {
             app.status(e);
         }
-        field.request_focus();
     }
     set_pstate(ui.ctx(), INPUT, input);
     // Laid out from the bottom: the bar stays at the bottom, the log takes the height above it.
@@ -66,4 +73,19 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
             });
         });
     });
+}
+
+/// The line that a newline before the cursor at `cursor` (a character index) ended, trimmed.
+fn ended_line(text: &str, cursor: usize) -> String {
+    let before: String = text.chars().take(cursor).collect();
+    let before = before.strip_suffix('\n').unwrap_or(&before);
+    before.rsplit('\n').next().unwrap_or_default().trim().to_owned()
+}
+
+#[cfg(test)]
+#[test]
+fn return_runs_the_line_it_ends() {
+    assert_eq!(ended_line("a = 1\nb = 2\n", 12), "b = 2");
+    assert_eq!(ended_line("a = 1\n\nb = 2", 6), "a = 1", "a line in the middle, its newline just typed");
+    assert_eq!(ended_line("\n", 1), "", "an empty line runs nothing");
 }

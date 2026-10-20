@@ -637,3 +637,28 @@ fn a_closed_palette_opens_again() {
     assert!(shown(&mut app), "the next frame is asked for again");
     assert!(palettes_frame(&mut app, &ctx, vec![]).iter().any(|(t, _)| t == "Clouds"), "open again");
 }
+
+/// The console's input is a multi-line field: Return goes to a new line and runs the line it ends,
+/// and the text stays.
+#[test]
+fn the_console_runs_the_line_return_ends() {
+    let (mut app, _) = app();
+    let ctx = egui::Context::default();
+    crate::theme::install_fonts(&ctx);
+    let frame = |app: &mut VectorcraftApp, events: Vec<egui::Event>| {
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 300.0));
+        let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ui| {
+            crate::panels::papercraft_console::show(app, ui);
+        });
+        out.textures_delta.clear();
+    };
+    let field = egui::pos2(40.0, 15.0);
+    let press = |pressed| egui::Event::PointerButton { pos: field, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+    frame(&mut app, vec![]);
+    frame(&mut app, vec![egui::Event::PointerMoved(field), press(true)]);
+    frame(&mut app, vec![press(false)]);
+    let enter = egui::Event::Key { key: egui::Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+    frame(&mut app, vec![egui::Event::Text("console.log(6 * 7)".into()), enter]);
+    let log: Vec<&str> = app.scripts.log().iter().map(|l| l.text.as_str()).collect();
+    assert_eq!(log, ["> console.log(6 * 7)", "42"]);
+}
