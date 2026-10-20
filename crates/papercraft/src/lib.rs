@@ -261,6 +261,12 @@ impl<E: Engine> Runtime<E> {
         })
     }
 
+    /// Runs `source` as a classic script in the realm's global scope, as a browser's `<script>`
+    /// or a worker's `importScripts()` does: not PaperScript, and without imports.
+    pub fn eval(&mut self, source: &str) -> Result<(), Error> {
+        self.engine.eval(source).map(|_| ())
+    }
+
     /// Calls the script's handler `name` (one of [`HANDLERS`]), when it defines one. Returns
     /// whether it did.
     pub fn call_handler(&mut self, name: &str) -> Result<bool, Error> {

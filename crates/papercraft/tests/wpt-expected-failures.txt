@@ -1,0 +1,412 @@
+# The web-platform-tests (https://github.com/web-platform-tests/wpt, BSD-3-Clause) of
+# html/canvas/offscreen that PaperCraft fails, by file and title: see tests/wpt.rs.
+2d.conformance.requirements.missingargs.worker.js: Missing arguments cause TypeError
+canvas-context/2d.canvas.context.arguments.missing.worker.js: Untitled
+canvas-context/2d.canvas.context.casesensitive.worker.js: Context name "2D" is unrecognised; matching is case sensitive
+canvas-context/2d.canvas.context.emptystring.worker.js: getContext with empty string returns null
+canvas-context/2d.canvas.context.invalid.args.worker.js: Calling getContext with invalid arguments.
+canvas-context/2d.canvas.context.prototype.worker.js: checks OffscreenCanvasRenderingContext2D prototype
+canvas-context/2d.canvas.context.type.exists.worker.js: The 2D context interface is a property of 'self'
+canvas-context/2d.canvas.context.type.extend.worker.js: Interface methods can be added
+canvas-context/2d.canvas.context.type.prototype.worker.js: window.CanvasRenderingContext2D.prototype are not [[Writable]] and not [[Configurable]], and its methods are [[Configurable]].
+canvas-context/2d.canvas.context.type.replace.worker.js: Interface methods can be overridden
+canvas-host/2d.canvas.host.initial.reset.2dstate.worker.js: Resetting the canvas state resets strokeStyle
+canvas-host/2d.canvas.host.initial.reset.pattern.worker.js: Resetting the canvas state does not invalidate any existing patterns
+canvas-host/2d.canvas.host.readonly.worker.js: Canvas objects are readonly
+canvas-host/2d.canvas.host.size.attributes.idl.worker.js: Getting/setting width/height IDL attributes
+canvas-host/2d.canvas.host.size.attributes.parse.decimal.worker.js: Parsing of non-negative integers
+canvas-host/2d.canvas.host.size.attributes.parse.em.worker.js: Parsing of non-negative integers
+canvas-host/2d.canvas.host.size.attributes.parse.empty.worker.js: Parsing of non-negative integers
+canvas-host/2d.canvas.host.size.attributes.parse.exp.worker.js: Parsing of non-negative integers
+canvas-host/2d.canvas.host.size.attributes.parse.hex.worker.js: Parsing of non-negative integers
+canvas-host/2d.canvas.host.size.attributes.parse.junk.worker.js: Parsing of non-negative integers
+canvas-host/2d.canvas.host.size.attributes.parse.minus.worker.js: Parsing of non-negative integers
+canvas-host/2d.canvas.host.size.attributes.parse.octal.worker.js: Parsing of non-negative integers
+canvas-host/2d.canvas.host.size.attributes.parse.onlyspace.worker.js: Parsing of non-negative integers
+canvas-host/2d.canvas.host.size.attributes.parse.percent.worker.js: Parsing of non-negative integers
+canvas-host/2d.canvas.host.size.attributes.parse.plus.worker.js: Parsing of non-negative integers
+canvas-host/2d.canvas.host.size.attributes.parse.space.worker.js: Parsing of non-negative integers
+canvas-host/2d.canvas.host.size.attributes.parse.trailingjunk.worker.js: Parsing of non-negative integers
+canvas-host/2d.canvas.host.size.attributes.parse.whitespace.worker.js: Parsing of non-negative integers
+canvas-host/2d.canvas.host.size.attributes.parse.zero.worker.js: Parsing of non-negative integers
+canvas-host/2d.canvas.host.size.invalid.attributes.idl.worker.js: Getting/setting width/height IDL attributes
+canvas-host/2d.canvas.host.size.large.worker.js: Untitled
+canvas-host/2d.canvas.host.type.name.worker.js: OffscreenCanvas type and toString
+color-type/2d.color.type.u8p3.to.u8srgb.to.u8p3.worker.js: test srgb unorm8 canvas storing 8-bit display-p3 data accurately
+color-type/2d.color.type.u8srgb.to.u8p3.to.u8srgb.worker.js: test display-p3 unorm8 canvas not storing 8-bit srgb data accurately
+compositing/2d.composite.canvas.clear.worker.js: Untitled
+compositing/2d.composite.canvas.copy.worker.js: Untitled
+compositing/2d.composite.canvas.destination-atop.worker.js: Untitled
+compositing/2d.composite.canvas.destination-in.worker.js: Untitled
+compositing/2d.composite.canvas.destination-out.worker.js: Untitled
+compositing/2d.composite.canvas.destination-over.worker.js: Untitled
+compositing/2d.composite.canvas.lighter.worker.js: Untitled
+compositing/2d.composite.canvas.source-atop.worker.js: Untitled
+compositing/2d.composite.canvas.source-in.worker.js: Untitled
+compositing/2d.composite.canvas.source-out.worker.js: Untitled
+compositing/2d.composite.canvas.source-over.worker.js: Untitled
+compositing/2d.composite.canvas.xor.worker.js: Untitled
+compositing/2d.composite.globalAlpha.image.worker.js: Untitled
+compositing/2d.composite.globalAlpha.imagepattern.worker.js: Untitled
+compositing/2d.composite.globalAlpha.invalid.worker.js: Untitled
+compositing/2d.composite.globalAlpha.range.worker.js: Untitled
+compositing/2d.composite.image.clear.worker.js: Untitled
+compositing/2d.composite.image.copy.worker.js: Untitled
+compositing/2d.composite.image.destination-atop.worker.js: Untitled
+compositing/2d.composite.image.destination-in.worker.js: Untitled
+compositing/2d.composite.image.destination-out.worker.js: Untitled
+compositing/2d.composite.image.destination-over.worker.js: Untitled
+compositing/2d.composite.image.lighter.worker.js: Untitled
+compositing/2d.composite.image.source-atop.worker.js: Untitled
+compositing/2d.composite.image.source-in.worker.js: Untitled
+compositing/2d.composite.image.source-out.worker.js: Untitled
+compositing/2d.composite.image.source-over.worker.js: Untitled
+compositing/2d.composite.image.xor.worker.js: Untitled
+compositing/2d.composite.operation.casesensitive.worker.js: Untitled
+compositing/2d.composite.operation.darker.worker.js: Untitled
+compositing/2d.composite.operation.highlight.worker.js: Untitled
+compositing/2d.composite.operation.nullsuffix.worker.js: Untitled
+compositing/2d.composite.operation.over.worker.js: Untitled
+compositing/2d.composite.operation.unrecognised.worker.js: Untitled
+compositing/2d.composite.solid.clear.worker.js: Untitled
+compositing/2d.composite.transparent.clear.worker.js: Untitled
+compositing/2d.composite.uncovered.image.copy.worker.js: drawImage() draws pixels not covered by the source object as (0,0,0,0), and does not leave the pixels unchanged.
+compositing/2d.composite.uncovered.image.destination-atop.worker.js: drawImage() draws pixels not covered by the source object as (0,0,0,0), and does not leave the pixels unchanged.
+compositing/2d.composite.uncovered.image.destination-in.worker.js: drawImage() draws pixels not covered by the source object as (0,0,0,0), and does not leave the pixels unchanged.
+compositing/2d.composite.uncovered.image.source-in.worker.js: drawImage() draws pixels not covered by the source object as (0,0,0,0), and does not leave the pixels unchanged.
+compositing/2d.composite.uncovered.image.source-out.worker.js: drawImage() draws pixels not covered by the source object as (0,0,0,0), and does not leave the pixels unchanged.
+compositing/2d.composite.uncovered.pattern.copy.worker.js: Pattern fill() draws pixels not covered by the source object as (0,0,0,0), and does not leave the pixels unchanged.
+compositing/2d.composite.uncovered.pattern.destination-atop.worker.js: Pattern fill() draws pixels not covered by the source object as (0,0,0,0), and does not leave the pixels unchanged.
+compositing/2d.composite.uncovered.pattern.destination-in.worker.js: Pattern fill() draws pixels not covered by the source object as (0,0,0,0), and does not leave the pixels unchanged.
+compositing/2d.composite.uncovered.pattern.source-in.worker.js: Pattern fill() draws pixels not covered by the source object as (0,0,0,0), and does not leave the pixels unchanged.
+compositing/2d.composite.uncovered.pattern.source-out.worker.js: Pattern fill() draws pixels not covered by the source object as (0,0,0,0), and does not leave the pixels unchanged.
+conformance-requirements/2d.conformance.requirements.missingargs.worker.js: Missing arguments cause TypeError
+drawing-images-to-the-canvas/2d.drawImage.3arg.worker.js: Untitled
+drawing-images-to-the-canvas/2d.drawImage.5arg.worker.js: Untitled
+drawing-images-to-the-canvas/2d.drawImage.9arg.basic.worker.js: Untitled
+drawing-images-to-the-canvas/2d.drawImage.9arg.destpos.worker.js: Untitled
+drawing-images-to-the-canvas/2d.drawImage.9arg.destsize.worker.js: Untitled
+drawing-images-to-the-canvas/2d.drawImage.9arg.sourcepos.worker.js: Untitled
+drawing-images-to-the-canvas/2d.drawImage.9arg.sourcesize.worker.js: Untitled
+drawing-images-to-the-canvas/2d.drawImage.alpha.worker.js: Untitled
+drawing-images-to-the-canvas/2d.drawImage.broken.worker.js: Untitled
+drawing-images-to-the-canvas/2d.drawImage.clip.worker.js: Untitled
+drawing-images-to-the-canvas/2d.drawImage.composite.worker.js: Untitled
+drawing-images-to-the-canvas/2d.drawImage.floatsource.worker.js: Untitled
+drawing-images-to-the-canvas/2d.drawImage.negativedest.worker.js: Negative destination width/height represents the correct rectangle
+drawing-images-to-the-canvas/2d.drawImage.negativedir.worker.js: Negative dimensions do not affect the direction of the image
+drawing-images-to-the-canvas/2d.drawImage.negativesource.worker.js: Negative source width/height represents the correct rectangle
+drawing-images-to-the-canvas/2d.drawImage.nonfinite.worker.js: drawImage() with Infinity/NaN is ignored
+drawing-images-to-the-canvas/2d.drawImage.nowrap.worker.js: Stretched images do not get pixels wrapping around the edges
+drawing-images-to-the-canvas/2d.drawImage.null.worker.js: Untitled
+drawing-images-to-the-canvas/2d.drawImage.path.worker.js: Untitled
+drawing-images-to-the-canvas/2d.drawImage.transform.worker.js: Untitled
+drawing-images-to-the-canvas/2d.drawImage.wrongtype.worker.js: Incorrect image types in drawImage do not match any defined overloads, so WebIDL throws a TypeError
+drawing-images-to-the-canvas/2d.drawImage.zerocanvas.worker.js: Untitled
+drawing-images-to-the-canvas/2d.drawImage.zerosource.worker.js: drawImage with zero-sized source rectangle draws nothing without exception
+fill-and-stroke-styles/2d.fillStyle.colormix.worker.js: color-mix works as color input
+fill-and-stroke-styles/2d.fillStyle.get.halftransparent.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsl-2.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsl-4.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsl-5.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsl-6.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsl-7.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsl-8.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsl-9.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsla-2.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsla-4.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsla-5.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsla-6.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsla-7.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsla-8.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsla-9.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgb-3.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgb-5.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgb-6.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgba-3.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgba-5.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgba-6.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-hsl-2.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-hsl-3.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-hsla-2.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-hsla-3.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-rgb-2.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-rgb-3.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-rgba-2.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-rgba-3.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsl-3.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsl-4.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsl-5.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsl-6.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsla-2.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsla-3.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.invalid.rgb-1.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.invalid.rgb-2.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.invalid.rgba-1.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.invalid.rgba-3.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.invalid.rgba-5.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.rgb-clamp-5.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.rgb-eof.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.rgba-eof.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.parse.system.worker.js: Untitled
+fill-and-stroke-styles/2d.fillStyle.relativecolor.worker.js: Relative color works as color input
+fill-and-stroke-styles/2d.fillStyle.toStringFunctionCallback.worker.js: Passing a function in to ctx.fillStyle or ctx.strokeStyle with a toString callback works as specified
+fill-and-stroke-styles/2d.gradient.conic.invalid.inputs.worker.js: Conic gradient function with invalid inputs
+fill-and-stroke-styles/2d.gradient.conic.positive.rotation.worker.js: Conic gradient with positive rotation
+fill-and-stroke-styles/2d.gradient.interpolate.coloralpha.worker.js: Untitled
+fill-and-stroke-styles/2d.gradient.interpolate.zerosize.fill.worker.js: Untitled
+fill-and-stroke-styles/2d.gradient.interpolate.zerosize.fillRect.worker.js: Untitled
+fill-and-stroke-styles/2d.gradient.interpolate.zerosize.fillText.worker.js: Untitled
+fill-and-stroke-styles/2d.gradient.interpolate.zerosize.stroke.worker.js: Untitled
+fill-and-stroke-styles/2d.gradient.interpolate.zerosize.strokeRect.worker.js: Untitled
+fill-and-stroke-styles/2d.gradient.interpolate.zerosize.strokeText.worker.js: Untitled
+fill-and-stroke-styles/2d.gradient.linear.nonfinite.worker.js: createLinearGradient() throws TypeError if arguments are not finite
+fill-and-stroke-styles/2d.gradient.object.invalidcolor.worker.js: Untitled
+fill-and-stroke-styles/2d.gradient.object.invalidoffset.worker.js: Untitled
+fill-and-stroke-styles/2d.gradient.object.return.worker.js: createLinearGradient() and createRadialGradient() returns objects implementing CanvasGradient
+fill-and-stroke-styles/2d.gradient.object.type.worker.js: window.CanvasGradient exists and has the right properties
+fill-and-stroke-styles/2d.gradient.radial.equal.worker.js: Untitled
+fill-and-stroke-styles/2d.gradient.radial.negative.worker.js: createRadialGradient() throws INDEX_SIZE_ERR if either radius is negative
+fill-and-stroke-styles/2d.gradient.radial.nonfinite.worker.js: createRadialGradient() throws TypeError if arguments are not finite
+fill-and-stroke-styles/2d.gradient.relativecolor.worker.js: Relative color works as CanvasGradient color input
+fill-and-stroke-styles/2d.pattern.basic.image.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.basic.type.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.basic.zerocanvas.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.crosscanvas.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.image.null.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.image.string.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.image.undefined.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.modify.canvas1.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.modify.canvas2.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.paint.norepeat.basic.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.paint.norepeat.coord1.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.paint.norepeat.coord2.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.paint.norepeat.coord3.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.paint.norepeat.outside.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.paint.norepeat.outside_arc.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.paint.orientation.image.worker.js: Image patterns do not get flipped when painted
+fill-and-stroke-styles/2d.pattern.paint.repeat.basic.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.paint.repeat.coord1.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.paint.repeat.coord2.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.paint.repeat.coord3.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.paint.repeat.outside.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.paint.repeatx.basic.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.paint.repeatx.coord1.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.paint.repeatx.outside.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.paint.repeaty.basic.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.paint.repeaty.coord1.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.paint.repeaty.outside.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.repeat.case.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.repeat.empty.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.repeat.nullsuffix.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.repeat.undefined.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.repeat.unrecognised.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.repeat.unrecognisednull.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.transform.identity.worker.js: Untitled
+fill-and-stroke-styles/2d.pattern.transform.infinity.worker.js: Untitled
+fill-and-stroke-styles/2d.strokeStyle.relativecolor.worker.js: Relative color works as color input
+filters/2d.filter.canvasFilterObject.blur.exceptions.tentative.worker.js: Test exceptions on gaussianBlur filter
+filters/2d.filter.canvasFilterObject.colorMatrix.tentative.worker.js: Test the functionality of ColorMatrix filters
+filters/2d.filter.canvasFilterObject.convolveMatrix.exceptions.tentative.worker.js: Test exceptions on CanvasFilter() convolveMatrix
+filters/2d.filter.canvasFilterObject.dropShadow.exceptions.tentative.worker.js: Test exceptions on CanvasFilter() dropShadow object
+filters/2d.filter.canvasFilterObject.tentative.worker.js: Test CanvasFilter() object
+filters/2d.filter.canvasFilterObject.turbulence.inputTypes.tentative.worker.js: Test exceptions on CanvasFilter() turbulence object
+filters/2d.filter.layers.colorMatrix.tentative.worker.js: Test the functionality of ColorMatrix filters
+filters/2d.filter.layers.convolveMatrix.exceptions.tentative.worker.js: Test exceptions on CanvasFilter() convolveMatrix
+filters/2d.filter.layers.dropShadow.exceptions.tentative.worker.js: Test exceptions on CanvasFilter() dropShadow object
+filters/2d.filter.layers.turbulence.inputTypes.tentative.worker.js: Test exceptions on CanvasFilter() turbulence object
+layers/2d.layer.beginLayer-options.tentative.worker.js: Checks beginLayer works for different option parameter values
+layers/2d.layer.ctm.getTransform.worker.js: Tests getTransform inside layers.
+layers/2d.layer.exceptions-are-no-op.tentative.worker.js: Checks that the context state is left unchanged if beginLayer throws.
+layers/2d.layer.invalid-calls.beginLayer-reset-endLayer.worker.js: Raises exception on beginLayer() + reset() + endLayer().
+layers/2d.layer.invalid-calls.beginLayer-restore.worker.js: Raises exception on beginLayer() + restore().
+layers/2d.layer.invalid-calls.beginLayer-save-endLayer.worker.js: Raises exception on beginLayer() + save() + endLayer().
+layers/2d.layer.invalid-calls.endLayer.worker.js: Raises exception on lone endLayer calls.
+layers/2d.layer.invalid-calls.save-beginLayer-restore.worker.js: Raises exception on save() + beginLayer() + restore().
+layers/2d.layer.invalid-calls.save-endLayer.worker.js: Raises exception on save() + endLayer().
+layers/2d.layer.layer-rendering-state-reset-in-layer.worker.js: Tests that rendering states are reset in layers and restored after.
+layers/2d.layer.malformed-operations-with-promises.worker.js: Throws if convertToBlob is called while layers are open.
+layers/2d.layer.malformed-operations-with-promises.worker.js: Throws if createImageBitmap is called while layers are open.
+layers/2d.layer.malformed-operations.worker.js: Throws if createPattern is called while layers are open.
+layers/2d.layer.valid-calls.beginLayer-endLayer.worker.js: No exception raised on beginLayer() + endLayer().
+layers/2d.layer.valid-calls.beginLayer-save.worker.js: No exception raised on beginLayer() + save().
+layers/2d.layer.valid-calls.beginLayer.worker.js: No exception raised on lone beginLayer() calls.
+layers/2d.layer.valid-calls.save-beginLayer.worker.js: No exception raised on save() + beginLayer().
+line-styles/2d.line.cap.invalid.worker.js: Setting lineCap to invalid values is ignored
+line-styles/2d.line.cross.worker.js: Untitled
+line-styles/2d.line.join.invalid.worker.js: Setting lineJoin to invalid values is ignored
+line-styles/2d.line.miter.invalid.worker.js: Setting miterLimit to invalid values is ignored
+line-styles/2d.line.miter.valid.worker.js: Setting miterLimit to valid values works
+line-styles/2d.line.width.invalid.worker.js: Setting lineWidth to invalid values is ignored
+line-styles/2d.line.width.valid.worker.js: Setting lineWidth to valid values works
+path-objects/2d.path.arc.negative.worker.js: arc() with negative radius throws INDEX_SIZE_ERR
+path-objects/2d.path.arcTo.negative.worker.js: arcTo() with negative radius throws an exception
+path-objects/2d.path.ellipse.basics.worker.js: Verify canvas throws error when drawing ellipse with negative radii.
+path-objects/2d.path.isPointInPath.basic.worker.js: Verify the winding rule in isPointInPath works for for rect path.
+path-objects/2d.path.isPointInPath.edge.worker.js: isPointInPath() counts points on the path as being inside
+path-objects/2d.path.isPointInPath.unclosed.worker.js: isPointInPath() works on unclosed subpaths
+path-objects/2d.path.isPointInPath.winding.worker.js: isPointInPath() uses the non-zero winding number rule
+path-objects/2d.path.isPointInStroke.scaleddashes.worker.js: isPointInStroke() should return correct results on dashed paths at high scale factors
+path-objects/2d.path.isPointInpath.invalid.worker.js: Verify isPointInPath throws exceptions with invalid inputs.
+path-objects/2d.path.lineTo.nonfinite.details.worker.js: lineTo() with Infinity/NaN for first arg still converts the second arg
+path-objects/2d.path.roundrect.1.radius.dompoint.single.argument.worker.js: Verify that when one radius is given to roundRect() as a non-array argument, specified as a DOMPoint, it applies to all corners.
+path-objects/2d.path.roundrect.1.radius.dompoint.worker.js: Verify that when one radius is given to roundRect(), specified as a DOMPoint, it applies to all corners.
+path-objects/2d.path.roundrect.1.radius.dompointinit.single.argument.worker.js: Verify that when one radius is given to roundRect() as a non-array argument, specified as a DOMPointInit, applies to all corners.
+path-objects/2d.path.roundrect.1.radius.dompointinit.worker.js: Verify that when one radius is given to roundRect(), specified as a DOMPointInit, applies to all corners.
+path-objects/2d.path.roundrect.2.radii.1.dompoint.worker.js: Verify that when two radii are given to roundRect(), the first radius, specified as a DOMPoint, applies to the top-left and bottom-right corners.
+path-objects/2d.path.roundrect.2.radii.1.dompointinit.worker.js: Verify that when two radii are given to roundRect(), the first radius, specified as a DOMPointInit, applies to the top-left and bottom-right corners.
+path-objects/2d.path.roundrect.2.radii.2.dompoint.worker.js: Verify that when two radii are given to roundRect(), the second radius, specified as a DOMPoint, applies to the top-right and bottom-left corners.
+path-objects/2d.path.roundrect.2.radii.2.dompointinit.worker.js: Verify that when two radii are given to roundRect(), the second radius, specified as a DOMPointInit, applies to the top-right and bottom-left corners.
+path-objects/2d.path.roundrect.3.radii.1.dompoint.worker.js: Verify that when three radii are given to roundRect(), the first radius, specified as a DOMPoint, applies to the top-left corner.
+path-objects/2d.path.roundrect.3.radii.1.dompointinit.worker.js: Verify that when three radii are given to roundRect(), the first radius, specified as a DOMPointInit, applies to the top-left corner.
+path-objects/2d.path.roundrect.3.radii.2.dompoint.worker.js: Verify that when three radii are given to roundRect(), the second radius, specified as a DOMPoint, applies to the top-right and bottom-left corners.
+path-objects/2d.path.roundrect.3.radii.2.dompointinit.worker.js: Verify that when three radii are given to roundRect(), the second radius, specified as a DOMPoint, applies to the top-right and bottom-left corners.
+path-objects/2d.path.roundrect.3.radii.3.dompoint.worker.js: Verify that when three radii are given to roundRect(), the third radius, specified as a DOMPoint, applies to the bottom-right corner.
+path-objects/2d.path.roundrect.3.radii.3.dompointinit.worker.js: Verify that when three radii are given to roundRect(), the third radius, specified as a DOMPointInit, applies to the bottom-right corner.
+path-objects/2d.path.roundrect.4.radii.1.dompoint.worker.js: Verify that when four radii are given to roundRect(), the first radius, specified as a DOMPoint, applies to the top-left corner.
+path-objects/2d.path.roundrect.4.radii.1.dompointinit.worker.js: Verify that when four radii are given to roundRect(), the first radius, specified as a DOMPointInit, applies to the top-left corner.
+path-objects/2d.path.roundrect.4.radii.2.dompoint.worker.js: Verify that when four radii are given to roundRect(), the second radius, specified as a DOMPoint, applies to the top-right corner.
+path-objects/2d.path.roundrect.4.radii.2.dompointinit.worker.js: Verify that when four radii are given to roundRect(), the second radius, specified as a DOMPointInit, applies to the top-right corner.
+path-objects/2d.path.roundrect.4.radii.3.dompoint.worker.js: Verify that when four radii are given to roundRect(), the third radius, specified as a DOMPoint, applies to the bottom-right corner.
+path-objects/2d.path.roundrect.4.radii.3.dompointinit.worker.js: Verify that when four radii are given to roundRect(), the third radius, specified as a DOMPointInit, applies to the bottom-right corner.
+path-objects/2d.path.roundrect.4.radii.4.dompoint.worker.js: Verify that when four radii are given to roundRect(), the fourth radius, specified as a DOMPoint, applies to the bottom-left corner.
+path-objects/2d.path.roundrect.4.radii.4.dompointinit.worker.js: Verify that when four radii are given to roundRect(), the fourth radius, specified as a DOMPointInit, applies to the bottom-left corner.
+path-objects/2d.path.roundrect.badinput.worker.js: roundRect() throws or does not throw errors given the strange inputs.
+path-objects/2d.path.roundrect.negative.worker.js: Untitled
+path-objects/2d.path.roundrect.nonfinite.worker.js: roundRect() with Infinity/NaN is ignored
+path-objects/2d.path.roundrect.radius.negative.worker.js: roundRect() with negative radius throws an exception
+path-objects/2d.path.roundrect.radius.none.worker.js: Check that roundRect throws an RangeError if radii is an empty array.
+path-objects/2d.path.roundrect.radius.toomany.worker.js: Check that roundRect throws an IndeSizeError if radii has more than four items.
+path-objects/2d.path.roundrect.winding.worker.js: Untitled
+pixel-manipulation/2d.imageData.create1.zero.worker.js: createImageData(null) throws TypeError
+pixel-manipulation/2d.imageData.create2.double.worker.js: createImageData(w, h) double is converted to long
+pixel-manipulation/2d.imageData.create2.negative.worker.js: createImageData(sw, sh) takes the absolute magnitude of the size arguments
+pixel-manipulation/2d.imageData.create2.nonfinite.worker.js: createImageData() throws TypeError if arguments are not finite
+pixel-manipulation/2d.imageData.create2.zero.worker.js: createImageData(sw, sh) throws INDEX_SIZE_ERR if size is zero
+pixel-manipulation/2d.imageData.createImageBitmap.p3.rgba.unorm8.worker.js: Verify round-trip of 8-bit P3 data ImageData through ImageBitmap
+pixel-manipulation/2d.imageData.createImageBitmap.srgb.rgba.float16.worker.js: Verify round-trip of 16-bit float sRGB data ImageData through ImageBitmap
+pixel-manipulation/2d.imageData.createImageBitmap.srgb.rgba.unorm8.worker.js: Verify round-trip of 8-bit sRGB data ImageData through ImageBitmap
+pixel-manipulation/2d.imageData.get.large.crash.worker.js: Test that canvas crash when image data cannot be allocated.
+pixel-manipulation/2d.imageData.get.nonfinite.worker.js: getImageData() throws TypeError if arguments are not finite
+pixel-manipulation/2d.imageData.get.zero.worker.js: getImageData() throws INDEX_SIZE_ERR if size is zero
+pixel-manipulation/2d.imageData.object.properties.worker.js: ImageData objects have the right properties
+pixel-manipulation/2d.imageData.object.readonly.worker.js: ImageData objects properties are read-only
+pixel-manipulation/2d.imageData.put.basic.rgba.float16.worker.js: putImageData() puts 16-bit floating point image data from getImageData() onto the canvas
+pixel-manipulation/2d.imageData.put.nonfinite.worker.js: putImageData() throws TypeError if arguments are not finite
+pixel-manipulation/2d.imageData.put.null.worker.js: putImageData() with null imagedata throws TypeError
+pixel-manipulation/2d.imageData.put.wrongtype.worker.js: putImageData() does not accept non-ImageData objects
+reset/2d.reset.state.font_kerning.worker.js: check that the state is reset
+reset/2d.reset.state.font_stretch.worker.js: check that the state is reset
+reset/2d.reset.state.font_variant_caps.worker.js: check that the state is reset
+reset/2d.reset.state.text_rendering.worker.js: check that the state is reset
+reset/2d.reset.state.transformation_matrix.worker.js: check that the state is reset
+reset/2d.reset.state.word_spacing.worker.js: check that the state is reset
+shadows/2d.shadow.attributes.shadowBlur.invalid.worker.js: Untitled
+shadows/2d.shadow.attributes.shadowOffset.invalid.worker.js: Untitled
+shadows/2d.shadow.composite.1.worker.js: Shadows are drawn using globalCompositeOperation
+shadows/2d.shadow.composite.2.worker.js: Shadows are drawn using globalCompositeOperation
+shadows/2d.shadow.enable.blur.worker.js: Shadows are drawn if shadowBlur is set
+shadows/2d.shadow.enable.x.worker.js: Shadows are drawn if shadowOffsetX is set
+shadows/2d.shadow.enable.y.worker.js: Shadows are drawn if shadowOffsetY is set
+shadows/2d.shadow.image.alpha.worker.js: Shadows are drawn correctly for partially-transparent images
+shadows/2d.shadow.image.basic.worker.js: Shadows are drawn for images
+shadows/2d.shadow.image.scale.worker.js: Shadows are drawn correctly for scaled images
+shadows/2d.shadow.image.section.worker.js: Shadows are not drawn for areas outside image source rectangles
+shadows/2d.shadow.image.transparent.1.worker.js: Shadows are not drawn for transparent images
+shadows/2d.shadow.image.transparent.2.worker.js: Shadows are not drawn for transparent parts of images
+shadows/2d.shadow.outside.worker.js: Shadows of shapes outside the visible area can be offset onto the visible area
+shadows/2d.shadow.pattern.alpha.worker.js: Shadows are drawn correctly for partially-transparent fill patterns
+shadows/2d.shadow.pattern.basic.worker.js: Shadows are drawn for fill patterns
+shadows/2d.shadow.pattern.transparent.1.worker.js: Shadows are not drawn for transparent fill patterns
+shadows/2d.shadow.pattern.transparent.2.worker.js: Shadows are not drawn for transparent parts of fill patterns
+text/2d.text.align.invalid.worker.js: Untitled
+text/2d.text.baseline.invalid.worker.js: Untitled
+text/2d.text.direction.invalid.worker.js: Untitled
+text/2d.text.draw.align.center.worker.js: textAlign center is the center of the em squares (not the bounding box)
+text/2d.text.draw.align.end.ltr.worker.js: textAlign end with ltr is the right edge
+text/2d.text.draw.align.end.rtl.worker.js: textAlign end with rtl is the left edge
+text/2d.text.draw.align.left.worker.js: textAlign left is the left of the first em square (not the bounding box)
+text/2d.text.draw.align.right.worker.js: textAlign right is the right of the last em square (not the bounding box)
+text/2d.text.draw.align.start.ltr.worker.js: textAlign start with ltr is the left edge
+text/2d.text.draw.align.start.rtl.worker.js: textAlign start with rtl is the right edge
+text/2d.text.draw.baseline.alphabetic.worker.js: Untitled
+text/2d.text.draw.baseline.bottom.worker.js: textBaseline bottom is the bottom of the em square (not the bounding box)
+text/2d.text.draw.baseline.hanging.worker.js: Untitled
+text/2d.text.draw.baseline.ideographic.worker.js: Untitled
+text/2d.text.draw.baseline.middle.worker.js: textBaseline middle is the middle of the em square (not the bounding box)
+text/2d.text.draw.baseline.top.worker.js: textBaseline top is the top of the em square (not the bounding box)
+text/2d.text.draw.fill.maxWidth.NaN.worker.js: fillText handles maxWidth correctly
+text/2d.text.draw.fill.maxWidth.bound.worker.js: fillText handles maxWidth based on line size, not bounding box size
+text/2d.text.draw.fill.maxWidth.fontface.worker.js: fillText works on @font-face fonts
+text/2d.text.draw.fill.maxWidth.negative.worker.js: fillText handles maxWidth correctly
+text/2d.text.draw.fill.maxWidth.zero.worker.js: fillText handles maxWidth correctly
+text/2d.text.draw.fontface.notinpage.worker.js: @font-face fonts should work even if they are not used in the page
+text/2d.text.draw.fontface.repeat.worker.js: Draw with the font immediately, then wait a bit until and draw again. (This crashes some version of WebKit.)
+text/2d.text.draw.fontface.worker.js: Untitled
+text/2d.text.draw.space.basic.worker.js: U+0020 is rendered the correct size (1em wide)
+text/2d.text.draw.space.collapse.end.worker.js: Space characters at the end of a line are NOT collapsed
+text/2d.text.draw.space.collapse.nonspace.worker.js: Non-space characters are not converted to U+0020 and collapsed
+text/2d.text.draw.space.collapse.other.worker.js: Space characters are converted to U+0020, and are NOT collapsed
+text/2d.text.draw.space.collapse.space.worker.js: Space characters are converted to U+0020, and are NOT collapsed
+text/2d.text.draw.space.collapse.start.worker.js: Space characters at the start of a line are NOT collapsed
+text/2d.text.drawing.style.absolute.spacing.worker.js: Testing letter spacing and word spacing with absolute length
+text/2d.text.drawing.style.font-relative.spacing.worker.js: Testing letter spacing and word spacing with font-relative length
+text/2d.text.drawing.style.fontKerning.with.uppercase.worker.js: Testing basic functionalities of fontKerning for canvas
+text/2d.text.drawing.style.fontKerning.worker.js: Testing basic functionalities of fontKerning for canvas
+text/2d.text.drawing.style.fontStretch.settings.worker.js: Testing value setting of fontStretch in Canvas
+text/2d.text.drawing.style.fontVariant.settings.worker.js: Testing basic functionalities of fontVariant for canvas
+text/2d.text.drawing.style.invalid.spacing.worker.js: Testing letter spacing and word spacing with invalid units
+text/2d.text.drawing.style.letterSpacing.change.font.worker.js: Set letter spacing and word spacing to font dependent value and verify it works after font change.
+text/2d.text.drawing.style.letterSpacing.measure.worker.js: Testing letter spacing with different length units
+text/2d.text.drawing.style.measure.direction.worker.js: Measurement should follow text direction
+text/2d.text.drawing.style.measure.textAlign.worker.js: Measurement should be related to textAlignment
+text/2d.text.drawing.style.nonfinite.spacing.worker.js: Testing letter spacing and word spacing with nonfinite inputs
+text/2d.text.drawing.style.textRendering.settings.worker.js: Testing basic functionalities of textRendering in Canvas
+text/2d.text.drawing.style.wordSpacing.change.font.worker.js: Set word spacing and word spacing to font dependent value and verify it works after font change.
+text/2d.text.drawing.style.wordSpacing.measure.worker.js: Testing word spacing with different length units
+text/2d.text.font.parse.basic.worker.js: Untitled
+text/2d.text.font.parse.complex.worker.js: Untitled
+text/2d.text.font.parse.complex2.worker.js: Untitled
+text/2d.text.font.parse.family.worker.js: Untitled
+text/2d.text.font.parse.invalid.worker.js: Untitled
+text/2d.text.font.parse.system.worker.js: System fonts must be computed to explicit values
+text/2d.text.font.relative_size.worker.js: Untitled
+text/2d.text.font.weight.worker.js: Untitled
+text/2d.text.fontVariantCaps2.worker.js: Testing small caps setting in fontVariant
+text/2d.text.lang.default.worker.js: Untitled
+text/2d.text.measure.actualBoundingBox.small-font.worker.js: Testing that actualBoundingBox metrics are precise at small font sizes
+text/2d.text.measure.actualBoundingBox.whitespace.worker.js: Testing actualBoundingBox with leading/trailing whitespace
+text/2d.text.measure.actualBoundingBox.worker.js: Testing actualBoundingBox
+text/2d.text.measure.baselines.worker.js: Testing baselines
+text/2d.text.measure.emHeights-low-ascent.worker.js: Testing emHeights with reduced ascent metric
+text/2d.text.measure.emHeights-zero-descent.worker.js: Testing emHeights with zero descent metric
+text/2d.text.measure.emHeights.worker.js: Testing emHeights
+text/2d.text.measure.fillTextCluster-options.tentative.worker.js: Test that fillTextCluster() correctly applies the options passed as a dictionary.
+text/2d.text.measure.fillTextCluster-range.tentative.worker.js: Test that getTextClusters() and fillTextCluster() correctly render different ranges of the input text.
+text/2d.text.measure.fontBoundingBox-reduced-ascent.worker.js: Testing fontBoundingBox for OffscreenCanvas with reduced ascent metric
+text/2d.text.measure.fontBoundingBox-zero-descent.worker.js: Testing fontBoundingBox for OffscreenCanvas with zero descent metric
+text/2d.text.measure.fontBoundingBox.ahem.worker.js: Testing fontBoundingBox for font ahem
+text/2d.text.measure.fontBoundingBox.worker.js: Testing fontBoundingBox measurements
+text/2d.text.measure.getActualBoundingBox-exceptions.tentative.worker.js: Check that TextMetrics::getActualBoundingBox() throws when using invalid indexes.
+text/2d.text.measure.getActualBoundingBox-full-text.tentative.worker.js: Test TextMetrics::getActualBoundingBox() for the full length of the string for some edge cases, with direction ltr and no-directional-override
+text/2d.text.measure.getActualBoundingBox.tentative.worker.js: Test TextMetrics::getActualBoundingBox(), with text align center , and 0px letter spacing.
+text/2d.text.measure.getActualBoundingBox.tentative.worker.js: Test TextMetrics::getActualBoundingBox(), with text align center , and 10px letter spacing.
+text/2d.text.measure.getActualBoundingBox.tentative.worker.js: Test TextMetrics::getActualBoundingBox(), with text align left , and 0px letter spacing.
+text/2d.text.measure.getActualBoundingBox.tentative.worker.js: Test TextMetrics::getActualBoundingBox(), with text align left , and 10px letter spacing.
+text/2d.text.measure.getActualBoundingBox.tentative.worker.js: Test TextMetrics::getActualBoundingBox(), with text align right , and 0px letter spacing.
+text/2d.text.measure.getActualBoundingBox.tentative.worker.js: Test TextMetrics::getActualBoundingBox(), with text align right , and 10px letter spacing.
+text/2d.text.measure.index-from-offset-edge-cases.tentative.worker.js: Test the edge cases for getIndexFromOffset, where the point is at the edge of glyph and at the midpoint.
+text/2d.text.measure.index-from-offset-edges.tentative.worker.js: Check that TextMetrics::getIndexFromOffset() gives correct edges when the requested point is outside the range, with direction ltr and text align left.
+text/2d.text.measure.lang.worker.js: Testing the lang attribute
+text/2d.text.measure.selection-rects-baselines.tentative.worker.js: Check that TextMetrics::getSelectionRects() works correctly with textBaseline.
+text/2d.text.measure.selection-rects-exceptions.tentative.worker.js: Check that TextMetrics::getSelectionRects() throws when using invalid indexes.
+text/2d.text.measure.strokeTextCluster-options.tentative.worker.js: Test that strokeTextCluster() correctly applies the options passed as a dictionary.
+text/2d.text.measure.strokeTextCluster-range.tentative.worker.js: Test that getTextClusters() and strokeTextCluster() correctly render different ranges of the input text.
+text/2d.text.measure.text-clusters-exceptions.tentative.worker.js: Check that TextMetrics::getTextClusters() throws when using invalid indexes.
+text/2d.text.measure.text-clusters-position.tentative.worker.js: Test that TextMetrics::getTextClusters() returns clusters that are positioned according to the target align and baseline passed as options.
+text/2d.text.measure.text-clusters-split.tentative.worker.js: Test that getTextClusters() splits the input correctly into the minimal clusters, keeping emojis together.
+text/2d.text.measure.width.basic.worker.js: The width of character is same as font used
+text/2d.text.measure.width.empty.worker.js: The empty string has zero width
+text/2d.text.measure.width.nullCharacter.worker.js: Null character does not take up space
+text/2d.text.measure.width.space.worker.js: Space characters are converted to U+0020 and NOT collapsed
+wide-gamut-canvas/2d.color.space.getImageData.convert.worker.js: Test getImageData color conversions from a srgb canvas
