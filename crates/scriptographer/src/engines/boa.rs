@@ -1,4 +1,5 @@
-//! Boa, a JavaScript engine in pure Rust: slower than V8, but it builds everywhere.
+//! Boa, a JavaScript engine in pure Rust: slower than V8, but it builds everywhere. It has no
+//! `WebAssembly`.
 
 use std::cell::RefCell;
 use std::rc::Rc;

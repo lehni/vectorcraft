@@ -179,6 +179,24 @@ fn scripts_await_at_the_top_level<E: Engine>() {
     assert!(failure.to_string().contains("later"), "a failure in a frame is the frame's error: {failure}");
 }
 
+/// V8's `WebAssembly`, its Promises too (Boa has none; browsers their own).
+#[cfg(all(feature = "v8", not(target_arch = "wasm32")))]
+#[test]
+fn scripts_run_webassembly() {
+    let mut runtime = Runtime::<vectorcraft_scriptographer::V8>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    // A module exporting `answer()`, which returns 42.
+    let script = "const bytes = new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 127, 3, 2, 1, 0, 7, 10, 1, 6, 97, 110, 115, 119, 101, 114, 0, 0, 10, 6, 1, 4, 0, 65, 42, 11])\n\
+         console.log(typeof WebAssembly)\n\
+         const module = new WebAssembly.Module(bytes)\n\
+         console.log(new WebAssembly.Instance(module).exports.answer())\n\
+         const { instance } = await WebAssembly.instantiate(bytes)\n\
+         console.log(instance.exports.answer() + 1)";
+    runtime.execute(&scope, &format!("(async () => {{ try {{ {script} }} catch (e) {{ console.log('error', e.name, e.message) }} }})()")).unwrap();
+    settle(&mut runtime);
+    assert_eq!(runtime.take_output(), ["object", "42", "43"]);
+}
+
 fn files_are_blobs_with_a_name<E: Engine>() {
     let mut runtime = Runtime::<E>::new().unwrap();
     let scope = runtime.create_scope(800.0, 600.0).unwrap();

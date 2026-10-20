@@ -13,7 +13,7 @@
 use std::cell::RefCell;
 use std::pin::pin;
 use std::rc::Rc;
-use std::sync::{Once, OnceLock};
+use std::sync::OnceLock;
 
 use crate::{Call, Engine, Error, Host, HostFunction, Interrupt, Prelude, Value};
 
@@ -66,13 +66,28 @@ impl Drop for V8 {
     }
 }
 
+/// The platform V8 runs on, once started.
+static PLATFORM: OnceLock<v8::SharedRef<v8::Platform>> = OnceLock::new();
+
 /// Starts V8, once per process.
 fn initialize() {
-    static INITIALIZE: Once = Once::new();
-    INITIALIZE.call_once(|| {
-        v8::V8::initialize_platform(v8::new_default_platform(0, false).make_shared());
+    PLATFORM.get_or_init(|| {
+        // Compiled at once, so the task that settles `WebAssembly.instantiate()` is there when
+        // the call into V8 ends ([`run_tasks`]), not later, from a compiling thread.
+        v8::V8::set_flags_from_string("--no-wasm-async-compilation");
+        let platform = v8::new_default_platform(0, false).make_shared();
+        v8::V8::initialize_platform(platform.clone());
         v8::V8::initialize();
+        platform
     });
+}
+
+/// Runs the tasks V8 left for the isolate's thread, as the one that settles
+/// `WebAssembly.instantiate()`'s Promise.
+fn run_tasks(isolate: &mut v8::OwnedIsolate) {
+    if let Some(platform) = PLATFORM.get() {
+        while v8::Platform::pump_message_loop(platform, isolate, false) {}
+    }
 }
 
 /// Runs `f` with the thread's isolate, made on first use, from the snapshot when there is one.
@@ -168,8 +183,12 @@ impl Engine for V8 {
 
     fn with_call<R>(&mut self, f: impl FnOnce(&mut dyn Call<Handle>) -> Result<R, Error>) -> Result<R, Error> {
         with_isolate(|isolate| {
-            enter!(isolate, &self.context, scope);
-            f(&mut V8Call { scope })
+            let result = {
+                enter!(isolate, &self.context, scope);
+                f(&mut V8Call { scope })
+            };
+            run_tasks(isolate);
+            result
         })
     }
 
@@ -333,11 +352,13 @@ impl Call<Handle> for V8Call<'_, '_, '_> {
 }
 
 fn call_host<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionCallbackArguments<'s>, mut result: v8::ReturnValue<'s>) {
-    let function = args
-        .data()
-        .int32_value(scope)
-        .and_then(|index| usize::try_from(index).ok())
-        .and_then(|index| context_data(scope).ok()?.functions.borrow().get(index).copied());
+    // A runtime that's gone has nothing left to do: V8 still runs what it had queued for it, as a
+    // `FinalizationRegistry`'s cleanup.
+    let Ok(data) = context_data(scope) else {
+        return;
+    };
+    let function =
+        args.data().int32_value(scope).and_then(|index| usize::try_from(index).ok()).and_then(|index| data.functions.borrow().get(index).copied());
     let value = function.ok_or_else(|| missing("such host function")).and_then(|HostFunctionEntry { function, constructor }| {
         if constructor && args.new_target().is_undefined() {
             return Err(Error::Type("a constructor needs 'new'".into()));
