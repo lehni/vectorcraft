@@ -5731,6 +5731,7 @@ dependencies = [
  "svgtypes 0.16.1",
  "thiserror 2.0.21",
  "ureq",
+ "url",
  "v8",
  "vectorcraft-color",
  "vectorcraft-doc",

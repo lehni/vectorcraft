@@ -1,7 +1,9 @@
 //! `import` in scripts: PaperScript compiles `import … from 'specifier'` into calls to the loader
 //! [`load`], which resolves a path against the importing file's folder (the script's for its own
-//! imports), compiles the module as PaperScript in the script's scope, with operator overloading
-//! and `export`, and gives back its exports. Each module runs once per runtime; a cycle throws.
+//! imports), or a URL (an `https:` specifier, or a relative one in a module from the web, which
+//! loads on desktop and shows in the console), compiles the module as PaperScript in the script's
+//! scope, with operator overloading and `export`, and gives back its exports. Each module runs
+//! once per runtime; a cycle throws.
 
 use std::path::{Path, PathBuf};
 
@@ -9,7 +11,8 @@ use crate::{Call, Error, Value, method, object};
 
 /// A module the runtime loaded, or is loading.
 pub(crate) struct Module<H> {
-    path: PathBuf,
+    /// Its canonical path, or its URL.
+    key: String,
     /// Its exports, once it ran: whatever `module.exports` became.
     exports: Option<Value<H>>,
 }
@@ -44,48 +47,44 @@ pub(crate) fn load<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[V
         Some(specifier) => call.to_string(specifier)?,
         None => return Err(Error::Script("import: no module named".into())),
     };
-    if specifier.starts_with("https:") || specifier.starts_with("http:") {
-        return Err(Error::Script(format!("import '{specifier}': modules from the web aren't supported yet")));
-    }
     let importer = match args.get(1) {
-        Some(Value::String(url)) if !url.is_empty() => Some(PathBuf::from(url)),
+        Some(Value::String(url)) if !url.is_empty() => Some(url.clone()),
         _ => None,
     };
-    let folder = match importer.as_deref().and_then(Path::parent) {
-        Some(folder) => Some(folder.to_path_buf()),
-        None => call.host()?.borrow().directory.clone(),
-    };
-    let path = match folder {
-        Some(folder) if Path::new(&specifier).is_relative() => folder.join(&specifier),
-        _ => PathBuf::from(&specifier),
-    };
-    // One module, however its importers spell its path.
-    let path = std::fs::canonicalize(&path).map_err(|e| Error::Script(format!("import '{specifier}': {e}")))?;
-    let known = call.host()?.borrow().modules.iter().find(|m| m.path == path).map(|m| m.exports.clone());
+    let directory = call.host()?.borrow().directory.clone();
+    // One module, however its importers spell its path or URL.
+    let key = locate(&specifier, importer.as_deref(), directory)?;
+    let known = call.host()?.borrow().modules.iter().find(|m| m.key == key).map(|m| m.exports.clone());
     match known {
         Some(Some(exports)) => return Ok(exports),
         Some(None) => return Err(Error::Script(format!("import '{specifier}': it imports itself, through its imports"))),
         None => {}
     }
-    let source = std::fs::read_to_string(&path).map_err(|e| Error::Script(format!("import '{specifier}': {e}")))?;
+    let source = match url::Url::parse(&key) {
+        Ok(url) if matches!(url.scheme(), "https" | "http") => {
+            call.host()?.borrow_mut().output.push(format!("import {key}"));
+            download(&key).map_err(|e| Error::Script(format!("import '{specifier}': {e}")))?
+        }
+        _ => std::fs::read_to_string(&key).map_err(|e| Error::Script(format!("import '{specifier}': {e}")))?,
+    };
     let (paperscript, scope) = {
         let host = call.host()?;
         let host = host.borrow();
         let loader = host.loader.as_ref().ok_or_else(|| Error::Script("import: no script is running".into()))?;
         (loader.paperscript.clone(), loader.scope.clone())
     };
-    call.host()?.borrow_mut().modules.push(Module { path: path.clone(), exports: None });
-    let options = options(call, &path.to_string_lossy())?;
+    call.host()?.borrow_mut().modules.push(Module { key: key.clone(), exports: None });
+    let options = options(call, &key)?;
     let exports = method(call, &paperscript, "execute", &[Value::String(source), Value::Js(scope), Value::Js(options)]);
     let exports = match exports {
         Ok(exports) => exports,
         Err(e) => {
             // A module that failed loads again the next time it's imported.
-            call.host()?.borrow_mut().modules.retain(|m| m.path != path);
+            call.host()?.borrow_mut().modules.retain(|m| m.key != key);
             return Err(e);
         }
     };
-    if let Some(module) = call.host()?.borrow_mut().modules.iter_mut().find(|m| m.path == path) {
+    if let Some(module) = call.host()?.borrow_mut().modules.iter_mut().find(|m| m.key == key) {
         module.exports = Some(exports.clone());
     }
     Ok(exports)
@@ -96,4 +95,40 @@ pub(crate) fn set_up<H: Clone>(call: &mut dyn Call<H>, paper: &H, scope: &H, loa
     let paperscript = object(call, paper, "PaperScript")?;
     call.host()?.borrow_mut().loader = Some(Loader { paperscript, scope: scope.clone(), load });
     Ok(())
+}
+
+/// The module `specifier` names, imported by the code at `importer` (a path or a URL; the script's
+/// folder when there is none), as its canonical path or its URL.
+fn locate(specifier: &str, importer: Option<&str>, directory: Option<PathBuf>) -> Result<String, Error> {
+    let fail = |e: &dyn std::fmt::Display| Error::Script(format!("import '{specifier}': {e}"));
+    if let Ok(url) = url::Url::parse(specifier)
+        && url.scheme() != "file"
+    {
+        return Ok(url.to_string());
+    }
+    if let Some(base) = importer.and_then(|i| url::Url::parse(i).ok()).filter(|u| matches!(u.scheme(), "https" | "http")) {
+        return base.join(specifier).map(|u| u.to_string()).map_err(|e| fail(&e));
+    }
+    let folder = importer.and_then(|i| Path::new(i).parent().map(Path::to_path_buf)).or(directory);
+    let path = match folder {
+        Some(folder) if Path::new(specifier).is_relative() => folder.join(specifier),
+        _ => PathBuf::from(specifier),
+    };
+    let path = std::fs::canonicalize(&path).map_err(|e| fail(&e))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// The text at `url`, downloaded on the script's thread.
+#[cfg(not(target_arch = "wasm32"))]
+fn download(url: &str) -> Result<String, String> {
+    let answer = crate::fetch::get(url)?;
+    if !(200..300).contains(&answer.0) {
+        return Err(format!("{url} answered {}", answer.0));
+    }
+    Ok(String::from_utf8_lossy(&answer.1).into_owned())
+}
+
+#[cfg(target_arch = "wasm32")]
+fn download(_url: &str) -> Result<String, String> {
+    Err("modules from the web aren't supported in the web build yet".into())
 }

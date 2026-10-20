@@ -978,6 +978,11 @@ fn fetch<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) 
     Ok(made)
 }
 
+/// `GET url` on this thread: its status and body.
+pub(crate) fn get(url: &str) -> Result<(u16, Vec<u8>), String> {
+    request_on_thread("GET", url, &[], None, true).map(|answer| (answer.status, answer.body))
+}
+
 /// The request, on its thread.
 fn request_on_thread(method: &str, url: &str, headers: &[(String, String)], body: Option<Vec<u8>>, follow: bool) -> Result<Answer, String> {
     let agent: ureq::Agent = ureq::Agent::config_builder().http_status_as_error(false).max_redirects(if follow { 10 } else { 0 }).build().into();

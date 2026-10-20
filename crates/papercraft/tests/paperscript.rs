@@ -265,6 +265,8 @@ fn serve(count: usize) -> String {
             reader.read_exact(&mut body).unwrap();
             let (status, content_type, answer) = match path.as_str() {
                 "/data.json" => ("200 OK", "application/json", br#"{"a": 1, "list": [1, 2]}"#.to_vec()),
+                "/lib/mod.js" => ("200 OK", "text/javascript", b"import { b } from '../dep.js'\nexport const a = b + new Point(1, 1)".to_vec()),
+                "/dep.js" => ("200 OK", "text/javascript", b"export const b = new Point(40, 41)".to_vec()),
                 "/echo" => ("201 Created", "text/plain", [format!("{method} {kind}\n").into_bytes(), body].concat()),
                 _ => ("404 Not Found", "text/plain", b"missing".to_vec()),
             };
@@ -313,6 +315,14 @@ fn scripts_fetch<E: Engine>() {
         runtime.take_output(),
         ["200 true application/json one 1 2", "404 false missing", "true true true", "201 PUT application/json\n{\"x\":1}"]
     );
+}
+
+fn scripts_import_from_the_web<E: Engine>() {
+    let address = serve(2);
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime.execute(&scope, &format!("import {{ a }} from '{address}/lib/mod.js'\nconsole.log(a)")).unwrap();
+    assert_eq!(runtime.take_output(), [format!("import {address}/lib/mod.js"), format!("import {address}/dep.js"), "{ x: 41, y: 42 }".to_owned()]);
 }
 
 fn fetch_classes_work_alone<E: Engine>() {
@@ -437,6 +447,11 @@ macro_rules! engine_tests {
             #[test]
             fn scripts_fetch() {
                 super::scripts_fetch::<$engine>();
+            }
+
+            #[test]
+            fn scripts_import_from_the_web() {
+                super::scripts_import_from_the_web::<$engine>();
             }
 
             #[test]

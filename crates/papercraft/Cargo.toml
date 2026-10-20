@@ -21,6 +21,8 @@ vectorcraft-doc = { workspace = true }
 vectorcraft-geom = { workspace = true }
 # `atob` and `btoa`.
 vectorcraft-format = { workspace = true }
+# Resolving `import` specifiers against modules from the web.
+url = "2"
 boa_engine = { workspace = true, optional = true }
 serde_json = { workspace = true }
 # CSS colours for the canvas shim, as the SVG importer parses them.
