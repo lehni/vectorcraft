@@ -6,6 +6,38 @@
 //! `importScripts()` or `<script>`s) run as one, after testharness.js, as a shell runs them. The tests that fail are listed in `tests/wpt-expected-failures.txt`: this test
 //! fails when another one fails, or when a listed one passes, so the list stays the truth.
 //! `WPT_UPDATE=1` writes the list anew. The pass rate by folder prints with `--nocapture`.
+//!
+//! What fails, by cause (2026-10-20: 1400 of 1821 pass; the canvas 829 of 1093, geometry 570
+//! of 728), to come back to; most of it rarely matters to a script:
+//!
+//! - Text (canvas/text, about 70): WPT loads its test font with `FontFace`, which scripts don't
+//!   have (it would add a font to the process's font database, for one runtime); the
+//!   `TextMetrics` methods (`getActualBoundingBox()`, `getTextClusters()`,
+//!   `getIndexFromOffset()`, `getSelectionRects()`, tentative); `direction: 'rtl'` in measuring;
+//!   `letterSpacing`, `wordSpacing`, `fontKerning`, `fontStretch`, `fontVariantCaps` and
+//!   `textRendering` are kept but don't change the text yet; `maxWidth` of NaN.
+//! - CSS strings for matrices (css/geometry, about 110): `new DOMMatrix('translate(10px)')`
+//!   throws, as in a worker; supporting it needs a parser of CSS transform functions.
+//!   `structured-serialization` needs `structuredClone()`/`postMessage` of geometry objects.
+//! - `roundRect()` radii as `DOMPointInit`s (about 24): elliptical corners; a radius list's points
+//!   read as 0 now.
+//! - Colours the canvas should reject (about 20): the color crate accepts some invalid legacy
+//!   syntax (numbers mixed with percentages in `rgb()`, `hsl()` without its percent signs: its
+//!   own TODO); `color-mix()`, relative colours, system colours, and keeping colours that aren't
+//!   sRGB as `color(srgb …)`.
+//! - The canvas's object model (about 25): `getContext()` gives the canvas itself, not an
+//!   `OffscreenCanvasRenderingContext2D`, and checks no context name; `width`/`height` throw for
+//!   what WebIDL would convert (negative, fractional, text); a missing required argument doesn't
+//!   throw a `TypeError` (`ctx.scale()`); `isPointInPath()` with invalid arguments.
+//! - Rendering details (about 20): conic gradient rotation, zero-size gradients, a few shadows of
+//!   composited and blurred drawings, `isPointInPath()` on edges, `drawImage()` of a broken image
+//!   or a canvas of no size, `getImageData()` with non-finite arguments, a pattern's
+//!   `setTransform()`, `createRadialGradient()` with negative radii.
+//! - `beginLayer()`/`endLayer()` and `CanvasFilter` (about 25): tentative APIs only Chrome has.
+//! - Wide gamut (about 8): canvases are sRGB and 8 bits a channel; no `colorSpace: 'display-p3'`
+//!   or float16 `ImageData`.
+//! - Geometry details: `WebKitCSSMatrix` is enumerable; workers' `importScripts()`; tests that
+//!   need a page (`toDataURL()`, `getClientRects()`).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
