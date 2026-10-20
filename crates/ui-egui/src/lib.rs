@@ -51,6 +51,8 @@ pub mod print;
 pub mod recovery;
 pub mod render_worker;
 pub mod screen_color;
+#[cfg(not(target_arch = "wasm32"))]
+mod script_examples;
 mod scripts;
 mod scrub;
 pub mod shortcut_editor;
@@ -183,6 +185,8 @@ use vectorcraft_engine::file_access::{self, AutomationRoots};
 use vectorcraft_engine::{Session, ViewInfo};
 
 pub use control::{ControlRequest, ControlResponse, Ticket as ControlTicket};
+#[cfg(not(target_arch = "wasm32"))]
+pub use scripts::set_up_script_folders;
 pub use state::{UiState, View};
 pub use sysclip::{ClipboardProbeFactory, SystemClipboard};
 

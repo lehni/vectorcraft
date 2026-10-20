@@ -13,8 +13,9 @@
 //! `ui.stopScripts` stops the running ones and `ui.evaluateScript {code}` runs a line in the
 //! console's own project, which lives as long as the app. Everything scripts print and every error
 //! goes to the log the Scriptographer Console panel shows; the last line also shows in the status bar.
-//! The scripts folders (`UiState::scriptographer_folders`) are what the Scriptographer panel lists. A
-//! script's view is the first artboard, so `view.bounds` is its size.
+//! The scripts folders (`UiState::scriptographer_folders`) are what the Scriptographer panel lists:
+//! the Examples, sealed, and on the first run "My Scripts" ([`set_up_script_folders`]). A script's
+//! view is the first artboard, so `view.bounds` is its size.
 
 #[cfg(target_arch = "wasm32")]
 use std::cell::RefCell;
@@ -1250,17 +1251,43 @@ pub(crate) fn new_script(app: &mut VectorcraftApp, p: &Value) -> Result<Value, S
     created(app, path)
 }
 
-/// `p`'s `folder`, else the first scripts folder the panel shows.
+/// `p`'s `folder`, else the first scripts folder the panel shows; not one in a sealed folder (the
+/// Examples), whose scripts and folders go in the first shown folder that isn't.
 fn target_folder(app: &VectorcraftApp, p: &Value) -> Result<PathBuf, String> {
-    match p.get("folder").and_then(Value::as_str) {
-        Some(folder) => Ok(PathBuf::from(folder)),
-        None => app
-            .ui
-            .scriptographer_folders
-            .iter()
-            .find(|f| f.visible)
-            .map(|f| PathBuf::from(&f.path))
-            .ok_or_else(|| "choose a scripts folder first".into()),
+    let folders = &app.ui.scriptographer_folders;
+    let is_sealed = |path: &Path| folders.iter().any(|f| f.sealed && path.starts_with(&f.path));
+    match p.get("folder").and_then(Value::as_str).map(PathBuf::from) {
+        Some(folder) if !is_sealed(&folder) => Ok(folder),
+        _ => folders.iter().find(|f| f.visible && !f.sealed).map(|f| PathBuf::from(&f.path)).ok_or_else(|| "choose a scripts folder first".into()),
+    }
+}
+
+/// Sets up the scripts folders at launch: writes the Examples to `examples`, the app's folder for
+/// them, and lists it first and sealed when it isn't listed; on the first run, when no folders are
+/// listed yet, also "My Scripts" at `my_scripts`, made when missing. A folder that can't be made
+/// says so in the log.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn set_up_script_folders(app: &mut VectorcraftApp, examples: &Path, my_scripts: Option<&Path>) {
+    let first_run = app.ui.scriptographer_folders.is_empty();
+    match crate::script_examples::install(examples) {
+        Ok(()) => {
+            let path = examples.to_string_lossy().into_owned();
+            if !app.ui.scriptographer_folders.iter().any(|f| f.sealed && f.path == path) {
+                let folder = ScriptFolder { sealed: true, ..ScriptFolder::new(tl!("Examples"), path) };
+                app.ui.scriptographer_folders.insert(0, folder);
+                app.prefs_changed = true;
+            }
+        }
+        Err(e) => app.scripts.push_log(format!("{}: {e}", examples.display()), true),
+    }
+    if let Some(path) = my_scripts.filter(|_| first_run) {
+        match std::fs::create_dir_all(path) {
+            Ok(()) => {
+                app.ui.scriptographer_folders.push(ScriptFolder::new(tl!("My Scripts"), path.to_string_lossy()));
+                app.prefs_changed = true;
+            }
+            Err(e) => app.scripts.push_log(format!("{}: {e}", path.display()), true),
+        }
     }
 }
 

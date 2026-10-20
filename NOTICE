@@ -30,6 +30,10 @@ based in part on the work of the Independent JPEG Group.
 WebAssembly plug-ins run in the wasmi interpreter (MIT OR Apache-2.0); its wasmparser dependency is
 under the Apache License 2.0 with the LLVM exception.
 
+The Scriptographer panel's Examples (assets/scriptographer/examples) are the original Scriptographer's
+examples, ported to Paper.js; Jürg Lehni & Jonathan Puckey, MIT, see
+assets/scriptographer/examples/LICENSE.txt.
+
 Scripts (crates/scriptographer) use Paper.js (crates/scriptographer/vendor/paper-hosted.js, its
 paper-hosted.js build of 0.14.0-develop; Jürg Lehni & Jonathan Puckey, MIT, see
 crates/scriptographer/vendor/LICENSE-paper.txt), which bundles Straps.js (MIT) and Acorn (MIT), and Acorn

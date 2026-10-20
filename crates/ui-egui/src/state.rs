@@ -320,6 +320,17 @@ pub struct ScriptFolder {
     pub path: String,
     /// Hidden folders stay in the list, out of the tree.
     pub visible: bool,
+    /// The app's own folder, the Examples: scripts and folders aren't made in it, and it can only
+    /// be hidden and moved.
+    #[serde(default)]
+    pub sealed: bool,
+}
+
+impl ScriptFolder {
+    /// The folder at `path`, shown under `name`.
+    pub fn new(name: impl Into<String>, path: impl Into<String>) -> Self {
+        Self { name: name.into(), path: path.into(), visible: true, sealed: false }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

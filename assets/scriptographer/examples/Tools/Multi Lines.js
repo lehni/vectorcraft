@@ -1,0 +1,72 @@
+////////////////////////////////////////////////////////////////////////////////
+// Values
+
+tool.minDistance = 10;
+
+var values = {
+	lines: 6,
+	size: 20,
+	happy: false,
+	smooth: true
+};
+
+////////////////////////////////////////////////////////////////////////////////
+// Mouse handling
+
+var paths;
+function onMouseDown(event) {
+	paths = [];
+	for (var i = 0; i < values.lines; i++) {
+		var path = new Path();
+		path.fillColor = null;
+		path.closed = true;
+		if (values.happy) {
+			// Scriptographer used the document's swatches, one per line:
+			path.fillColor = new Color({
+				hue: i * 360 / values.lines, saturation: 1, brightness: 1
+			});
+			path.strokeColor = null;
+		} else {
+			path.strokeColor = project.currentStyle.strokeColor || '#000000';
+		}
+		paths.push(path);
+	}
+}
+
+function onMouseDrag(event) {
+	
+	var offset = event.delta;
+	offset.angle += 90;
+
+	var lineSize = values.size / values.lines;
+	for (var i = 0; i < values.lines; i++) {
+		var path = paths[values.lines - 1 - i];
+		offset.length = (lineSize * i + lineSize / 2);
+		path.add(event.middlePoint + offset);
+		path.insert(0, event.middlePoint - offset);
+
+		if (values.smooth)
+			path.smooth();
+	}
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Interface
+
+var components = {
+	lines: {
+		label: 'Lines',
+		range: [0, 100],
+		min: 1,
+		steppers: true
+	},
+	size: {
+		label: 'Size',
+		min: 0,
+		steppers: true
+	},
+	smooth: { label: 'Smooth' },
+	happy: { label: 'Happy' }
+};
+
+var palette = new Palette('Multi Lines', components, values);

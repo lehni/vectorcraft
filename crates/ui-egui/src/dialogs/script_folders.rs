@@ -1,7 +1,8 @@
 //! The Scriptographer panel's script folders, as the original Scriptographer's repositories were: Script Folders
 //! lists them in the panel's order, each with its name, its folder (Choose… picks another), whether
-//! the panel shows it, and buttons to move it up or down or remove it; Add Folder… adds one. New
-//! Folder asks for the name of a folder to make in one.
+//! the panel shows it, and buttons to move it up or down or remove it; Add Folder… adds one. The
+//! Examples, the app's own, can only be hidden and moved. New Folder asks for the name of a folder
+//! to make in one.
 //!
 //! Fields of Script Folders: `folders` (`ScriptFolder`s). Of New Folder: `folder` (where it goes)
 //! and `name`.
@@ -82,7 +83,12 @@ fn body(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) {
                 folder.visible = !folder.visible;
             }
             let id = ("script-folder-name", i);
-            if let Some(name) = widgets::text_field(ui, id, Some(&folder.name), NAME_W, 1) {
+            if folder.sealed {
+                // Where a name field shows its text.
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(NAME_W, 22.0), egui::Sense::hover());
+                let (font, color) = (egui::TextStyle::Body.resolve(ui.style()), ui.visuals().text_color());
+                ui.painter().text(rect.left_center() + egui::vec2(7.0, 0.0), egui::Align2::LEFT_CENTER, &folder.name, font, color);
+            } else if let Some(name) = widgets::text_field(ui, id, Some(&folder.name), NAME_W, 1) {
                 folder.name = name;
             }
             let dim = crate::theme::Tokens::get(ui.ctx()).text_dim;
@@ -95,7 +101,8 @@ fn body(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) {
             }
             ui.painter().text(rect.left_center(), egui::Align2::LEFT_CENTER, shown, font, dim);
             resp.on_hover_text(&folder.path);
-            if ui.button(tl!("Choose…")).clicked() {
+            // The Examples' can't change; shown, so the rows line up.
+            if ui.add_enabled(!folder.sealed, egui::Button::new(tl!("Choose…"))).clicked() {
                 action = Some(Row::Choose(i));
             }
             if widgets::icon_button_enabled(ui, "chevron-up", tl!("Move Up"), false, i > 0, 22.0).clicked() {
@@ -104,7 +111,7 @@ fn body(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) {
             if widgets::icon_button_enabled(ui, "chevron-down", tl!("Move Down"), false, i + 1 < count, 22.0).clicked() {
                 action = Some(Row::Swap(i));
             }
-            if widgets::icon_button(ui, "trash-2", tl!("Remove"), false, 22.0).clicked() {
+            if widgets::icon_button_enabled(ui, "trash-2", tl!("Remove"), false, !folder.sealed, 22.0).clicked() {
                 action = Some(Row::Remove(i));
             }
         });
@@ -130,7 +137,7 @@ fn body(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) {
                     Some(folder) => folder.path = path,
                     None => {
                         let name = std::path::Path::new(&path).file_name().map_or_else(|| path.clone(), |n| n.to_string_lossy().into_owned());
-                        list.push(ScriptFolder { name, path, visible: true });
+                        list.push(ScriptFolder::new(name, path));
                     }
                 }
                 d.fields.insert("folders".into(), json!(list));

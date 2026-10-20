@@ -420,7 +420,7 @@ impl TempFolder {
     }
 
     fn script_folder(&self, name: &str) -> crate::state::ScriptFolder {
-        crate::state::ScriptFolder { name: name.into(), path: self.0.to_string_lossy().into_owned(), visible: true }
+        crate::state::ScriptFolder::new(name, self.0.to_string_lossy())
     }
 }
 
@@ -1014,4 +1014,62 @@ fn scripts_read_and_write_the_clipboard() {
     assert!(named, "the script named a path for the clipboard's text: {}", app.ui.status);
     let copied = ctx.output(|o| o.commands.iter().find_map(|c| if let egui::OutputCommand::CopyText(t) = c { Some(t.clone()) } else { None }));
     assert_eq!(copied.as_deref(), Some("from the script"));
+}
+
+/// At launch the Examples are written to the app's folder for them and listed first, sealed; the
+/// first run also makes "My Scripts". Later launches add neither again, and write the Examples only
+/// when the app's have changed.
+#[test]
+fn launch_sets_up_the_examples_and_my_scripts() {
+    let (mut app, _) = app();
+    let temp = TempFolder::new("set-up");
+    let (examples, mine) = (temp.0.join("Examples"), temp.0.join("Documents").join("Scriptographer"));
+    crate::scripts::set_up_script_folders(&mut app, &examples, Some(&mine));
+    let folders = app.ui.scriptographer_folders.clone();
+    assert_eq!(folders.len(), 2);
+    assert!(folders[0].sealed && folders[0].path == examples.to_string_lossy(), "the Examples, first and sealed: {folders:?}");
+    assert!(!folders[1].sealed && folders[1].path == mine.to_string_lossy() && mine.is_dir(), "My Scripts, made");
+    assert!(examples.join("Tools").join("Tree.js").is_file() && examples.join("Scripts").join("Spiro.js").is_file());
+    // An example changed in the folder stays until the app's examples change.
+    let tree = examples.join("Tools").join("Tree.js");
+    std::fs::write(&tree, "// changed").unwrap();
+    app.ui.scriptographer_folders.truncate(1);
+    crate::scripts::set_up_script_folders(&mut app, &examples, Some(&mine));
+    assert_eq!(app.ui.scriptographer_folders.len(), 1, "My Scripts only on the first run, the Examples once");
+    assert_eq!(std::fs::read_to_string(&tree).unwrap(), "// changed");
+    std::fs::write(examples.join(".examples"), "older").unwrap();
+    crate::scripts::set_up_script_folders(&mut app, &examples, Some(&mine));
+    assert_ne!(std::fs::read_to_string(&tree).unwrap(), "// changed", "written again for other examples");
+}
+
+/// New scripts and folders don't go in the Examples: with one of them selected, they go in the
+/// first folder shown that isn't sealed.
+#[test]
+fn new_scripts_go_elsewhere_than_the_examples() {
+    let (mut app, _) = app();
+    let temp = TempFolder::new("sealed");
+    let (examples, mine) = (temp.0.join("Examples"), temp.0.join("Mine"));
+    crate::scripts::set_up_script_folders(&mut app, &examples, Some(&mine));
+    let inside = examples.join("Tools").to_string_lossy().into_owned();
+    let made = app.run("ui.newScript", json!({ "folder": inside, "name": "New.js" })).unwrap();
+    assert_eq!(made["path"], json!(mine.join("New.js").to_string_lossy()));
+    app.run("ui.newScriptFolder", json!({ "folder": inside, "name": "Sub" })).unwrap();
+    assert!(mine.join("Sub").is_dir() && !examples.join("Tools").join("Sub").exists());
+}
+
+/// Every example runs without an error.
+#[test]
+fn the_examples_run() {
+    let (mut app, _) = app();
+    let temp = TempFolder::new("examples-run");
+    crate::scripts::set_up_script_folders(&mut app, &temp.0, None);
+    for kind in ["Scripts", "Tools"] {
+        for file in std::fs::read_dir(temp.0.join(kind)).unwrap() {
+            let path = file.unwrap().path();
+            app.run("ui.runScript", json!({ "path": path.to_string_lossy() })).unwrap();
+            app.run("ui.stopScripts", json!({})).unwrap();
+            let errors: Vec<&str> = app.scripts.log().iter().filter(|l| l.error).map(|l| l.text.as_str()).collect();
+            assert!(errors.is_empty(), "{}: {errors:?}", path.display());
+        }
+    }
 }

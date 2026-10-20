@@ -243,6 +243,12 @@ fn legacy_prefs_path() -> Option<std::path::PathBuf> {
     prefs_dir::prefs_path_for("DrawCraft", "drawcraft")
 }
 
+/// The user's documents folder: `Documents` in their home folder.
+fn documents_dir() -> Option<std::path::PathBuf> {
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).filter(|h| !h.is_empty())?;
+    Some(std::path::PathBuf::from(home).join("Documents"))
+}
+
 /// Where the log files live: `logs` in the preferences folder (see `logging`).
 fn log_dir() -> Option<std::path::PathBuf> {
     Some(prefs_path()?.parent()?.join("logs"))
@@ -1055,8 +1061,13 @@ fn main() -> std::process::ExitCode {
                 if prefs_enabled() {
                     let libraries = prefs_path().and_then(|p| Some(p.parent()?.join("Libraries").to_string_lossy().to_string()));
                     app.session.libraries.set_dir(libraries);
-                    // Scriptographer scripts' `localStorage`, likewise.
+                    // Scriptographer scripts' `localStorage`, likewise, and the Examples; the first
+                    // run also makes "My Scripts" in the user's documents.
                     app.ui.scriptographer_storage = prefs_path().and_then(|p| Some(p.parent()?.join("Scriptographer Storage")));
+                    if let Some(examples) = prefs_path().and_then(|p| Some(p.parent()?.join("Scriptographer Examples"))) {
+                        let my_scripts = documents_dir().map(|d| d.join("Scriptographer"));
+                        vectorcraft_ui_egui::set_up_script_folders(&mut app, &examples, my_scripts.as_deref());
+                    }
                 }
                 // Data Recovery copies live next to the preferences too (none for runs without
                 // preferences, such as agents' test runs, unless the recoveryFolder preference is set).

@@ -334,7 +334,7 @@ fn add_folder(app: &mut VectorcraftApp) {
     crate::picks::button(app, |app| {
         if let Some(path) = crate::picks::folder(app) {
             let name = std::path::Path::new(&path).file_name().map_or_else(|| path.clone(), |n| n.to_string_lossy().into_owned());
-            app.ui.scriptographer_folders.push(crate::state::ScriptFolder { name, path, visible: true });
+            app.ui.scriptographer_folders.push(crate::state::ScriptFolder::new(name, path));
             app.prefs_changed = true;
         }
     });
