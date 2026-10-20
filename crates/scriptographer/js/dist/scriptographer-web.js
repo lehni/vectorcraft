@@ -263,4 +263,15 @@
   var { ask } = globalThis.__scriptographer;
   setupPickers(ask);
   globalThis.LocalFile = LocalFile;
+  var getText = (...args) => args.length > 1 ? `${args[0]}
+
+${args[1]}` : String(args[0] ?? "");
+  globalThis.Dialog = {
+    alert(...args) {
+      globalThis.alert(getText(...args));
+    },
+    confirm(...args) {
+      return globalThis.confirm(getText(...args));
+    }
+  };
 })();

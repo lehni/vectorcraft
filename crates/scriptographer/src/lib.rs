@@ -140,10 +140,6 @@ pub struct Host<H> {
     asked: std::collections::VecDeque<dialog::Asked<H>>,
     /// What `Dialog` uses of the script's realm.
     dialog_globals: Option<dialog::Globals<H>>,
-    /// The palettes the script made, open.
-    palettes: Vec<palette::Palette<H>>,
-    /// The `reset()` of every palette.
-    palette_reset: Option<H>,
     /// What `LocalFile` objects share.
     #[cfg(not(target_arch = "wasm32"))]
     files: Option<local_file::Files<H>>,
@@ -193,7 +189,6 @@ pub struct Host<H> {
     /// The script's `localStorage` and `sessionStorage`, and what their proxies use.
     local_storage: storage::Storage,
     session_storage: storage::Storage,
-    next_palette_id: u64,
     /// The language the app gave the script ([`Setup`]), which its workers have too.
     language: Option<String>,
     /// The folder of the copies of what scripts import from the web ([`Setup`]), which its workers
@@ -230,8 +225,6 @@ impl<H> Default for Host<H> {
             #[cfg(target_arch = "wasm32")]
             asked: Default::default(),
             dialog_globals: None,
-            palettes: Vec::new(),
-            palette_reset: None,
             #[cfg(not(target_arch = "wasm32"))]
             files: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -264,7 +257,6 @@ impl<H> Default for Host<H> {
             clone_classes: None,
             local_storage: storage::Storage::default(),
             session_storage: storage::Storage::default(),
-            next_palette_id: 0,
             language: None,
             cache: None,
             handlers: Vec::new(),
@@ -312,16 +304,17 @@ impl<E: Engine> Runtime<E> {
         let global = engine.global()?;
         host.borrow_mut().global = Some(global.clone());
         // What's written in JavaScript, before the classes that build on it (`LocalFile` on
-        // `File`), with the natives it needs: `print()` for the script's output, on desktop
-        // `request()` for `fetch()` and `readFile()` for a `LocalFile`'s bytes, on the web the app's
-        // pickers to ask, the storages' items, and on desktop the sockets, workers, URL parsing, the clock, random bytes and UTF-8.
-        let mut natives = vec![("print", engine.function("print", print)?)];
-        #[cfg(not(target_arch = "wasm32"))]
-        natives.extend([("request", engine.function("request", fetch::request)?), ("readFile", engine.function("readFile", local_file::read_file)?)]);
-        #[cfg(not(target_arch = "wasm32"))]
-        natives.extend(web::natives(&mut engine)?);
-        #[cfg(target_arch = "wasm32")]
-        natives.push(("ask", engine.function("ask", dialog::ask_picker)?));
+        // `File`), with the natives it needs (`js/src/natives.js`): `print()` for the script's
+        // output, `ask()` for its dialogs, the storages' items, and outside a browser what the
+        // browser's APIs need of the runtime.
+        let natives = [
+            vec![("print", engine.function("print", print)?), ("ask", engine.function("ask", dialog::ask_native)?)],
+            #[cfg(not(target_arch = "wasm32"))]
+            vec![("request", engine.function("request", fetch::request)?), ("readFile", engine.function("readFile", local_file::read_file)?)],
+            #[cfg(not(target_arch = "wasm32"))]
+            web::natives(&mut engine)?,
+        ]
+        .concat();
         let groups = [
             ("storage", storage::natives(&mut engine)?),
             #[cfg(not(target_arch = "wasm32"))]
@@ -354,12 +347,11 @@ impl<E: Engine> Runtime<E> {
         engine.eval(SCRIPTOGRAPHER_JS)?;
         // After `DOMException`.
         exception::install(&mut engine, &global)?;
+        dialog::install(&mut engine, &global)?;
         install_globals(&mut engine)?;
         let paper = engine.with_call(|call| object(call, &global, "paper"))?;
         let load = engine.function("load", modules::load)?;
         let mut runtime = Self { engine, host, paper, load };
-        dialog::install(&mut runtime, &global)?;
-        palette::install(&mut runtime.engine, &global)?;
         // After Paper.js, which would take a DOM for a browser's.
         #[cfg(not(target_arch = "wasm32"))]
         dom::install(&mut runtime, &global)?;
@@ -816,6 +808,12 @@ fn print<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Resu
     let line = call.to_string(args.first().unwrap_or(&Value::Undefined))?;
     call.host()?.borrow_mut().output.push(line);
     Ok(Value::Undefined)
+}
+
+/// Calls the function `name` the bundle gave the runtime (`js/src/index.js`) with `args`.
+pub(crate) fn call_bundle<H: Clone>(call: &mut dyn Call<H>, name: &str, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let shared = call.host()?.borrow().shared.clone().ok_or_else(|| Error::Script("the bundle is not set up".into()))?;
+    method(call, &shared, name, args)
 }
 
 /// The realm's class `name`, as scripts see it: one of the engine's, the runtime's, or of what's

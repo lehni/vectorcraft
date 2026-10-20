@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::clone::{Data, deserialize, serialize};
-use crate::{Call, Engine, Error, HostFunction, Interrupt, Runtime, Setup, Value, method};
+use crate::{Call, Engine, Error, HostFunction, Interrupt, Runtime, Setup, Value};
 
 /// How long a worker waits for a message before it runs its timers.
 const FRAME: Duration = Duration::from_millis(16);
@@ -156,8 +156,7 @@ fn run<E: Engine>(
 /// Gives the worker's global object what a worker's has (`setupWorker()` in `js/src/worker.js`).
 fn become_worker<E: Engine>(runtime: &mut Runtime<E>, name: &str, to: Sender<FromWorker>) -> Result<(), Error> {
     runtime.engine.with_call(|call| {
-        let shared = call.host()?.borrow().shared.clone().ok_or_else(|| Error::Script("no bundle".into()))?;
-        let receive = crate::handle(method(call, &shared, "setupWorker", &[Value::String(name.to_owned())])?, "setupWorker()")?;
+        let receive = crate::handle(crate::call_bundle(call, "setupWorker", &[Value::String(name.to_owned())])?, "setupWorker()")?;
         call.host()?.borrow_mut().parent = Some(Parent { to, receive, closing: false });
         Ok(())
     })

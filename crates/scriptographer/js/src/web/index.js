@@ -8,3 +8,18 @@ const { ask } = globalThis.__scriptographer
 
 setupPickers(ask)
 globalThis.LocalFile = LocalFile
+
+// Dialog's `alert()` and `confirm()` are the browser's, which shows no title of
+// the script's: a title the script gave heads the message.
+const getText = (...args) =>
+  args.length > 1 ? `${args[0]}\n\n${args[1]}` : String(args[0] ?? '')
+
+globalThis.Dialog = {
+  alert(...args) {
+    globalThis.alert(getText(...args))
+  },
+
+  confirm(...args) {
+    return globalThis.confirm(getText(...args))
+  }
+}

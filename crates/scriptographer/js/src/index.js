@@ -6,13 +6,19 @@ import * as abort from './abort.js'
 import * as blob from './blob.js'
 import { createConsole } from './console.js'
 import { Crypto } from './crypto.js'
-import { setupFileDialogs } from './dialog.js'
+import { setupDialog } from './dialog.js'
 import { DOMException } from './dom-exception.js'
 import { TextDecoder, TextEncoder } from './encoding.js'
 import * as events from './events.js'
 import * as fetch from './fetch.js'
 import * as geometry from './geometry.js'
 import * as globalScope from './global-scope.js'
+import {
+  Palette,
+  handlePaletteEvent,
+  hasPalettes,
+  takePalettes
+} from './palette.js'
 import { Storage, createStorage } from './storage.js'
 import { URL, URLSearchParams } from './url.js'
 import { WebSocket } from './websocket.js'
@@ -71,7 +77,10 @@ if (!globalThis.Worker) {
 if (!globalThis.DOMMatrix) {
   setGlobals({ ...geometry, WebKitCSSMatrix: geometry.DOMMatrix })
 }
-setupFileDialogs((globalThis.Dialog ??= {}))
+setupDialog((globalThis.Dialog ??= {}))
+setGlobals({ Palette })
+// What the runtime reports of the palettes, and tells them:
+Object.assign(natives, { takePalettes, hasPalettes, handlePaletteEvent })
 
 // Set as the realm's own globals are: not enumerable.
 function setGlobals(values) {

@@ -855,8 +855,37 @@ ${stack}` : ""));
   setToStringTag(Crypto);
 
   // src/dialog.js
-  function setupFileDialogs(Dialog) {
+  var defaultTitle = "Scriptographer";
+  function setupDialog(Dialog) {
+    Dialog.alert ??= function(...args) {
+      natives.ask({ type: "alert", ...getTexts(args) });
+    };
+    Dialog.confirm ??= function(...args) {
+      return natives.ask({ type: "confirm", ...getTexts(args) }) === true;
+    };
     Object.assign(Dialog, {
+      // The values by name, put into `values` when given, or `null` when the
+      // user cancels.
+      prompt(title = defaultTitle, components, values) {
+        if (!components || typeof components !== "object") {
+          throw new TypeError("Invalid components: they must be an object.");
+        }
+        const list = getComponents(components, values);
+        return then(
+          natives.ask({ type: "prompt", title: String(title), components: list }),
+          (answer) => getValues(list, answer, values)
+        );
+      },
+      // A prompt with one colour: the colour picked, or `null`.
+      chooseColor(color) {
+        const component = { type: "color" };
+        if (color != null) component.value = color;
+        return then(
+          Dialog.prompt(defaultTitle, { color: component }),
+          (values) => values && values.color
+        );
+      },
+      // Each gives a `LocalFile`, or `null` when the user cancels.
       async openFile(options) {
         const handles = await pick(
           showOpenFilePicker,
@@ -886,6 +915,50 @@ ${stack}` : ""));
         return handle && LocalFile.from(handle);
       }
     });
+  }
+  function getComponents(components, values) {
+    return Object.keys(components).map((name) => {
+      const definition = components[name];
+      const component = { name, ...toJSON(definition) };
+      delete component.value;
+      let value = values?.[name] !== void 0 ? values[name] : definition.value;
+      if (typeof value?.toCSS === "function") {
+        value = value.toCSS(true);
+      }
+      component.value = toJSON(value);
+      component.type ??= // As Scriptographer read it from the definition:
+      "options" in component ? "list" : typeof definition.onClick === "function" ? "button" : typeof definition.onSelect === "function" ? "menu-entry" : typeof component.value === "number" ? "number" : typeof component.value === "boolean" ? "boolean" : "string";
+      if (component.type === "number" && typeof component.units === "string" && component.units !== "none") {
+        component.steppers ??= true;
+      }
+      return component;
+    });
+  }
+  function getValue(component, value) {
+    return component.type === "color" && typeof value === "string" ? new paper.Color(value) : value;
+  }
+  function getValues(list, answer, values) {
+    if (answer && typeof answer === "object") {
+      const result = values ?? {};
+      for (const component of list) {
+        if (component.name in answer) {
+          result[component.name] = getValue(component, answer[component.name]);
+        }
+      }
+      return result;
+    } else {
+      return null;
+    }
+  }
+  function getTexts(args) {
+    const [title, message] = args.length > 1 ? args : [defaultTitle, args[0] ?? ""];
+    return { title: String(title), message: String(message) };
+  }
+  function toJSON(value) {
+    return JSON.parse(JSON.stringify(value ?? null) ?? "null");
+  }
+  function then(value, f) {
+    return value instanceof Promise ? value.then(f) : f(value);
   }
   async function pick(picker, options) {
     try {
@@ -1771,17 +1844,17 @@ ${value}\r
     DOMMatrixReadOnly,
     DOMMatrix
   );
-  function defineAttributes(ReadOnly, Writable, entries, getValues, changed) {
+  function defineAttributes(ReadOnly, Writable, entries, getValues2, changed) {
     for (const [name, index] of entries) {
       const get = function() {
-        return getValues(this)[index];
+        return getValues2(this)[index];
       };
       defineAccessors(ReadOnly.prototype, { [name]: { get } });
       defineAccessors(Writable.prototype, {
         [name]: {
           get,
           set(value) {
-            getValues(this)[index] = +value;
+            getValues2(this)[index] = +value;
             changed?.(this, index, +value);
           }
         }
@@ -1969,6 +2042,92 @@ ${value}\r
       throw new TypeError(`Invalid array: '${array}', not a typed array.`);
     }
     return setMatrix(new Class(), getMatrixFromList(array));
+  }
+
+  // src/palette.js
+  var palettes = /* @__PURE__ */ new Map();
+  var lastId = 0;
+  var Palette = class {
+    constructor(title = "", components, values) {
+      if (!components || typeof components !== "object") {
+        throw new TypeError("Invalid components: they must be an object.");
+      }
+      this.title = String(title);
+      this.components = components;
+      this.values = values && typeof values === "object" ? values : {};
+      for (const component of getComponents(components, this.values)) {
+        if (this.values[component.name] === void 0) {
+          this.values[component.name] = getValue(component, component.value);
+        }
+      }
+      palettes.set(++lastId, {
+        palette: this,
+        defaults: getComponents(components),
+        reported: ""
+      });
+    }
+    // Every component's value back to the one it was defined with.
+    reset() {
+      const { defaults } = [...palettes.values()].find(
+        (entry) => entry.palette === this
+      );
+      for (const component of defaults) {
+        const value = getValue(component, component.value);
+        this.values[component.name] = value;
+        this.components[component.name].value = value;
+      }
+    }
+  };
+  setToStringTag(Palette);
+  function takePalettes() {
+    const changed = [];
+    for (const [id, entry] of palettes) {
+      const state = getState2(id, entry.palette);
+      const text = JSON.stringify(state);
+      if (entry.reported !== text) {
+        entry.reported = text;
+        changed.push(state);
+      }
+    }
+    return changed;
+  }
+  function hasPalettes() {
+    return palettes.size > 0;
+  }
+  function handlePaletteEvent(id, type, name, value) {
+    const entry = palettes.get(id);
+    if (entry) {
+      const { palette } = entry;
+      const { components, values } = palette;
+      const definition = components[name];
+      if (type === "change") {
+        const component = getComponents(components, values).find(
+          (component2) => component2.name === name
+        );
+        if (component) {
+          value = getValue(component, value);
+          values[name] = value;
+          entry.reported = JSON.stringify(getState2(id, palette));
+          definition.name = name;
+          definition.value = value;
+          call(definition, "onChange", value);
+          call(palette, "onChange", definition);
+        }
+      } else if (type === "click") {
+        call(definition, "onClick");
+        call(definition, "onSelect");
+      } else if (type === "close") {
+        palettes.delete(id);
+        call(palette, "onClose");
+      }
+    }
+  }
+  function getState2(id, palette) {
+    const { title, components, values } = palette;
+    return { id, title, components: getComponents(components, values) };
+  }
+  function call(owner, name, ...args) {
+    if (typeof owner?.[name] === "function") owner[name](...args);
   }
 
   // src/storage.js
@@ -2468,7 +2627,9 @@ ${value}\r
   if (!globalThis.DOMMatrix) {
     setGlobals({ ...geometry_exports, WebKitCSSMatrix: DOMMatrix });
   }
-  setupFileDialogs(globalThis.Dialog ??= {});
+  setupDialog(globalThis.Dialog ??= {});
+  setGlobals({ Palette });
+  Object.assign(natives, { takePalettes, hasPalettes, handlePaletteEvent });
   function setGlobals(values) {
     defineValues(globalThis, values, { writable: true, configurable: true });
   }
