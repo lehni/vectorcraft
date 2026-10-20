@@ -990,7 +990,8 @@ pub(crate) fn cursor(app: &VectorcraftApp) -> Option<Cursor> {
 
 /// The PaperCraft Tool's button in the toolbox, under the app's tools, as Scriptographer's tool
 /// button: dimmed until a tool script is run, then named after it and selected while it is the
-/// active tool. Clicking it makes the tool script the active tool again.
+/// active tool. Clicking it makes the tool script the active tool again; double-clicking it calls
+/// the script's `onEditOptions()` too.
 pub(crate) fn tool_button(app: &mut VectorcraftApp, ui: &mut egui::Ui, center_x: f32) {
     let t = crate::theme::Tokens::get(ui.ctx());
     let assigned = app.scripts.tool().map(file_name);
@@ -1012,8 +1013,15 @@ pub(crate) fn tool_button(app: &mut VectorcraftApp, ui: &mut egui::Ui, center_x:
             None => crate::icons::paint(ui, "dc-papercraft-tool", icon, t.text_disabled),
         }
         let tip = assigned.clone().unwrap_or_else(|| tl!("Run a tool script to assign it to this tool button").to_owned());
-        if resp.on_hover_text(tip).clicked() && assigned.is_some() {
+        let resp = resp.on_hover_text(tip);
+        if resp.clicked() && assigned.is_some() {
             app.scripts.select_tool();
+        }
+        if resp.double_clicked()
+            && assigned.is_some()
+            && let Some(active) = app.session.active().map(|d| d.uid)
+        {
+            to_tool(app, active, [Work::Handler("onEditOptions")]);
         }
     });
 }

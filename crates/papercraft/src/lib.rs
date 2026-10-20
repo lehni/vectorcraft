@@ -37,8 +37,9 @@ pub use palette::PaletteEvent;
 
 /// The handlers a script defines for the app to call, as Scriptographer had them: when the app
 /// starts (after the `__init__` scripts ran) and quits, when the user stops the running scripts,
-/// and when the app comes to the front or goes behind another.
-pub const HANDLERS: [&str; 5] = ["onStartup", "onShutdown", "onStop", "onAppActivate", "onAppDeactivate"];
+/// when the app comes to the front or goes behind another, and, for a tool script, when the user
+/// double-clicks its tool's button, to edit the tool's options.
+pub const HANDLERS: [&str; 6] = ["onStartup", "onShutdown", "onStop", "onAppActivate", "onAppDeactivate", "onEditOptions"];
 
 /// The engine scripts run in on this platform: the browser's on the web, V8 on desktop, Boa where
 /// V8 is left out.

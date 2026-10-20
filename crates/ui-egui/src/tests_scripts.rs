@@ -815,3 +815,30 @@ fn a_palettes_menu_runs_its_entries() {
     crate::scripts::frame(&mut app, &ctx, 1.0);
     assert!(app.scripts.log().iter().any(|l| l.text == "about"), "{:?}", app.scripts.log().iter().map(|l| &l.text).collect::<Vec<_>>());
 }
+
+/// Double-clicking the PaperCraft Tool's button calls its script's `onEditOptions()`, as
+/// Scriptographer's tool buttons did.
+#[test]
+fn double_clicking_the_tool_button_edits_its_options() {
+    let (mut app, _) = app();
+    let path = tempfile_path::Path::new("function onMouseDown(event) {}\nfunction onEditOptions() { print('options') }");
+    app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
+    let ctx = egui::Context::default();
+    crate::scripts::frame(&mut app, &ctx, 0.5);
+    let mut time = 1.0;
+    let mut frame = |app: &mut VectorcraftApp, events: Vec<egui::Event>| {
+        time += 0.05;
+        let input = egui::RawInput { time: Some(time), events, ..Default::default() };
+        let mut out = ctx.run_ui(input, |ui| crate::scripts::tool_button(app, ui, 20.0));
+        out.textures_delta.clear();
+    };
+    let at = egui::pos2(20.0, 15.0);
+    let press = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+    frame(&mut app, vec![egui::Event::PointerMoved(at)]);
+    for _ in 0..2 {
+        frame(&mut app, vec![press(true)]);
+        frame(&mut app, vec![press(false)]);
+    }
+    let log: Vec<&str> = app.scripts.log().iter().map(|l| l.text.as_str()).collect();
+    assert_eq!(log.iter().filter(|l| **l == "options").count(), 1, "{log:?}");
+}
