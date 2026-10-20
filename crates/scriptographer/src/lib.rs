@@ -12,7 +12,6 @@ mod binding;
 mod bitmap;
 mod blob;
 mod canvas;
-mod clipboard;
 mod clone;
 mod dialog;
 #[cfg(not(target_arch = "wasm32"))]
@@ -182,8 +181,6 @@ pub struct Host<H> {
     /// What the runtime and the JavaScript bundle share (`js/src/natives.js`): the natives it
     /// passes, and the functions the bundle gives back.
     shared: Option<H>,
-    /// The realm's `Promise`, for the clipboard's answers.
-    clipboard_promise: Option<H>,
     /// What `structuredClone()` uses of the realm.
     clone_classes: Option<clone::Classes<H>>,
     /// The script's `localStorage` and `sessionStorage`, and what their proxies use.
@@ -253,7 +250,6 @@ impl<H> Default for Host<H> {
             exceptions: None,
             global: None,
             shared: None,
-            clipboard_promise: None,
             clone_classes: None,
             local_storage: storage::Storage::default(),
             session_storage: storage::Storage::default(),
@@ -361,7 +357,6 @@ impl<E: Engine> Runtime<E> {
         #[cfg(not(target_arch = "wasm32"))]
         file_system::install(&mut runtime, &global)?;
         clone::install(&mut runtime.engine, &global)?;
-        clipboard::install(&mut runtime.engine, &global)?;
         Ok(runtime)
     }
 

@@ -47,6 +47,7 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
 }
 
 /// Asks the host `question`, and waits for the answer.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn ask<H>(call: &mut dyn Call<H>, question: Json) -> Result<Json, Error> {
     let host = call.host()?;
     let taken = host.borrow_mut().ask.take();

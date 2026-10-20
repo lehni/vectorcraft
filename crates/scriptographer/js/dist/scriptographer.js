@@ -590,6 +590,30 @@
     return /^[\x20-\x7e]*$/.test(type) ? type.toLowerCase() : "";
   }
 
+  // src/clipboard.js
+  var Clipboard = class extends EventTarget {
+    async readText() {
+      return ask({ type: "clipboardRead" })?.text ?? "";
+    }
+    async writeText(text) {
+      if (arguments.length < 1) {
+        throw new TypeError("Invalid writeText(): the text is missing.");
+      }
+      ask({ type: "clipboardWrite", text: String(text) });
+    }
+  };
+  setToStringTag(Clipboard);
+  function ask(question) {
+    try {
+      return natives.ask(question);
+    } catch (err) {
+      throw new DOMException(
+        `Unable to use the clipboard: ${err.message}`,
+        "NotAllowedError"
+      );
+    }
+  }
+
   // src/console.js
   var maxDepth = 2;
   var maxItems = 100;
@@ -2589,6 +2613,14 @@ ${value}\r
       Object.entries(global_scope_exports).filter(([name]) => !(name in globalThis))
     )
   );
+  if (globalThis.navigator && !navigator.clipboard) {
+    setGlobals({ Clipboard });
+    defineValues(
+      navigator,
+      { clipboard: new Clipboard() },
+      { configurable: true }
+    );
+  }
   if (!globalThis.TextEncoder) {
     setGlobals({ TextEncoder: TextEncoder2, TextDecoder: TextDecoder2 });
   }

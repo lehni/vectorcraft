@@ -4,6 +4,7 @@ import { natives } from './natives.js'
 import { defineValues } from './define.js'
 import * as abort from './abort.js'
 import * as blob from './blob.js'
+import { Clipboard } from './clipboard.js'
 import { createConsole } from './console.js'
 import { Crypto } from './crypto.js'
 import { setupDialog } from './dialog.js'
@@ -37,6 +38,14 @@ setGlobals(
     Object.entries(globalScope).filter(([name]) => !(name in globalThis))
   )
 )
+if (globalThis.navigator && !navigator.clipboard) {
+  setGlobals({ Clipboard })
+  defineValues(
+    navigator,
+    { clipboard: new Clipboard() },
+    { configurable: true }
+  )
+}
 if (!globalThis.TextEncoder) {
   setGlobals({ TextEncoder, TextDecoder })
 }
