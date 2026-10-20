@@ -959,8 +959,7 @@ dependencies = [
 [[package]]
 name = "color"
 version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ec7c5eb7a16992b1904d76c517d170ab353b0e0b3d5a0c81a8a0cd1037893cf"
+source = "git+https://github.com/lehni/color?rev=aa7c1de5c92180a9de236c8705259a68620cf632#aa7c1de5c92180a9de236c8705259a68620cf632"
 dependencies = [
  "bytemuck",
 ]

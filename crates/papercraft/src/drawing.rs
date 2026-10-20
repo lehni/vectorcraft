@@ -13,10 +13,10 @@
 //! The context's properties (`fillStyle`, `lineWidth`, …) are the canvas's own JavaScript
 //! properties; `save()` keeps them with the transform, clip and dashes.
 
-use std::str::FromStr;
 use std::sync::Arc;
 
 use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
+use vello_cpu::color::Rgba8;
 use vello_cpu::kurbo::{Affine, Arc as ArcSegment, BezPath, Cap, Join, PathEl, Point, Rect, Shape, Stroke, Vec2};
 use vello_cpu::peniko::{self, BlendMode, Color, ColorStop, Compose, Extend, Fill, ImageQuality, ImageSampler, Mix};
 use vello_cpu::{Pixmap, RenderContext, RenderSettings, Resources};
@@ -262,18 +262,34 @@ pub(crate) fn set_filter<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, key:
 
 /// A CSS colour as the canvas keeps it.
 fn color_value<H>(css: &str) -> Option<Value<H>> {
-    svgtypes::Color::from_str(css).ok().map(|c| Value::String(serialize(c)))
+    css_color(css).map(|c| Value::String(serialize(c)))
 }
 
 /// A colour as browsers give a canvas style back: `#rrggbb`, or `rgba(r, g, b, a)` when it's not
 /// opaque.
-fn serialize(c: svgtypes::Color) -> String {
-    if c.alpha == 255 {
-        format!("#{:02x}{:02x}{:02x}", c.red, c.green, c.blue)
-    } else {
-        let alpha = (f64::from(c.alpha) / 255.0 * 1000.0).round() / 1000.0;
-        format!("rgba({}, {}, {}, {alpha})", c.red, c.green, c.blue)
+fn serialize(c: Color) -> String {
+    let Rgba8 { r, g, b, a } = c.to_rgba8();
+    if a == 255 {
+        return format!("#{r:02x}{g:02x}{b:02x}");
     }
+    // The fewest decimals that give the same 8 bits back, as CSS serializes alpha.
+    let exact = f64::from(a) / 255.0;
+    let alpha =
+        [100.0, 1000.0].into_iter().map(|scale| (exact * scale).round() / scale).find(|alpha| (alpha * 255.0).round() as u8 == a).unwrap_or(exact);
+    format!("rgba({r}, {g}, {b}, {alpha})")
+}
+
+/// A CSS colour (CSS Color 4: names, hex, `rgb()`, `hsl()`, `hwb()`, `lab()`, `oklch()`,
+/// `color()` …) in sRGB, rounded to 8 bits a channel as a canvas keeps it; `currentcolor` is
+/// black, as for a canvas without an element.
+pub(crate) fn css_color(css: &str) -> Option<Color> {
+    let css = css.trim();
+    if css.eq_ignore_ascii_case("currentcolor") {
+        return Some(Color::BLACK);
+    }
+    let color = vello_cpu::color::parse_color(css).ok()?.to_alpha_color::<vello_cpu::color::Srgb>();
+    let Rgba8 { r, g, b, a } = color.to_rgba8();
+    Some(Color::from_rgba8(r, g, b, a))
 }
 
 // Paths.
@@ -711,7 +727,7 @@ enum Style {
 /// The style in property `key`, `None` when it paints nothing.
 fn style<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, key: &str) -> Result<Option<Style>, Error> {
     match property(call, this, key)? {
-        Value::String(css) => Ok(svgtypes::Color::from_str(&css).ok().map(|c| Style::Color(Color::from_rgba8(c.red, c.green, c.blue, c.alpha)))),
+        Value::String(css) => Ok(css_color(&css).map(Style::Color)),
         Value::Js(object) => {
             if let Value::String(kind) = call.get(&object, "_gradient")? {
                 return gradient(call, &object, &kind).map(|g| g.map(Style::Gradient));
@@ -759,8 +775,8 @@ fn gradient<H: Clone>(call: &mut dyn Call<H>, object: &H, kind: &str) -> Result<
             Value::String(css) => css,
             _ => continue,
         };
-        if let Ok(c) = svgtypes::Color::from_str(&css) {
-            stops.push(ColorStop::from((*offset as f32, Color::from_rgba8(c.red, c.green, c.blue, c.alpha))));
+        if let Some(color) = css_color(&css) {
+            stops.push(ColorStop::from((*offset as f32, color)));
         }
     }
     if stops.is_empty() {
@@ -841,7 +857,7 @@ fn parse_filter(css: &str) -> Option<Vec<Effect>> {
             },
             "drop-shadow" => {
                 // The colour comes first or last.
-                let color = |word: &str| svgtypes::Color::from_str(word).ok().map(|c| Color::from_rgba8(c.red, c.green, c.blue, c.alpha));
+                let color = |word: &str| css_color(word);
                 let (color, lengths) = match arguments.split_first().zip(arguments.split_last()) {
                     Some(((first, rest), _)) if color(first).is_some() => (color(first), rest),
                     Some((_, (last, rest))) if color(last).is_some() => (color(last), rest),
@@ -945,12 +961,12 @@ fn compositing<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>) -> Result<Comp
         _ => (Mix::Normal, Compose::SrcOver),
     };
     let mut effects = parse_filter(&text_property(call, this, "filter")?).unwrap_or_default();
-    if let Ok(c) = svgtypes::Color::from_str(&text_property(call, this, "shadowColor")?) {
+    if let Some(color) = css_color(&text_property(call, this, "shadowColor")?) {
         let dx = number_property(call, this, "shadowOffsetX", 0.0)?;
         let dy = number_property(call, this, "shadowOffsetY", 0.0)?;
         // As for CSS shadows, the blur's standard deviation is half the `shadowBlur`.
         let blur = number_property(call, this, "shadowBlur", 0.0)?.max(0.0) / 2.0;
-        effects.push(Effect::Shadow { dx, dy, blur, color: Color::from_rgba8(c.red, c.green, c.blue, c.alpha) });
+        effects.push(Effect::Shadow { dx, dy, blur, color });
     }
     Ok(Compositing { alpha, blend: BlendMode::new(mix, compose), effects })
 }
@@ -1292,7 +1308,7 @@ pub(crate) fn add_color_stop<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, 
         Some(color) => call.to_string(color)?,
         None => String::new(),
     };
-    if svgtypes::Color::from_str(&color).is_err() {
+    if css_color(&color).is_none() {
         return Err(Error::Script(format!("SyntaxError: addColorStop: '{color}' isn't a colour")));
     }
     for (key, value) in [("_offsets", Value::Number(offset)), ("_colors", Value::String(color))] {

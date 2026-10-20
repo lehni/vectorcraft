@@ -155,3 +155,7 @@ krilla = { git = "https://github.com/storytold/craft-libs", rev = "2eca9b3a53a98
 # the same property read: PaperCraft's lost move in the Boa engine). Drop it for the Boa release with
 # the fix.
 boa_engine = { git = "https://github.com/lehni/boa", rev = "11304bd4baeb5c7c5293bfc3f0d350ade16e4a7a" }
+# color 0.3.3 (under peniko and vello) with linebender/color#231: the named colors spelled grey,
+# and legacy hsl() with whitespace before its commas, which PaperCraft's canvas parses. Drop it for
+# the color release with the fix.
+color = { git = "https://github.com/lehni/color", rev = "aa7c1de5c92180a9de236c8705259a68620cf632" }

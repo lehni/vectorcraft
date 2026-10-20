@@ -613,6 +613,30 @@ fn canvases_draw_path2d<E: Engine>() {
     );
 }
 
+fn canvas_colors_are_css_colors<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "const ctx = new OffscreenCanvas(1, 1).getContext('2d')\n\
+             const read = css => { ctx.fillStyle = '#123456'; ctx.fillStyle = css; return ctx.fillStyle }\n\
+             console.log(read('rgb(255 0 0 / 50%)'), read('hsl( 120 , 100% , 50% )'), read('grey'), read('oklch(0.628 0.258 29.2)'))\n\
+             console.log(read('rgba(255,255,255,0.5)'), read('rgb(255, 0 0)'), read('nope'))\n\
+             console.log(new Color('grey').toCSS(true))",
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.take_output(),
+        [
+            "rgba(255, 0, 0, 0.5) #00ff00 #808080 #ff0000",
+            // Alpha as few decimals as give the same 8 bits back; invalid colours change nothing.
+            "rgba(255, 255, 255, 0.5) #123456 #123456",
+            "#808080",
+        ]
+    );
+}
+
 fn runtimes_live_side_by_side<E: Engine>() {
     // As the app runs them: a second script starts while the first keeps running, and the first
     // stops first.
@@ -753,6 +777,11 @@ macro_rules! engine_tests {
             #[test]
             fn canvases_draw_path2d() {
                 super::canvases_draw_path2d::<$engine>();
+            }
+
+            #[test]
+            fn canvas_colors_are_css_colors() {
+                super::canvas_colors_are_css_colors::<$engine>();
             }
 
             #[test]
