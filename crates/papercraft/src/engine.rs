@@ -43,6 +43,9 @@ pub trait Call<H> {
 
     fn new_float64_array(&mut self, elements: &[f64]) -> Result<H, Error>;
 
+    /// The bytes of a typed array, a `DataView` or an `ArrayBuffer`, copied in one go.
+    fn bytes(&mut self, object: &H) -> Result<Vec<u8>, Error>;
+
     fn new_uint8_array(&mut self, elements: &[u8]) -> Result<H, Error>;
 
     fn new_uint16_array(&mut self, elements: &[u16]) -> Result<H, Error>;

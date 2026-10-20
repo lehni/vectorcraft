@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use boa_engine::object::FunctionObjectBuilder;
-use boa_engine::object::builtins::{JsArray, JsFloat64Array, JsUint8Array, JsUint16Array};
+use boa_engine::object::builtins::{JsArray, JsArrayBuffer, JsDataView, JsFloat64Array, JsTypedArray, JsUint8Array, JsUint16Array};
 use boa_engine::{Context, JsError, JsNativeError, JsObject, JsResult, JsString, JsValue, NativeFunction, Source};
 
 use crate::{Call, Engine, Error, Host, HostFunction, Value};
@@ -93,6 +93,27 @@ impl Call<JsValue> for BoaCall<'_> {
 
     fn new_uint8_array(&mut self, elements: &[u8]) -> Result<JsValue, Error> {
         Ok(JsUint8Array::from_iter(elements.iter().copied(), self.context).map_err(script_error)?.into())
+    }
+
+    fn bytes(&mut self, object: &JsValue) -> Result<Vec<u8>, Error> {
+        let not = || Error::Script("not a typed array, DataView or ArrayBuffer".into());
+        let object = object.as_object().ok_or_else(not)?.clone();
+        // The buffer and the part of it the view shows; all of a buffer.
+        let (buffer, offset, length) = if let Ok(array) = JsTypedArray::from_object(object.clone()) {
+            let buffer = array.buffer(self.context).map_err(script_error)?;
+            (buffer, array.byte_offset(self.context).map_err(script_error)?, array.byte_length(self.context).map_err(script_error)?)
+        } else if let Ok(view) = JsDataView::from_object(object.clone()) {
+            let buffer = view.buffer(self.context).map_err(script_error)?;
+            let offset = usize::try_from(view.byte_offset(self.context).map_err(script_error)?).unwrap_or(usize::MAX);
+            let length = usize::try_from(view.byte_length(self.context).map_err(script_error)?).unwrap_or(0);
+            (buffer, offset, length)
+        } else {
+            (object.into(), 0, usize::MAX)
+        };
+        let buffer = JsArrayBuffer::from_object(buffer.as_object().ok_or_else(not)?.clone()).map_err(|_| not())?;
+        let data = buffer.data().ok_or_else(not)?;
+        let end = offset.saturating_add(length).min(data.len());
+        Ok(data.get(offset.min(end)..end).unwrap_or_default().to_vec())
     }
 
     fn new_uint16_array(&mut self, elements: &[u16]) -> Result<JsValue, Error> {

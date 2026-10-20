@@ -110,6 +110,20 @@ impl Call<JsValue> for BrowserCall {
         Ok(js_sys::Uint8Array::from(elements).into())
     }
 
+    fn bytes(&mut self, object: &JsValue) -> Result<Vec<u8>, Error> {
+        // An `ArrayBuffer` whole, a view the part of its buffer it shows.
+        let bytes = if let Some(buffer) = object.dyn_ref::<js_sys::ArrayBuffer>() {
+            js_sys::Uint8Array::new(buffer)
+        } else if js_sys::ArrayBuffer::is_view(object) {
+            let buffer = Reflect::get(object, &"buffer".into()).map_err(js_error)?;
+            let number = |key: &str| Reflect::get(object, &key.into()).ok().and_then(|v| v.as_f64()).unwrap_or(0.0) as u32;
+            js_sys::Uint8Array::new_with_byte_offset_and_length(&buffer, number("byteOffset"), number("byteLength"))
+        } else {
+            return Err(Error::Script("not a typed array, DataView or ArrayBuffer".into()));
+        };
+        Ok(bytes.to_vec())
+    }
+
     fn new_uint16_array(&mut self, elements: &[u16]) -> Result<JsValue, Error> {
         Ok(js_sys::Uint16Array::from(elements).into())
     }

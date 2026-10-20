@@ -185,6 +185,19 @@ impl Call<Handle> for V8Call<'_, '_, '_> {
         Ok(handle(self.scope, array.into()))
     }
 
+    fn bytes(&mut self, object: &Handle) -> Result<Vec<u8>, Error> {
+        let value = v8::Local::new(self.scope, object);
+        // An `ArrayBuffer` through a view of all of it.
+        let view = match v8::Local::<v8::ArrayBuffer>::try_from(value) {
+            Ok(buffer) => v8::Uint8Array::new(self.scope, buffer, 0, buffer.byte_length()).map(Into::into),
+            Err(_) => v8::Local::<v8::ArrayBufferView>::try_from(value).ok(),
+        };
+        let view: v8::Local<v8::ArrayBufferView> = view.ok_or_else(|| thrown("not a typed array, DataView or ArrayBuffer"))?;
+        let mut bytes = vec![0; view.byte_length()];
+        view.copy_contents(&mut bytes);
+        Ok(bytes)
+    }
+
     fn new_uint16_array(&mut self, elements: &[u16]) -> Result<Handle, Error> {
         let bytes = elements.iter().flat_map(|e| e.to_ne_bytes()).collect();
         let buffer = buffer(self.scope, bytes);

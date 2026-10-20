@@ -134,36 +134,10 @@ fn decode<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>])
     let Some(Value::Js(input)) = args.first() else {
         return Ok(Value::String(String::new()));
     };
-    let bytes = read_bytes(call, input)?;
+    let bytes = call.bytes(input)?;
     Ok(Value::String(String::from_utf8_lossy(&bytes).into_owned()))
 }
 
-/// The bytes of a typed array or an `ArrayBuffer`.
-fn read_bytes<H: Clone>(call: &mut dyn Call<H>, input: &H) -> Result<Vec<u8>, Error> {
-    let (_, bytes_class, _) = shared(call)?;
-    // A view of the same memory, byte by byte: `new Uint8Array(buffer, offset, length)`.
-    let view = match call.get(input, "buffer")? {
-        Value::Js(buffer) => {
-            let offset = call.get(input, "byteOffset")?;
-            let length = call.get(input, "byteLength")?;
-            call.construct(&bytes_class, &[Value::Js(buffer), offset, length])?
-        }
-        _ => call.construct(&bytes_class, &[Value::Js(input.clone())])?,
-    };
-    let Value::Js(view) = view else {
-        return Ok(Vec::new());
-    };
-    let length = match call.get(&view, "length")? {
-        Value::Number(n) if n.is_finite() && n >= 0.0 => n as usize,
-        _ => 0,
-    };
-    (0..length)
-        .map(|i| match call.get(&view, &i.to_string())? {
-            Value::Number(byte) => Ok(byte as u8),
-            _ => Ok(0),
-        })
-        .collect()
-}
 
 /// `crypto.getRandomValues(array)`: fills the integer typed array with random values and returns
 /// it. At most 65536 bytes, as in browsers.
