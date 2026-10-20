@@ -14,8 +14,11 @@ mod dialog;
 mod dom;
 mod engine;
 mod engines;
+#[cfg(not(target_arch = "wasm32"))]
+mod fetch;
 mod file;
 pub mod host;
+mod modules;
 mod palette;
 #[cfg(not(target_arch = "wasm32"))]
 mod web;
@@ -102,14 +105,28 @@ pub struct Host<H> {
     palette_reset: Option<H>,
     /// What `File` objects share.
     files: Option<file::Files<H>>,
+    /// The script's file, which its imports are relative to.
+    file: Option<std::path::PathBuf>,
     /// The script's folder, which relative paths of `File`s are in.
     directory: Option<std::path::PathBuf>,
+    /// What `import` needs, once a script runs.
+    loader: Option<modules::Loader<H>>,
+    /// The modules the scripts imported.
+    modules: Vec<modules::Module<H>>,
     /// `window` and `document` outside a browser.
     #[cfg(not(target_arch = "wasm32"))]
     dom: dom::Dom<H>,
     /// The browser's everyday APIs outside a browser.
     #[cfg(not(target_arch = "wasm32"))]
     web: Option<web::Web<H>>,
+    /// `fetch` and its classes outside a browser, its requests out, and the `resolve` and
+    /// `reject` of the Promise being made.
+    #[cfg(not(target_arch = "wasm32"))]
+    fetch: Option<fetch::Classes<H>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    fetches: Vec<fetch::Pending<H>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    resolvers: Option<(H, H)>,
     next_palette_id: u64,
     /// `script.preferences` as last taken, as JSON.
     preferences: String,
@@ -142,11 +159,20 @@ impl<H> Default for Host<H> {
             palettes: Vec::new(),
             palette_reset: None,
             files: None,
+            file: None,
             directory: None,
+            loader: None,
+            modules: Vec::new(),
             #[cfg(not(target_arch = "wasm32"))]
             dom: dom::Dom::None,
             #[cfg(not(target_arch = "wasm32"))]
             web: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            fetch: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            fetches: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            resolvers: None,
             next_palette_id: 0,
             preferences: String::new(),
             handlers: Vec::new(),
@@ -159,6 +185,8 @@ pub struct Runtime<E: Engine> {
     engine: E,
     host: Rc<RefCell<Host<E::Handle>>>,
     paper: E::Handle,
+    /// The loader of `import`s ([`modules::load`]).
+    load: E::Handle,
 }
 
 /// A `PaperScope` with its own project and view.
@@ -173,7 +201,8 @@ impl<E: Engine> Runtime<E> {
         engine.eval(PAPER_JS)?;
         let global = engine.global()?;
         let paper = engine.with_call(|call| object(call, &global, "paper"))?;
-        let mut runtime = Self { engine, host, paper };
+        let load = engine.function("load", modules::load)?;
+        let mut runtime = Self { engine, host, paper, load };
         dialog::install(&mut runtime, &global)?;
         palette::install(&mut runtime.engine, &global)?;
         file::install(&mut runtime, &global)?;
@@ -182,6 +211,8 @@ impl<E: Engine> Runtime<E> {
         dom::install(&mut runtime, &global)?;
         #[cfg(not(target_arch = "wasm32"))]
         web::install(&mut runtime, &global)?;
+        #[cfg(not(target_arch = "wasm32"))]
+        fetch::install(&mut runtime, &global)?;
         Ok(runtime)
     }
 
@@ -198,16 +229,15 @@ impl<E: Engine> Runtime<E> {
         })
     }
 
-    /// Compiles and runs `source` as PaperScript in `scope`. The [`HANDLERS`] it defines are kept
-    /// for [`Runtime::call_handler`].
+    /// Compiles and runs `source` as PaperScript in `scope`, with its `import`s ([`modules`]). The
+    /// [`HANDLERS`] it defines are kept for [`Runtime::call_handler`].
     pub fn execute(&mut self, scope: &Scope<E::Handle>, source: &str) -> Result<(), Error> {
-        let (paper, host) = (&self.paper, &self.host);
+        let (paper, host, load) = (&self.paper, &self.host, &self.load);
         self.engine.with_call(|call| {
             let paperscript = object(call, paper, "PaperScript")?;
-            let names: Vec<Value<E::Handle>> = HANDLERS.iter().map(|h| Value::String((*h).into())).collect();
-            let options = call.new_object()?;
-            let names = call.new_array(&names)?;
-            call.set(&options, "handlers", &Value::Js(names))?;
+            modules::set_up(call, paper, &scope.0, load.clone())?;
+            let url = host.borrow().file.as_ref().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+            let options = modules::options(call, &url)?;
             let exports = method(call, &paperscript, "execute", &[Value::String(source.to_owned()), Value::Js(scope.0.clone()), Value::Js(options)])?;
             if let Value::Js(exports) = exports {
                 for name in HANDLERS {
@@ -274,8 +304,11 @@ impl<E: Engine> Runtime<E> {
             }
             host.intervals.retain(|interval| !interval.due.is_nan());
         }
-        // Callbacks may set or clear intervals, so they run after the borrow ends.
+        // Callbacks may set or clear intervals, so they run after the borrow ends. The requests
+        // that answered meanwhile settle first.
         self.engine.with_call(|call| {
+            #[cfg(not(target_arch = "wasm32"))]
+            fetch::poll(call)?;
             for callback in due {
                 call.call(&callback, &Value::Undefined, &[])?;
             }
@@ -283,9 +316,15 @@ impl<E: Engine> Runtime<E> {
         })
     }
 
-    /// Whether the scripts have something left to run: a timer, which `onFrame` uses too.
+    /// Whether the scripts have something left to run: a timer, which `onFrame` uses too, or a
+    /// request out.
     pub fn is_running(&self) -> bool {
-        !self.host.borrow().intervals.is_empty()
+        let host = self.host.borrow();
+        #[cfg(not(target_arch = "wasm32"))]
+        if !host.fetches.is_empty() {
+            return true;
+        }
+        !host.intervals.is_empty()
     }
 
     /// Sets `project.currentStyle` of `scope`: `style` as [`host::current_style`] makes it.
@@ -309,6 +348,7 @@ impl<E: Engine> Runtime<E> {
         {
             let mut host = self.host.borrow_mut();
             host.preferences = preferences.to_string();
+            host.file = file.map(std::path::PathBuf::from);
             host.directory = directory.clone();
         }
         self.engine.with_call(|call| {
@@ -596,7 +636,7 @@ fn btoa<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Resul
 }
 
 /// `setInterval(callback, delay)` when it `repeats`, else `setTimeout(callback, delay)`.
-fn set_timer<H: Clone>(call: &mut dyn Call<H>, args: &[Value<H>], repeats: bool) -> Result<Value<H>, Error> {
+pub(crate) fn set_timer<H: Clone>(call: &mut dyn Call<H>, args: &[Value<H>], repeats: bool) -> Result<Value<H>, Error> {
     let Some(Value::Js(callback)) = args.first() else {
         let name = if repeats { "setInterval" } else { "setTimeout" };
         return Err(Error::Script(format!("{name}: the callback is not a function")));

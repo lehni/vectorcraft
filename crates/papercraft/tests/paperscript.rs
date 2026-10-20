@@ -201,6 +201,149 @@ fn scripts_have_the_browsers_everyday_apis<E: Engine>() {
     assert_eq!(runtime.take_output(), ["3 hé hé", "4 true", "true", "script", "microtask"]);
 }
 
+fn scripts_import_modules<E: Engine>(name: &str) {
+    let folder = std::env::temp_dir().join(format!("papercraft-imports-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(folder.join("lib")).unwrap();
+    let write = |file: &str, code: &str| std::fs::write(folder.join(file), code).unwrap();
+    write("shapes.js", "console.log('shapes runs')\nexport const size = 10\nexport function twice(point) { return point * 2 }");
+    write("name.js", "export default 'shapes'");
+    write("lib/util.js", "import { size, twice } from '../shapes.js'\nexport const big = twice(new Point(size, 1))");
+    write("a.js", "import { b } from './b.js'\nexport const a = 1");
+    write("b.js", "import { a } from './a.js'\nexport const b = 2");
+    let mut runtime = Runtime::<E>::new().unwrap();
+    runtime.set_script(Some(&folder.join("script.js").to_string_lossy()), &serde_json::json!({})).unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "import shapes from './name.js'\n\
+             import { size } from './shapes.js'\n\
+             import * as util from './lib/util.js'\n\
+             console.log(shapes, size, util.big)",
+        )
+        .unwrap();
+    assert_eq!(runtime.take_output(), ["shapes runs", "shapes 10 { x: 20, y: 2 }"], "shapes.js ran once, for both importers");
+    let error = runtime.execute(&scope, "import { a } from './a.js'").unwrap_err();
+    assert!(error.to_string().contains("imports itself"), "{error}");
+    let error = runtime.execute(&scope, "import x from './missing.js'").unwrap_err();
+    assert!(error.to_string().contains("missing.js"), "{error}");
+    std::fs::remove_dir_all(&folder).unwrap();
+}
+
+/// A local HTTP server for `count` requests: `/data.json` answers JSON, `/echo` answers the
+/// request's method, content type and body. Returns its address.
+fn serve(count: usize) -> String {
+    use std::io::{BufRead, BufReader, Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        for stream in listener.incoming().take(count) {
+            let mut stream = stream.unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let (method, path) = {
+                let mut parts = line.split_whitespace();
+                (parts.next().unwrap().to_owned(), parts.next().unwrap().to_owned())
+            };
+            let (mut length, mut kind) = (0, String::new());
+            loop {
+                let mut header = String::new();
+                reader.read_line(&mut header).unwrap();
+                if header.trim().is_empty() {
+                    break;
+                }
+                let (name, value) = header.split_once(':').unwrap();
+                match name.to_ascii_lowercase().as_str() {
+                    "content-length" => length = value.trim().parse().unwrap(),
+                    "content-type" => kind = value.trim().to_owned(),
+                    _ => {}
+                }
+            }
+            let mut body = vec![0; length];
+            reader.read_exact(&mut body).unwrap();
+            let (status, content_type, answer) = match path.as_str() {
+                "/data.json" => ("200 OK", "application/json", br#"{"a": 1, "list": [1, 2]}"#.to_vec()),
+                "/echo" => ("201 Created", "text/plain", [format!("{method} {kind}\n").into_bytes(), body].concat()),
+                _ => ("404 Not Found", "text/plain", b"missing".to_vec()),
+            };
+            let head = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nX-Test: one\r\nConnection: close\r\n\r\n",
+                answer.len()
+            );
+            stream.write_all(head.as_bytes()).unwrap();
+            stream.write_all(&answer).unwrap();
+        }
+    });
+    address
+}
+
+/// Runs the runtime's timers until nothing is left, as frames would, for at most two seconds.
+fn settle<E: Engine>(runtime: &mut Runtime<E>) {
+    let start = std::time::Instant::now();
+    while runtime.is_running() && start.elapsed() < std::time::Duration::from_secs(2) {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        runtime.run_timers(start.elapsed().as_secs_f64() * 1000.0).unwrap();
+    }
+}
+
+fn scripts_fetch<E: Engine>() {
+    let address = serve(4);
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    let script = format!(
+        "const base = '{address}'\n\
+         const response = await fetch(base + '/data.json')\n\
+         const data = await response.json()\n\
+         console.log(response.status, response.ok, response.headers.get('content-type'), response.headers.get('x-test'), data.a, data.list.length)\n\
+         const missing = await fetch(base + '/nothing')\n\
+         console.log(missing.status, missing.ok, await missing.text())\n\
+         const form = new FormData()\n\
+         form.append('name', 'dot')\n\
+         form.append('file', new Blob(['<svg/>'], {{ type: 'image/svg+xml' }}), 'dot.svg')\n\
+         const echo = await (await fetch(base + '/echo', {{ method: 'POST', body: form }})).text()\n\
+         console.log(echo.startsWith('POST multipart/form-data; boundary='), echo.includes('name=\"name\"\\r\\n\\r\\ndot'), echo.includes('filename=\"dot.svg\"\\r\\nContent-Type: image/svg+xml\\r\\n\\r\\n<svg/>'))\n\
+         const sent = await fetch(new Request(base + '/echo', {{ method: 'PUT', body: JSON.stringify({{ x: 1 }}), headers: {{ 'Content-Type': 'application/json' }} }}))\n\
+         console.log(sent.status, await sent.text())"
+    );
+    runtime.execute(&scope, &format!("(async () => {{ try {{ {script} }} catch (e) {{ console.log('error', e.name, e.message) }} }})()")).unwrap();
+    settle(&mut runtime);
+    assert_eq!(
+        runtime.take_output(),
+        ["200 true application/json one 1 2", "404 false missing", "true true true", "201 PUT application/json\n{\"x\":1}"]
+    );
+}
+
+fn fetch_classes_work_alone<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "const headers = new Headers({ 'Content-Type': 'text/plain', 'X-B': '1' })\n\
+             headers.append('x-b', '2')\n\
+             console.log([...headers].map(([n, v]) => n + '=' + v).join(' '), headers.has('content-type'))\n\
+             const blob = new Blob(['ab', new Uint8Array([99]), new Blob(['d'])], { type: 'Text/Plain' })\n\
+             blob.slice(1, -1).text().then(t => console.log(blob.size, blob.type, t))\n\
+             const form = new FormData()\n\
+             form.append('a', 1)\n\
+             form.set('a', 2)\n\
+             console.log([...form.entries()].join(), form.has('a'))\n\
+             new Response('hi', { status: 202 }).text().then(t => console.log('response', t))\n\
+             const controller = new AbortController()\n\
+             controller.signal.addEventListener('abort', () => console.log('aborted', controller.signal.reason.name))\n\
+             fetch('http://127.0.0.1:1/', { signal: controller.signal }).catch(e => console.log('rejected', e.name))\n\
+             controller.abort()",
+        )
+        .unwrap();
+    settle(&mut runtime);
+    assert_eq!(
+        runtime.take_output(),
+        ["content-type=text/plain x-b=1, 2 true", "a,2 true", "aborted AbortError", "4 text/plain bc", "response hi", "rejected AbortError"]
+    );
+}
+
 fn css_colors_resolve_without_a_canvas<E: Engine>() {
     let mut runtime = Runtime::<E>::new().unwrap();
     let scope = runtime.create_scope(800.0, 600.0).unwrap();
@@ -284,6 +427,21 @@ macro_rules! engine_tests {
             #[test]
             fn scripts_have_the_browsers_everyday_apis() {
                 super::scripts_have_the_browsers_everyday_apis::<$engine>();
+            }
+
+            #[test]
+            fn scripts_import_modules() {
+                super::scripts_import_modules::<$engine>(stringify!($module));
+            }
+
+            #[test]
+            fn scripts_fetch() {
+                super::scripts_fetch::<$engine>();
+            }
+
+            #[test]
+            fn fetch_classes_work_alone() {
+                super::fetch_classes_work_alone::<$engine>();
             }
 
             #[test]

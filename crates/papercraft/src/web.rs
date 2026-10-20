@@ -138,7 +138,6 @@ fn decode<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>])
     Ok(Value::String(String::from_utf8_lossy(&bytes).into_owned()))
 }
 
-
 /// `crypto.getRandomValues(array)`: fills the integer typed array with random values and returns
 /// it. At most 65536 bytes, as in browsers.
 fn get_random_values<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {

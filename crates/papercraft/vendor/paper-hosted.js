@@ -9,7 +9,7 @@
  *
  * All rights reserved.
  *
- * Date: Tue Oct 20 06:44:03 2026 +0200
+ * Date: Tue Oct 20 06:52:44 2026 +0200
  *
  ***
  *
@@ -7436,9 +7436,11 @@ new function() {
 			d3 *= s;
 
 			function type(type, t1, t2) {
-				var hasRoots = t1 !== undefined,
-					t1Ok = hasRoots && t1 > 0 && t1 < 1,
-					t2Ok = hasRoots && t2 > 0 && t2 < 1;
+				var tMin = 1e-8,
+					tMax = 1 - tMin,
+					hasRoots = t1 !== undefined,
+					t1Ok = hasRoots && t1 > tMin && t1 < tMax,
+					t2Ok = hasRoots && t2 > tMin && t2 < tMax;
 				if (hasRoots && (!(t1Ok || t2Ok)
 						|| type === 'loop' && !(t1Ok && t2Ok))) {
 					type = 'arch';
@@ -18283,6 +18285,10 @@ Base.exports.PaperScript = function() {
 		}
 	}
 
+	function __$assign__(object, key, operator, value) {
+		return object[key] = __$__(object[key], operator, value);
+	}
+
 	function $__(operator, value) {
 		var handler = unaryOperators[operator];
 		if (value && value[handler])
@@ -18384,10 +18390,23 @@ Base.exports.PaperScript = function() {
 					} else {
 						if (/^.=$/.test(node.operator)
 								&& node.left.type !== 'Literal') {
-							var left = getCode(node.left),
+							var target = node.left,
+								left = getCode(target),
 								right = getCode(node.right),
-								exp = left + ' = __$__(' + left + ', "'
-									+ node.operator[0] + '", ' + right + ')';
+								operator = node.operator[0],
+								member = target.type === 'MemberExpression'
+									&& target.object.type !== 'Super'
+									&& target.property.type
+										!== 'PrivateIdentifier',
+								exp = member
+									? '__$assign__(' + getCode(target.object)
+										+ ', ' + (target.computed
+											? getCode(target.property)
+											: JSON.stringify(
+												target.property.name))
+										+ ', "' + operator + '", ' + right + ')'
+									: left + ' = __$__(' + left + ', "'
+										+ operator + '", ' + right + ')';
 							replaceCode(node, /^\(.*\)$/.test(getCode(node))
 									? '(' + exp + ')' : exp);
 						}
@@ -18476,7 +18495,10 @@ Base.exports.PaperScript = function() {
 					} else {
 						names.push(declaration.id.name);
 					}
-					replaceCode(node, getCode(declaration) + names.map(
+					var code = getCode(declaration);
+					if (declaration.declarations && !/;\s*$/.test(code))
+						code += ';';
+					replaceCode(node, code + names.map(
 						function(name) {
 							return ' module.exports.' + name + ' = ' + name
 									+ ';';
@@ -18640,7 +18662,8 @@ Base.exports.PaperScript = function() {
 			}
 			return load(specifier, url);
 		}
-		expose({ __$__: __$__, $__: $__, __$import__: __$import__,
+		expose({ __$__: __$__, $__: $__, __$assign__: __$assign__,
+				__$import__: __$import__,
 				paper: scope, tool: tool }, true);
 		expose(scope);
 		code = 'var module = { exports: {} }; ' + code;
