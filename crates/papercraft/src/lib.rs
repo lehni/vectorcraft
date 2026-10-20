@@ -21,6 +21,7 @@ mod file;
 pub mod host;
 mod modules;
 mod palette;
+mod path2d;
 #[cfg(not(target_arch = "wasm32"))]
 mod urls;
 #[cfg(not(target_arch = "wasm32"))]

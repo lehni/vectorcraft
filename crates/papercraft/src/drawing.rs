@@ -1,5 +1,6 @@
 //! Drawing on a canvas, as the browser's `CanvasRenderingContext2D` does, with vello_cpu: paths
-//! (`moveTo` … `roundRect`), `fill`, `stroke`, `clip`, the rectangles, text (`fillText`,
+//! (`moveTo` … `roundRect`, on the context and on `Path2D`s), `fill`, `stroke`, `clip`,
+//! `isPointInPath` and `isPointInStroke`, the rectangles, text (`fillText`,
 //! `strokeText`, with the app's fonts), images (`drawImage` of a canvas), transforms,
 //! `save`/`restore`, line styles and dashes, colours, gradients and patterns, `globalAlpha`,
 //! `globalCompositeOperation`, shadows, and `filter`'s `blur()` and `drop-shadow()` (its other
@@ -277,15 +278,45 @@ fn serialize(c: svgtypes::Color) -> String {
 
 // Paths.
 
+/// A path being built: its points go through `transform` as they're added.
+pub(crate) struct Pen<'a> {
+    pub path: &'a mut BezPath,
+    pub transform: Affine,
+}
+
+/// What the path methods build: a canvas's current path, in pixels through the context's
+/// transform, or a `Path2D`'s, as given.
+pub(crate) trait Target {
+    fn with<H: Clone, R>(call: &mut dyn Call<H>, this: &Value<H>, f: impl FnOnce(&mut Pen) -> R) -> Result<R, Error>;
+}
+
+/// The path methods on a canvas's context.
+pub(crate) struct Context;
+
+impl Target for Context {
+    fn with<H: Clone, R>(call: &mut dyn Call<H>, this: &Value<H>, f: impl FnOnce(&mut Pen) -> R) -> Result<R, Error> {
+        surface(call, this, |s| f(&mut Pen { path: &mut s.path, transform: s.transform }))
+    }
+}
+
+/// The path methods on a `Path2D`.
+pub(crate) struct Path2D;
+
+impl Target for Path2D {
+    fn with<H: Clone, R>(call: &mut dyn Call<H>, this: &Value<H>, f: impl FnOnce(&mut Pen) -> R) -> Result<R, Error> {
+        crate::path2d::with_path(call, this, |path| f(&mut Pen { path, transform: Affine::IDENTITY }))
+    }
+}
+
 pub(crate) fn begin_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
     surface(call, this, |s| s.path = BezPath::new())?;
     Ok(Value::Undefined)
 }
 
-pub(crate) fn close_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
-    surface(call, this, |s| {
-        if !s.path.elements().is_empty() {
-            s.path.close_path();
+pub(crate) fn close_path<H: Clone, T: Target>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
+    T::with(call, this, |pen| {
+        if !pen.path.elements().is_empty() {
+            pen.path.close_path();
         }
     })?;
     Ok(Value::Undefined)
@@ -308,120 +339,113 @@ fn current(path: &BezPath) -> Option<Point> {
     last
 }
 
-/// Adds `points` (in user space) as a line, or a move when the path has no point yet.
-fn line_to(s: &mut Surface<impl Sized>, p: Point) {
-    let p = s.transform * p;
-    if current(&s.path).is_some() {
-        s.path.line_to(p);
-    } else {
-        s.path.move_to(p);
-    }
-}
-
-pub(crate) fn move_to<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    if let Some([x, y]) = finite(args, 0) {
-        surface(call, this, |s| {
-            let p = s.transform * Point::new(x, y);
-            s.path.move_to(p);
-        })?;
-    }
-    Ok(Value::Undefined)
-}
-
-pub(crate) fn line_to_method<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    if let Some([x, y]) = finite(args, 0) {
-        surface(call, this, |s| line_to(s, Point::new(x, y)))?;
-    }
-    Ok(Value::Undefined)
-}
-
-/// Starts a subpath at `p` (user space) when there is no current point.
-fn ensure_start(s: &mut Surface<impl Sized>, p: Point) {
-    if current(&s.path).is_none() {
-        let p = s.transform * p;
-        s.path.move_to(p);
-    }
-}
-
-pub(crate) fn bezier_curve_to<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    if let Some([x1, y1, x2, y2, x, y]) = finite(args, 0) {
-        surface(call, this, |s| {
-            ensure_start(s, Point::new(x1, y1));
-            let t = s.transform;
-            s.path.curve_to(t * Point::new(x1, y1), t * Point::new(x2, y2), t * Point::new(x, y));
-        })?;
-    }
-    Ok(Value::Undefined)
-}
-
-pub(crate) fn quadratic_curve_to<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    if let Some([x1, y1, x, y]) = finite(args, 0) {
-        surface(call, this, |s| {
-            ensure_start(s, Point::new(x1, y1));
-            let t = s.transform;
-            s.path.quad_to(t * Point::new(x1, y1), t * Point::new(x, y));
-        })?;
-    }
-    Ok(Value::Undefined)
-}
-
-pub(crate) fn rect<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    if let Some([x, y, w, h]) = finite(args, 0) {
-        surface(call, this, |s| {
-            let t = s.transform;
-            s.path.move_to(t * Point::new(x, y));
-            s.path.line_to(t * Point::new(x + w, y));
-            s.path.line_to(t * Point::new(x + w, y + h));
-            s.path.line_to(t * Point::new(x, y + h));
-            s.path.close_path();
-            s.path.move_to(t * Point::new(x, y));
-        })?;
-    }
-    Ok(Value::Undefined)
-}
-
-/// An elliptical arc around `center` with `radii`, rotated by `rotation`, from `start` to `end`
-/// (radians, clockwise in y-down space unless `counterclockwise`), joined to the current point
-/// by a line, as `arc()` and `ellipse()` add it.
-fn add_arc(s: &mut Surface<impl Sized>, center: Point, radii: Vec2, rotation: f64, start: f64, end: f64, counterclockwise: bool) {
-    use std::f64::consts::TAU;
-    let mut sweep = end - start;
-    if counterclockwise {
-        if sweep <= -TAU || (start - end).rem_euclid(TAU) == 0.0 && start != end {
-            sweep = -TAU;
+impl Pen<'_> {
+    /// Adds a line to `p`, or a move when the path has no point yet.
+    fn line_to(&mut self, p: Point) {
+        let p = self.transform * p;
+        if current(self.path).is_some() {
+            self.path.line_to(p);
         } else {
-            sweep = -((start - end).rem_euclid(TAU));
+            self.path.move_to(p);
         }
-    } else if sweep >= TAU || (end - start).rem_euclid(TAU) == 0.0 && start != end {
-        sweep = TAU;
-    } else {
-        sweep = (end - start).rem_euclid(TAU);
     }
-    let arc = ArcSegment::new(center, radii, start, sweep, rotation);
-    let t = s.transform;
-    let mut first = true;
-    for element in arc.path_elements(0.1) {
-        match element {
-            PathEl::MoveTo(p) => {
-                if first {
-                    let p = t * p;
-                    if current(&s.path).is_some() {
-                        s.path.line_to(p);
-                    } else {
-                        s.path.move_to(p);
-                    }
-                    first = false;
-                }
+
+    /// Starts a subpath at `p` when there is no current point.
+    fn ensure_start(&mut self, p: Point) {
+        if current(self.path).is_none() {
+            self.path.move_to(self.transform * p);
+        }
+    }
+
+    /// An elliptical arc around `center` with `radii`, rotated by `rotation`, from `start` to
+    /// `end` (radians, clockwise in y-down space unless `counterclockwise`), joined to the current
+    /// point by a line, as `arc()` and `ellipse()` add it.
+    fn arc(&mut self, center: Point, radii: Vec2, rotation: f64, start: f64, end: f64, counterclockwise: bool) {
+        use std::f64::consts::TAU;
+        let mut sweep = end - start;
+        if counterclockwise {
+            if sweep <= -TAU || (start - end).rem_euclid(TAU) == 0.0 && start != end {
+                sweep = -TAU;
+            } else {
+                sweep = -((start - end).rem_euclid(TAU));
             }
-            PathEl::LineTo(p) => s.path.line_to(t * p),
-            PathEl::QuadTo(a, p) => s.path.quad_to(t * a, t * p),
-            PathEl::CurveTo(a, b, p) => s.path.curve_to(t * a, t * b, t * p),
-            PathEl::ClosePath => {}
+        } else if sweep >= TAU || (end - start).rem_euclid(TAU) == 0.0 && start != end {
+            sweep = TAU;
+        } else {
+            sweep = (end - start).rem_euclid(TAU);
+        }
+        let arc = ArcSegment::new(center, radii, start, sweep, rotation);
+        let t = self.transform;
+        let mut first = true;
+        for element in arc.path_elements(0.1) {
+            match element {
+                PathEl::MoveTo(p) => {
+                    if first {
+                        self.line_to(p);
+                        first = false;
+                    }
+                }
+                PathEl::LineTo(p) => self.path.line_to(t * p),
+                PathEl::QuadTo(a, p) => self.path.quad_to(t * a, t * p),
+                PathEl::CurveTo(a, b, p) => self.path.curve_to(t * a, t * b, t * p),
+                PathEl::ClosePath => {}
+            }
         }
     }
 }
 
-pub(crate) fn arc<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+pub(crate) fn move_to<H: Clone, T: Target>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    if let Some([x, y]) = finite(args, 0) {
+        T::with(call, this, |pen| pen.path.move_to(pen.transform * Point::new(x, y)))?;
+    }
+    Ok(Value::Undefined)
+}
+
+pub(crate) fn line_to<H: Clone, T: Target>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    if let Some([x, y]) = finite(args, 0) {
+        T::with(call, this, |pen| pen.line_to(Point::new(x, y)))?;
+    }
+    Ok(Value::Undefined)
+}
+
+pub(crate) fn bezier_curve_to<H: Clone, T: Target>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    if let Some([x1, y1, x2, y2, x, y]) = finite(args, 0) {
+        T::with(call, this, |pen| {
+            pen.ensure_start(Point::new(x1, y1));
+            let t = pen.transform;
+            pen.path.curve_to(t * Point::new(x1, y1), t * Point::new(x2, y2), t * Point::new(x, y));
+        })?;
+    }
+    Ok(Value::Undefined)
+}
+
+pub(crate) fn quadratic_curve_to<H: Clone, T: Target>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    if let Some([x1, y1, x, y]) = finite(args, 0) {
+        T::with(call, this, |pen| {
+            pen.ensure_start(Point::new(x1, y1));
+            let t = pen.transform;
+            pen.path.quad_to(t * Point::new(x1, y1), t * Point::new(x, y));
+        })?;
+    }
+    Ok(Value::Undefined)
+}
+
+pub(crate) fn rect<H: Clone, T: Target>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    if let Some([x, y, w, h]) = finite(args, 0) {
+        T::with(call, this, |pen| {
+            let t = pen.transform;
+            pen.path.move_to(t * Point::new(x, y));
+            pen.path.line_to(t * Point::new(x + w, y));
+            pen.path.line_to(t * Point::new(x + w, y + h));
+            pen.path.line_to(t * Point::new(x, y + h));
+            pen.path.close_path();
+            pen.path.move_to(t * Point::new(x, y));
+        })?;
+    }
+    Ok(Value::Undefined)
+}
+
+pub(crate) fn arc<H: Clone, T: Target>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let Some([x, y, r, start, end]) = finite(args, 0) else {
         return Ok(Value::Undefined);
     };
@@ -429,11 +453,11 @@ pub(crate) fn arc<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Val
         return Err(Error::Script("IndexSizeError: arc: the radius is negative".into()));
     }
     let counterclockwise = matches!(args.get(5), Some(Value::Bool(true)));
-    surface(call, this, |s| add_arc(s, Point::new(x, y), Vec2::new(r, r), 0.0, start, end, counterclockwise))?;
+    T::with(call, this, |pen| pen.arc(Point::new(x, y), Vec2::new(r, r), 0.0, start, end, counterclockwise))?;
     Ok(Value::Undefined)
 }
 
-pub(crate) fn ellipse<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+pub(crate) fn ellipse<H: Clone, T: Target>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let Some([x, y, rx, ry, rotation, start, end]) = finite(args, 0) else {
         return Ok(Value::Undefined);
     };
@@ -441,31 +465,30 @@ pub(crate) fn ellipse<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &
         return Err(Error::Script("IndexSizeError: ellipse: a radius is negative".into()));
     }
     let counterclockwise = matches!(args.get(7), Some(Value::Bool(true)));
-    surface(call, this, |s| add_arc(s, Point::new(x, y), Vec2::new(rx, ry), rotation, start, end, counterclockwise))?;
+    T::with(call, this, |pen| pen.arc(Point::new(x, y), Vec2::new(rx, ry), rotation, start, end, counterclockwise))?;
     Ok(Value::Undefined)
 }
 
 /// `arcTo(x1, y1, x2, y2, radius)`: a line towards `(x1, y1)`, then an arc of `radius` tangent to
 /// it and to the line on to `(x2, y2)`.
-pub(crate) fn arc_to<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+pub(crate) fn arc_to<H: Clone, T: Target>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let Some([x1, y1, x2, y2, r]) = finite(args, 0) else {
         return Ok(Value::Undefined);
     };
     if r < 0.0 {
         return Err(Error::Script("IndexSizeError: arcTo: the radius is negative".into()));
     }
-    surface(call, this, |s| {
+    T::with(call, this, |pen| {
         let (p1, p2) = (Point::new(x1, y1), Point::new(x2, y2));
-        // The current point, back in user space.
-        let Some(p0) = current(&s.path).map(|p| s.transform.inverse() * p) else {
-            let p = s.transform * p1;
-            s.path.move_to(p);
+        // The current point, back in the coordinates the points come in.
+        let Some(p0) = current(pen.path).map(|p| pen.transform.inverse() * p) else {
+            pen.path.move_to(pen.transform * p1);
             return;
         };
         let (v1, v2) = ((p0 - p1).normalize(), (p2 - p1).normalize());
         let cross = v1.cross(v2);
         if r == 0.0 || !cross.is_finite() || cross.abs() < 1e-12 || p0 == p1 || p1 == p2 {
-            line_to(s, p1);
+            pen.line_to(p1);
             return;
         }
         let angle = v1.dot(v2).clamp(-1.0, 1.0).acos();
@@ -475,14 +498,14 @@ pub(crate) fn arc_to<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[
         let center = p1 + center_direction * (r / (angle / 2.0).sin());
         let (start, end) = ((t1 - center).atan2(), (t2 - center).atan2());
         // The arc turns the way the corner does.
-        add_arc(s, center, Vec2::new(r, r), 0.0, start, end, cross > 0.0);
+        pen.arc(center, Vec2::new(r, r), 0.0, start, end, cross > 0.0);
     })?;
     Ok(Value::Undefined)
 }
 
 /// `roundRect(x, y, w, h, radii)`: a rectangle with rounded corners, the radii a number or a list
 /// of one to four (top-left, top-right, bottom-right, bottom-left, as CSS has them).
-pub(crate) fn round_rect<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+pub(crate) fn round_rect<H: Clone, T: Target>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let Some([x, y, w, h]) = finite(args, 0) else {
         return Ok(Value::Undefined);
     };
@@ -516,10 +539,10 @@ pub(crate) fn round_rect<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args
         .fold(1.0f64, f64::max);
     let [tl, tr, br, bl] = [tl / fit, tr / fit, br / fit, bl / fit];
     let rounded = vello_cpu::kurbo::RoundedRect::from_rect(Rect::new(x, y, x + w, y + h).abs(), (tl, tr, br, bl));
-    surface(call, this, |s| {
-        let t = s.transform;
-        s.path.extend(t * rounded.to_path(0.1));
-        s.path.move_to(t * Point::new(x, y));
+    T::with(call, this, |pen| {
+        let t = pen.transform;
+        pen.path.extend(t * rounded.to_path(0.1));
+        pen.path.move_to(t * Point::new(x, y));
     })?;
     Ok(Value::Undefined)
 }
@@ -958,7 +981,7 @@ fn fill_rule<H>(args: &[Value<H>]) -> Fill {
 }
 
 /// Fills `path` (in pixels) with the style in `key`.
-fn fill_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, key: &str, path: Option<BezPath>, rule: Fill) -> Result<(), Error> {
+fn fill_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, key: &str, path: BezPath, rule: Fill) -> Result<(), Error> {
     let Some(style) = style(call, this, key)? else {
         return Ok(());
     };
@@ -966,7 +989,6 @@ fn fill_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, key: &str, path:
     let smooth = !matches!(property(call, this, "imageSmoothingEnabled")?, Value::Bool(false));
     surface(call, this, |s| {
         let transform = s.transform;
-        let path = path.unwrap_or_else(|| s.path.clone());
         s.draw(&compositing, |scene| {
             scene.reset_transform();
             scene.set_fill_rule(rule);
@@ -1001,8 +1023,8 @@ fn line<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, dash: &[f64]) -> Resu
     Ok(Some(stroke))
 }
 
-/// Strokes `path` (in pixels) with the style in `key`, its line in the current user space.
-fn stroke_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, path: Option<BezPath>) -> Result<(), Error> {
+/// Strokes `path` (in pixels) with `strokeStyle`, its line in the current user space.
+fn stroke_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, path: BezPath) -> Result<(), Error> {
     let Some(style) = style(call, this, "strokeStyle")? else {
         return Ok(());
     };
@@ -1018,7 +1040,7 @@ fn stroke_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, path: Option<B
         if transform.determinant().abs() < 1e-12 {
             return;
         }
-        let path = transform.inverse() * path.unwrap_or_else(|| s.path.clone());
+        let path = transform.inverse() * path;
         s.draw(&compositing, |scene| {
             scene.set_transform(transform);
             scene.set_stroke(stroke);
@@ -1028,40 +1050,69 @@ fn stroke_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, path: Option<B
     })
 }
 
+/// The `Path2D` that `fill()`, `stroke()`, `clip()` and the point tests take first, in pixels
+/// through the context's transform, and the arguments after it; the current path without one.
+fn path_argument<'a, H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &'a [Value<H>]) -> Result<(BezPath, &'a [Value<H>]), Error> {
+    if let Some((first, rest)) = args.split_first()
+        && let Some(path) = crate::path2d::path_of(call, first)?
+    {
+        let transform = surface(call, this, |s| s.transform)?;
+        return Ok((transform * path, rest));
+    }
+    Ok((surface(call, this, |s| s.path.clone())?, args))
+}
+
+/// `fill(path, fillRule)`.
 pub(crate) fn fill<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    fill_path(call, this, "fillStyle", None, fill_rule(args))?;
+    let (path, args) = path_argument(call, this, args)?;
+    fill_path(call, this, "fillStyle", path, fill_rule(args))?;
     Ok(Value::Undefined)
 }
 
-pub(crate) fn stroke<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
-    stroke_path(call, this, None)?;
+/// `stroke(path)`.
+pub(crate) fn stroke<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let (path, _) = path_argument(call, this, args)?;
+    stroke_path(call, this, path)?;
     Ok(Value::Undefined)
 }
 
-/// `clip(fillRule)`: drawing is inside the current path from then on, until `restore()`.
+/// `clip(path, fillRule)`: drawing is inside the path from then on, until `restore()`.
 pub(crate) fn clip<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let (path, args) = path_argument(call, this, args)?;
     let rule = fill_rule(args);
-    surface(call, this, |s| {
-        let path = s.path.clone();
-        s.clips.push((path, rule));
-    })?;
+    surface(call, this, |s| s.clips.push((path, rule)))?;
     Ok(Value::Undefined)
 }
 
-/// `isPointInPath(x, y, fillRule)`: whether the point (in pixels) is inside the current path.
+/// `isPointInPath(path, x, y, fillRule)`: whether the point (in pixels) is inside the path.
 pub(crate) fn is_point_in_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let (path, args) = path_argument(call, this, args)?;
     let Some([x, y]) = finite(args, 0) else {
         return Ok(Value::Bool(false));
     };
-    let rule = fill_rule(args);
-    let inside = surface(call, this, |s| {
-        let winding = s.path.winding(Point::new(x, y));
-        match rule {
-            Fill::EvenOdd => winding % 2 != 0,
-            Fill::NonZero => winding != 0,
-        }
-    })?;
+    let winding = path.winding(Point::new(x, y));
+    let inside = match fill_rule(args) {
+        Fill::EvenOdd => winding % 2 != 0,
+        Fill::NonZero => winding != 0,
+    };
     Ok(Value::Bool(inside))
+}
+
+/// `isPointInStroke(path, x, y)`: whether the point (in pixels) is on the path's stroke, with the
+/// context's line.
+pub(crate) fn is_point_in_stroke<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let (path, args) = path_argument(call, this, args)?;
+    let (transform, dash) = surface(call, this, |s| (s.transform, s.dash.clone()))?;
+    let (Some([x, y]), Some(line)) = (finite(args, 0), line(call, this, &dash)?) else {
+        return Ok(Value::Bool(false));
+    };
+    // In user space, where the line has its width.
+    if transform.determinant().abs() < 1e-12 {
+        return Ok(Value::Bool(false));
+    }
+    let inverse = transform.inverse();
+    let outline = vello_cpu::kurbo::stroke(inverse * path, &line, &vello_cpu::kurbo::StrokeOpts::default(), 0.01);
+    Ok(Value::Bool(outline.winding(inverse * Point::new(x, y)) != 0))
 }
 
 /// A rectangle in user space, as a closed path in pixels.
@@ -1072,7 +1123,7 @@ fn rect_path<H>(s: &Surface<H>, x: f64, y: f64, w: f64, h: f64) -> BezPath {
 pub(crate) fn fill_rect<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     if let Some([x, y, w, h]) = finite(args, 0) {
         let path = surface(call, this, |s| rect_path(s, x, y, w, h))?;
-        fill_path(call, this, "fillStyle", Some(path), Fill::NonZero)?;
+        fill_path(call, this, "fillStyle", path, Fill::NonZero)?;
     }
     Ok(Value::Undefined)
 }
@@ -1080,7 +1131,7 @@ pub(crate) fn fill_rect<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args:
 pub(crate) fn stroke_rect<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     if let Some([x, y, w, h]) = finite(args, 0) {
         let path = surface(call, this, |s| rect_path(s, x, y, w, h))?;
-        stroke_path(call, this, Some(path))?;
+        stroke_path(call, this, path)?;
     }
     Ok(Value::Undefined)
 }
@@ -1141,14 +1192,14 @@ fn text_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>
 
 pub(crate) fn fill_text<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     if let Some(path) = text_path(call, this, args)? {
-        fill_path(call, this, "fillStyle", Some(path), Fill::NonZero)?;
+        fill_path(call, this, "fillStyle", path, Fill::NonZero)?;
     }
     Ok(Value::Undefined)
 }
 
 pub(crate) fn stroke_text<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     if let Some(path) = text_path(call, this, args)? {
-        stroke_path(call, this, Some(path))?;
+        stroke_path(call, this, path)?;
     }
     Ok(Value::Undefined)
 }

@@ -12,8 +12,10 @@ use std::sync::Arc;
 
 use vello_cpu::Pixmap;
 use vello_cpu::color::PremulRgba8;
+use vello_cpu::kurbo::BezPath;
 
 use crate::drawing::{self, Surface};
+use crate::path2d;
 
 use crate::{Call, Engine, Error, HostFunction, Value, define_accessor, method, object};
 
@@ -23,16 +25,35 @@ const AREA: f64 = 16384.0 * 16384.0 / 4.0;
 
 /// What canvases share: their prototype, `ImageData`'s, the realm's `Object`,
 /// `Uint8ClampedArray` and `FinalizationRegistry` (when it has one, to free a dropped canvas's
-/// pixels), and the pixels of every canvas, by its number.
+/// pixels), and the pixels of every canvas, by its number; and the same for `Path2D`s.
 pub(crate) struct Canvases<H> {
     prototype: H,
     image_data: H,
     gradient: H,
-    object: H,
+    pub object: H,
     clamped: H,
     promise: H,
     registry: Option<H>,
     surfaces: Vec<Option<Surface<H>>>,
+    pub path_prototype: H,
+    pub path_registry: Option<H>,
+    pub paths: Vec<Option<BezPath>>,
+}
+
+/// Keeps `item` in the first free slot, and gives back its number.
+pub(crate) fn store<T>(slots: &mut Vec<Option<T>>, item: T) -> usize {
+    match slots.iter().position(Option::is_none) {
+        Some(free) => {
+            if let Some(slot) = slots.get_mut(free) {
+                *slot = Some(item);
+            }
+            free
+        }
+        None => {
+            slots.push(Some(item));
+            slots.len() - 1
+        }
+    }
 }
 
 /// Sets `OffscreenCanvas` and `ImageData` on `global`, unless it has them.
@@ -45,20 +66,21 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
         ("measureText", measure_text),
         ("convertToBlob", convert_to_blob),
         ("beginPath", drawing::begin_path),
-        ("closePath", drawing::close_path),
-        ("moveTo", drawing::move_to),
-        ("lineTo", drawing::line_to_method),
-        ("bezierCurveTo", drawing::bezier_curve_to),
-        ("quadraticCurveTo", drawing::quadratic_curve_to),
-        ("arc", drawing::arc),
-        ("arcTo", drawing::arc_to),
-        ("ellipse", drawing::ellipse),
-        ("rect", drawing::rect),
-        ("roundRect", drawing::round_rect),
+        ("closePath", drawing::close_path::<_, drawing::Context>),
+        ("moveTo", drawing::move_to::<_, drawing::Context>),
+        ("lineTo", drawing::line_to::<_, drawing::Context>),
+        ("bezierCurveTo", drawing::bezier_curve_to::<_, drawing::Context>),
+        ("quadraticCurveTo", drawing::quadratic_curve_to::<_, drawing::Context>),
+        ("arc", drawing::arc::<_, drawing::Context>),
+        ("arcTo", drawing::arc_to::<_, drawing::Context>),
+        ("ellipse", drawing::ellipse::<_, drawing::Context>),
+        ("rect", drawing::rect::<_, drawing::Context>),
+        ("roundRect", drawing::round_rect::<_, drawing::Context>),
         ("fill", drawing::fill),
         ("stroke", drawing::stroke),
         ("clip", drawing::clip),
         ("isPointInPath", drawing::is_point_in_path),
+        ("isPointInStroke", drawing::is_point_in_stroke),
         ("fillRect", drawing::fill_rect),
         ("strokeRect", drawing::stroke_rect),
         ("clearRect", drawing::clear_rect),
@@ -83,6 +105,22 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
         ("createPattern", drawing::create_pattern),
     ];
     let methods = methods.into_iter().map(|(name, f)| Ok((name, engine.function(name, f)?))).collect::<Result<Vec<_>, Error>>()?;
+    let path_methods: Vec<(&str, HostFunction<E::Handle>)> = vec![
+        ("closePath", drawing::close_path::<_, drawing::Path2D>),
+        ("moveTo", drawing::move_to::<_, drawing::Path2D>),
+        ("lineTo", drawing::line_to::<_, drawing::Path2D>),
+        ("bezierCurveTo", drawing::bezier_curve_to::<_, drawing::Path2D>),
+        ("quadraticCurveTo", drawing::quadratic_curve_to::<_, drawing::Path2D>),
+        ("arc", drawing::arc::<_, drawing::Path2D>),
+        ("arcTo", drawing::arc_to::<_, drawing::Path2D>),
+        ("ellipse", drawing::ellipse::<_, drawing::Path2D>),
+        ("rect", drawing::rect::<_, drawing::Path2D>),
+        ("roundRect", drawing::round_rect::<_, drawing::Path2D>),
+        ("addPath", path2d::add_path),
+    ];
+    let path_methods = path_methods.into_iter().map(|(name, f)| Ok((name, engine.function(name, f)?))).collect::<Result<Vec<_>, Error>>()?;
+    let path_constructor = engine.constructor("Path2D", path2d::construct)?;
+    let release_path = engine.function("release", path2d::release)?;
     let width = engine.function("width", |call, this, _| Ok(Value::Number(f64::from(with_pixmap(call, this, |p| p.width())?))))?;
     let height = engine.function("height", |call, this, _| Ok(Value::Number(f64::from(with_pixmap(call, this, |p| p.height())?))))?;
     let set_width = engine.function("width", |call, this, args| resize(call, this, args.first(), None))?;
@@ -120,13 +158,14 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
         let image_data_prototype = call.new_object()?;
         call.set(&image_data, "prototype", &Value::Js(image_data_prototype.clone()))?;
         call.set(global, "ImageData", &Value::Js(image_data))?;
-        let registry = match call.get(global, "FinalizationRegistry")? {
-            Value::Js(class) => match call.construct(&class, &[Value::Js(release)])? {
-                Value::Js(registry) => Some(registry),
-                _ => None,
-            },
-            _ => None,
-        };
+        let path_prototype = call.new_object()?;
+        for (name, function) in path_methods {
+            call.set(&path_prototype, name, &Value::Js(function))?;
+        }
+        call.set(&path_constructor, "prototype", &Value::Js(path_prototype.clone()))?;
+        call.set(global, "Path2D", &Value::Js(path_constructor))?;
+        let registry = finalization_registry(call, global, release)?;
+        let path_registry = finalization_registry(call, global, release_path)?;
         call.host()?.borrow_mut().canvases = Some(Canvases {
             prototype,
             image_data: image_data_prototype,
@@ -136,8 +175,22 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
             promise: object(call, global, "Promise")?,
             registry,
             surfaces: Vec::new(),
+            path_prototype,
+            path_registry,
+            paths: Vec::new(),
         });
         Ok(())
+    })
+}
+
+/// A `FinalizationRegistry` that calls `release`, when the realm has the class.
+fn finalization_registry<H: Clone>(call: &mut dyn Call<H>, global: &H, release: H) -> Result<Option<H>, Error> {
+    Ok(match call.get(global, "FinalizationRegistry")? {
+        Value::Js(class) => match call.construct(&class, &[Value::Js(release)])? {
+            Value::Js(registry) => Some(registry),
+            _ => None,
+        },
+        _ => None,
     })
 }
 
@@ -177,19 +230,7 @@ fn offscreen_canvas<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[
         let host = call.host()?;
         let mut host = host.borrow_mut();
         let canvases = host.canvases.as_mut().ok_or_else(|| Error::Script("OffscreenCanvas is not set up".into()))?;
-        let surface = Some(Surface::new(width, height));
-        match canvases.surfaces.iter().position(Option::is_none) {
-            Some(free) => {
-                if let Some(slot) = canvases.surfaces.get_mut(free) {
-                    *slot = surface;
-                }
-                free
-            }
-            None => {
-                canvases.surfaces.push(surface);
-                canvases.surfaces.len() - 1
-            }
-        }
+        store(&mut canvases.surfaces, Surface::new(width, height))
     };
     call.set(&canvas, "_canvas", &Value::Number(number as f64))?;
     if let Some(registry) = registry {

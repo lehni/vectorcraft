@@ -567,6 +567,52 @@ fn canvases_draw_shadows_and_filters<E: Engine>() {
     );
 }
 
+fn canvases_draw_path2d<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "const canvas = new OffscreenCanvas(40, 40)\n\
+             const ctx = canvas.getContext('2d')\n\
+             const at = (x, y) => [...ctx.getImageData(x, y, 1, 1).data].join()\n\
+             const square = new Path2D(); square.rect(0, 0, 10, 10)\n\
+             ctx.translate(20, 20); ctx.fillStyle = 'red'; ctx.fill(square)\n\
+             console.log(at(25, 25), at(5, 5), ctx.isPointInPath(square, 25, 25), ctx.isPointInPath(square, 5, 5))\n\
+             ctx.resetTransform(); ctx.clearRect(0, 0, 40, 40)\n\
+             const svg = new Path2D('M0 0 H20 V20 H0 Z m30 0 h10 v10 h-10 z L oops')\n\
+             ctx.fill(svg)\n\
+             console.log(at(10, 10), at(35, 5), at(25, 5))\n\
+             const both = new Path2D(square); both.addPath(square, { e: 30, f: 30 })\n\
+             ctx.clearRect(0, 0, 40, 40); ctx.fill(both)\n\
+             console.log(at(5, 5), at(35, 35), at(20, 20))\n\
+             ctx.clearRect(0, 0, 40, 40); ctx.save(); ctx.clip(square); ctx.fillRect(0, 0, 40, 40); ctx.restore()\n\
+             console.log(at(5, 5), at(15, 15))\n\
+             const line = new Path2D(); line.moveTo(0, 20); line.lineTo(40, 20)\n\
+             ctx.lineWidth = 4\n\
+             console.log(ctx.isPointInStroke(line, 20, 21), ctx.isPointInStroke(line, 20, 23))\n\
+             ctx.scale(2, 2)\n\
+             console.log(ctx.isPointInStroke(line, 20, 43), ctx.isPointInStroke(line, 20, 45))\n\
+             ctx.beginPath(); ctx.moveTo(0, 5); ctx.lineTo(10, 5)\n\
+             console.log(ctx.isPointInStroke(5, 10), ctx.isPointInStroke(5, 20))",
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.take_output(),
+        [
+            "255,0,0,255 0,0,0,0 true false",
+            // The data's valid start draws; the rest is dropped.
+            "255,0,0,255 255,0,0,255 0,0,0,0",
+            "255,0,0,255 255,0,0,255 0,0,0,0",
+            "255,0,0,255 0,0,0,0",
+            // The line is in user space, its width scaled with it.
+            "true false",
+            "true false",
+            "true false",
+        ]
+    );
+}
+
 fn runtimes_live_side_by_side<E: Engine>() {
     // As the app runs them: a second script starts while the first keeps running, and the first
     // stops first.
@@ -702,6 +748,11 @@ macro_rules! engine_tests {
             #[test]
             fn canvases_draw_shadows_and_filters() {
                 super::canvases_draw_shadows_and_filters::<$engine>();
+            }
+
+            #[test]
+            fn canvases_draw_path2d() {
+                super::canvases_draw_path2d::<$engine>();
             }
 
             #[test]
