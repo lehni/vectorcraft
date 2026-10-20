@@ -1,4 +1,4 @@
-import { formatError } from './format-error.js'
+import { reportError } from './global-scope.js'
 import { defineAccessors, defineValues, setToStringTag } from './define.js'
 
 // `EventTarget` and the event classes for scripts outside a browser, as the DOM
@@ -88,7 +88,7 @@ export class EventTarget {
           }
         } catch (err) {
           // A listener that throws is reported, and the others run:
-          report(err)
+          reportError(err)
         }
         state.passive = false
         if (state.stopImmediately) break
@@ -311,14 +311,10 @@ export function fire(target, event) {
     try {
       handler.call(target, event)
     } catch (err) {
-      report(err)
+      reportError(err)
     }
   }
   return target.dispatchEvent(event)
-}
-
-function report(err) {
-  console.error(`Uncaught ${formatError(err)}`)
 }
 
 function getState(event) {

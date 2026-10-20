@@ -5,11 +5,14 @@ import { defineValues } from './define.js'
 import * as abort from './abort.js'
 import * as blob from './blob.js'
 import { createConsole } from './console.js'
+import { Crypto } from './crypto.js'
 import { setupFileDialogs } from './dialog.js'
 import { DOMException } from './dom-exception.js'
+import { TextDecoder, TextEncoder } from './encoding.js'
 import * as events from './events.js'
 import * as fetch from './fetch.js'
 import * as geometry from './geometry.js'
+import * as globalScope from './global-scope.js'
 import { Storage, createStorage } from './storage.js'
 import { URL, URLSearchParams } from './url.js'
 import { WebSocket } from './websocket.js'
@@ -23,6 +26,17 @@ const console = createConsole(print)
 setGlobals({ console, print: console.log })
 
 // What a browser's realm has already, it keeps:
+setGlobals(
+  Object.fromEntries(
+    Object.entries(globalScope).filter(([name]) => !(name in globalThis))
+  )
+)
+if (!globalThis.TextEncoder) {
+  setGlobals({ TextEncoder, TextDecoder })
+}
+if (!globalThis.crypto) {
+  setGlobals({ Crypto, crypto: new Crypto() })
+}
 if (!globalThis.DOMException) {
   setGlobals({ DOMException })
 }

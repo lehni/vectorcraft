@@ -161,9 +161,9 @@ pub struct Host<H> {
     /// `window` and `document` outside a browser.
     #[cfg(not(target_arch = "wasm32"))]
     dom: dom::Dom<H>,
-    /// The browser's everyday APIs outside a browser.
+    /// When the runtime started, for `performance.now()` outside a browser.
     #[cfg(not(target_arch = "wasm32"))]
-    web: Option<web::Web<H>>,
+    started: Option<std::time::Instant>,
     /// The requests of `fetch()` outside a browser, out.
     #[cfg(not(target_arch = "wasm32"))]
     fetches: Vec<fetch::Pending<H>>,
@@ -243,7 +243,7 @@ impl<H> Default for Host<H> {
             #[cfg(not(target_arch = "wasm32"))]
             dom: dom::Dom::None,
             #[cfg(not(target_arch = "wasm32"))]
-            web: None,
+            started: None,
             #[cfg(not(target_arch = "wasm32"))]
             #[cfg(not(target_arch = "wasm32"))]
             fetches: Vec::new(),
@@ -314,10 +314,12 @@ impl<E: Engine> Runtime<E> {
         // What's written in JavaScript, before the classes that build on it (`LocalFile` on
         // `File`), with the natives it needs: `print()` for the script's output, on desktop
         // `request()` for `fetch()` and `readFile()` for a `LocalFile`'s bytes, on the web the app's
-        // pickers to ask, the storages' items, and on desktop the sockets, workers and URL parsing.
+        // pickers to ask, the storages' items, and on desktop the sockets, workers, URL parsing, the clock, random bytes and UTF-8.
         let mut natives = vec![("print", engine.function("print", print)?)];
         #[cfg(not(target_arch = "wasm32"))]
         natives.extend([("request", engine.function("request", fetch::request)?), ("readFile", engine.function("readFile", local_file::read_file)?)]);
+        #[cfg(not(target_arch = "wasm32"))]
+        natives.extend(web::natives(&mut engine)?);
         #[cfg(target_arch = "wasm32")]
         natives.push(("ask", engine.function("ask", dialog::ask_picker)?));
         let groups = [
@@ -328,6 +330,8 @@ impl<E: Engine> Runtime<E> {
             ("worker", web_worker::natives(&mut engine)?),
             #[cfg(not(target_arch = "wasm32"))]
             ("url", urls::natives(&mut engine)?),
+            #[cfg(not(target_arch = "wasm32"))]
+            ("encoding", web::encoding(&mut engine)?),
         ];
         let shared = engine.with_call(|call| {
             let shared = call.new_object()?;
@@ -359,8 +363,6 @@ impl<E: Engine> Runtime<E> {
         // After Paper.js, which would take a DOM for a browser's.
         #[cfg(not(target_arch = "wasm32"))]
         dom::install(&mut runtime, &global)?;
-        #[cfg(not(target_arch = "wasm32"))]
-        web::install(&mut runtime, &global)?;
         // After `File`, which it extends.
         #[cfg(not(target_arch = "wasm32"))]
         local_file::install(&mut runtime, &global)?;
@@ -869,8 +871,6 @@ fn install_globals<E: Engine>(engine: &mut E) -> Result<(), Error> {
     let clear_timer = engine.function("clearInterval", clear_timer)?;
     let request_frame = engine.function("requestAnimationFrame", request_frame)?;
     let cancel_frame = engine.function("cancelAnimationFrame", cancel_frame)?;
-    let atob = engine.function("atob", atob)?;
-    let btoa = engine.function("btoa", btoa)?;
     engine.with_call(|call| {
         call.set(&global, "setInterval", &Value::Js(set_interval))?;
         call.set(&global, "setTimeout", &Value::Js(set_timeout))?;
@@ -878,37 +878,9 @@ fn install_globals<E: Engine>(engine: &mut E) -> Result<(), Error> {
         call.set(&global, "clearInterval", &Value::Js(clear_timer.clone()))?;
         call.set(&global, "clearTimeout", &Value::Js(clear_timer))?;
         call.set(&global, "requestAnimationFrame", &Value::Js(request_frame))?;
-        call.set(&global, "cancelAnimationFrame", &Value::Js(cancel_frame))?;
-        call.set(&global, "atob", &Value::Js(atob))?;
-        call.set(&global, "btoa", &Value::Js(btoa))
+        call.set(&global, "cancelAnimationFrame", &Value::Js(cancel_frame))
     })?;
     canvas::install(engine, &global)
-}
-
-/// `atob(base64)`: the bytes it encodes, each as the character of that code, as in browsers.
-fn atob<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let text = match args.first() {
-        Some(text) => call.to_string(text)?,
-        None => String::new(),
-    };
-    // Browsers accept the padding left out.
-    let padded = format!("{text}{}", "=".repeat((4 - text.trim().len() % 4) % 4));
-    let bytes = vectorcraft_format::base64_decode(&padded).ok_or_else(|| Error::Script("atob: not base64".into()))?;
-    Ok(Value::String(bytes.into_iter().map(char::from).collect()))
-}
-
-/// `btoa(text)`: `text`'s characters as bytes, in base64; characters above 255 throw, as in
-/// browsers.
-fn btoa<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let text = match args.first() {
-        Some(text) => call.to_string(text)?,
-        None => String::new(),
-    };
-    let bytes = text
-        .chars()
-        .map(|c| u8::try_from(u32::from(c)).map_err(|_| Error::Script("btoa: a character above 255".into())))
-        .collect::<Result<Vec<u8>, _>>()?;
-    Ok(Value::String(vectorcraft_format::base64_encode(&bytes)))
 }
 
 /// `setInterval(callback, delay)` when it `repeats`, else `setTimeout(callback, delay)`.

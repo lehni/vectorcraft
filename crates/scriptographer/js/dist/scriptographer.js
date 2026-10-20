@@ -53,11 +53,84 @@
     fire: () => fire
   });
 
+  // src/global-scope.js
+  var global_scope_exports = {};
+  __export(global_scope_exports, {
+    atob: () => atob,
+    btoa: () => btoa,
+    performance: () => performance,
+    queueMicrotask: () => queueMicrotask,
+    reportError: () => reportError
+  });
+
   // src/format-error.js
   function formatError(err) {
     const text = String(err);
     const stack = err?.stack;
     return typeof stack === "string" && stack.startsWith(text) ? stack : text;
+  }
+
+  // src/global-scope.js
+  var performance = {
+    timeOrigin: Date.now(),
+    // The milliseconds since the runtime started.
+    now() {
+      return natives.now();
+    }
+  };
+  function queueMicrotask(callback) {
+    if (typeof callback !== "function") {
+      throw new TypeError(`Invalid callback: '${callback}', not a function.`);
+    }
+    Promise.resolve().then(() => {
+      try {
+        callback();
+      } catch (err) {
+        reportError(err);
+      }
+    });
+  }
+  function reportError(err) {
+    console.error(`Uncaught ${formatError(err)}`);
+  }
+  var alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  function atob(data) {
+    let text = String(data).replace(/[\t\n\f\r ]/g, "");
+    if (text.length % 4 === 0) text = text.replace(/==?$/, "");
+    if (text.length % 4 === 1 || /[^A-Za-z0-9+/]/.test(text)) {
+      throw new DOMException(
+        "Invalid base64: the string is not correctly encoded.",
+        "InvalidCharacterError"
+      );
+    }
+    let bits = 0;
+    let count = 0;
+    let result = "";
+    for (const char of text) {
+      bits = bits << 6 | alphabet.indexOf(char);
+      count += 6;
+      if (count >= 8) {
+        count -= 8;
+        result += String.fromCharCode(bits >> count & 255);
+      }
+    }
+    return result;
+  }
+  function btoa(data) {
+    const text = String(data);
+    if (/[^\0-\xff]/.test(text)) {
+      throw new DOMException(
+        "Invalid character: btoa() takes characters up to 255 only.",
+        "InvalidCharacterError"
+      );
+    }
+    let result = "";
+    for (let i = 0; i < text.length; i += 3) {
+      const [a, b, c] = [0, 1, 2].map((j) => text.charCodeAt(i + j));
+      const bits = a << 16 | (b || 0) << 8 | (c || 0);
+      result += alphabet[bits >> 18 & 63] + alphabet[bits >> 12 & 63] + (i + 1 < text.length ? alphabet[bits >> 6 & 63] : "=") + (i + 2 < text.length ? alphabet[bits & 63] : "=");
+    }
+    return result;
   }
 
   // src/events.js
@@ -132,7 +205,7 @@
               throw new TypeError("Invalid listener: it has no handleEvent().");
             }
           } catch (err) {
-            report(err);
+            reportError(err);
           }
           state.passive = false;
           if (state.stopImmediately) break;
@@ -325,13 +398,10 @@
       try {
         handler2.call(target, event);
       } catch (err) {
-        report(err);
+        reportError(err);
       }
     }
     return target.dispatchEvent(event);
-  }
-  function report(err) {
-    console.error(`Uncaught ${formatError(err)}`);
   }
   function getState(event) {
     const state = states.get(event);
@@ -732,6 +802,58 @@ ${stack}` : ""));
     ).join("\n");
   }
 
+  // src/crypto.js
+  var integerArrays = [
+    Int8Array,
+    Uint8Array,
+    Uint8ClampedArray,
+    Int16Array,
+    Uint16Array,
+    Int32Array,
+    Uint32Array,
+    BigInt64Array,
+    BigUint64Array
+  ];
+  var Crypto = class {
+    // At most 65536 bytes, as in browsers.
+    getRandomValues(array) {
+      if (!integerArrays.some((Class) => array instanceof Class)) {
+        throw new DOMException(
+          `Invalid array: '${array}', not an integer typed array.`,
+          "TypeMismatchError"
+        );
+      }
+      if (array.byteLength > 65536) {
+        throw new DOMException(
+          "Invalid array: more than 65536 bytes.",
+          "QuotaExceededError"
+        );
+      }
+      new Uint8Array(array.buffer, array.byteOffset, array.byteLength).set(
+        natives.random(array.byteLength)
+      );
+      return array;
+    }
+    // A random version 4 UUID.
+    randomUUID() {
+      const bytes = natives.random(16);
+      bytes[6] = bytes[6] & 15 | 64;
+      bytes[8] = bytes[8] & 63 | 128;
+      const hex = Array.from(
+        bytes,
+        (byte) => byte.toString(16).padStart(2, "0")
+      ).join("");
+      return [
+        hex.slice(0, 8),
+        hex.slice(8, 12),
+        hex.slice(12, 16),
+        hex.slice(16, 20),
+        hex.slice(20)
+      ].join("-");
+    }
+  };
+  setToStringTag(Crypto);
+
   // src/dialog.js
   function setupFileDialogs(Dialog) {
     Object.assign(Dialog, {
@@ -878,6 +1000,89 @@ ${stack}` : ""));
     );
   }
   setToStringTag(DOMException2);
+
+  // src/encoding.js
+  var TextEncoder2 = class {
+    encode(text = "") {
+      return natives.encoding.encode(String(text));
+    }
+    // As much of `text` as fits in `bytes`, whole characters only.
+    encodeInto(text, bytes) {
+      text = String(text);
+      let read = 0;
+      let written = 0;
+      for (const char of text) {
+        const point = char.codePointAt(0);
+        const length = point < 128 ? 1 : point < 2048 ? 2 : point < 65536 ? 3 : 4;
+        if (written + length > bytes.length) break;
+        read += char.length;
+        written += length;
+      }
+      bytes.set(natives.encoding.encode(text.slice(0, read)));
+      return { read, written };
+    }
+  };
+  var labels = ["utf-8", "utf8", "unicode-1-1-utf-8", "unicode11utf8"];
+  var TextDecoder2 = class {
+    #fatal;
+    #ignoreBOM;
+    // The bytes of a character a streamed chunk ended in the middle of, and
+    // whether the stream is yet to start:
+    #pending = new Uint8Array();
+    #isStart = true;
+    constructor(label = "utf-8", { fatal = false, ignoreBOM = false } = {}) {
+      label = String(label).trim().toLowerCase();
+      if (!labels.includes(label)) {
+        throw new RangeError(`Unsupported encoding: '${label}', only UTF-8.`);
+      }
+      this.#fatal = !!fatal;
+      this.#ignoreBOM = !!ignoreBOM;
+    }
+    get fatal() {
+      return this.#fatal;
+    }
+    get ignoreBOM() {
+      return this.#ignoreBOM;
+    }
+    // A buffer's or a view's bytes as text: invalid sequences replaced, or a
+    // `TypeError` when the decoder is `fatal`.
+    decode(input = new Uint8Array(), { stream = false } = {}) {
+      const given = ArrayBuffer.isView(input) ? new Uint8Array(input.buffer, input.byteOffset, input.byteLength) : new Uint8Array(input);
+      let bytes = given;
+      if (this.#pending.length) {
+        bytes = new Uint8Array(this.#pending.length + given.length);
+        bytes.set(this.#pending);
+        bytes.set(given, this.#pending.length);
+      }
+      const end = stream ? bytes.length - getIncomplete(bytes) : bytes.length;
+      this.#pending = bytes.slice(end);
+      let text = natives.encoding.decode(bytes.subarray(0, end), this.#fatal);
+      if (text === null) {
+        throw new TypeError("Invalid UTF-8: the data is not valid UTF-8.");
+      }
+      if (this.#isStart && !this.#ignoreBOM && text.startsWith("\uFEFF")) {
+        text = text.slice(1);
+      }
+      this.#isStart = !stream || this.#isStart && !text;
+      return text;
+    }
+  };
+  for (const target of [TextEncoder2.prototype, TextDecoder2.prototype]) {
+    defineValues(target, { encoding: "utf-8" }, { configurable: true });
+  }
+  setToStringTag(TextEncoder2, TextDecoder2);
+  function getIncomplete(bytes) {
+    for (let back = 1; back <= Math.min(3, bytes.length); back++) {
+      const byte = bytes[bytes.length - back];
+      if (byte >= 192) {
+        const length = byte >= 240 ? 4 : byte >= 224 ? 3 : 2;
+        return length > back ? back : 0;
+      } else if (byte < 128) {
+        return 0;
+      }
+    }
+    return 0;
+  }
 
   // src/fetch.js
   var fetch_exports = {};
@@ -2220,6 +2425,17 @@ ${value}\r
   var { print } = natives;
   var console2 = createConsole(print);
   setGlobals({ console: console2, print: console2.log });
+  setGlobals(
+    Object.fromEntries(
+      Object.entries(global_scope_exports).filter(([name]) => !(name in globalThis))
+    )
+  );
+  if (!globalThis.TextEncoder) {
+    setGlobals({ TextEncoder: TextEncoder2, TextDecoder: TextDecoder2 });
+  }
+  if (!globalThis.crypto) {
+    setGlobals({ Crypto, crypto: new Crypto() });
+  }
   if (!globalThis.DOMException) {
     setGlobals({ DOMException: DOMException2 });
   }

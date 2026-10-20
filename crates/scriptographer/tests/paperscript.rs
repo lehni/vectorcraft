@@ -310,6 +310,37 @@ fn scripts_have_the_browsers_everyday_apis<E: Engine>() {
     assert_eq!(runtime.take_output(), ["3 hé hé", "4 true", "true", "script", "microtask"]);
 }
 
+/// Encoding as the Encoding standard has it, and base64 as browsers read it.
+fn text_encodes_as_the_standard_has_it<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "const thrown = f => { try { return f() } catch (e) { return e.name } }\n\
+             const streamed = new TextDecoder()\n\
+             console.log(streamed.decode(new Uint8Array([0xef, 0xbb, 0xbf, 0x68, 0xc3]), { stream: true }) + streamed.decode(new Uint8Array([0xa9])))\n\
+             console.log(new TextDecoder('utf-8', { ignoreBOM: true }).decode(new Uint8Array([0xef, 0xbb, 0xbf])).length, new TextDecoder().decode(new Uint8Array([0xff])))\n\
+             console.log(thrown(() => new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array([0xff]))), thrown(() => new TextDecoder('latin1')))\n\
+             const into = new Uint8Array(3)\n\
+             console.log(JSON.stringify(new TextEncoder().encodeInto('aé€', into)), into.join())\n\
+             console.log(atob(' aG k= '), btoa('ab'), thrown(() => atob('a')), thrown(() => btoa('€')))\n\
+             console.log(thrown(() => crypto.getRandomValues(new Float32Array(1))))",
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.take_output(),
+        [
+            "hé",
+            "1 \u{fffd}",
+            "TypeError RangeError",
+            "{\"read\":2,\"written\":3} 97,195,169",
+            "hi YWI= InvalidCharacterError InvalidCharacterError",
+            "TypeMismatchError"
+        ]
+    );
+}
+
 fn scripts_import_modules<E: Engine>(name: &str) {
     let folder = std::env::temp_dir().join(format!("scriptographer-imports-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&folder);
@@ -1311,6 +1342,11 @@ macro_rules! engine_tests {
             #[test]
             fn scripts_have_the_browsers_everyday_apis() {
                 super::scripts_have_the_browsers_everyday_apis::<$engine>();
+            }
+
+            #[test]
+            fn text_encodes_as_the_standard_has_it() {
+                super::text_encodes_as_the_standard_has_it::<$engine>();
             }
 
             #[test]
