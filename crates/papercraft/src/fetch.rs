@@ -331,41 +331,17 @@ fn classes<H: Clone>() -> Vec<Class<H>> {
         (
             "AbortSignal",
             |_, _, _| Err(Error::Script("AbortSignal: use an AbortController, AbortSignal.abort() or AbortSignal.timeout()".into())),
-            vec![
-                ("addEventListener", |call, this, args| {
-                    let (Some(Value::String(kind)), Some(Value::Js(listener))) = (args.first(), args.get(1)) else {
-                        return Ok(Value::Undefined);
-                    };
-                    if kind == "abort"
-                        && let Value::Js(signal) = this
-                        && let Value::Js(listeners) = call.get(signal, "_listeners")?
-                    {
-                        method(call, &listeners, "push", &[Value::Js(listener.clone())])?;
-                    }
-                    Ok(Value::Undefined)
-                }),
-                ("removeEventListener", |call, this, args| {
-                    if let (Some(Value::String(kind)), Some(listener), Value::Js(signal)) = (args.first(), args.get(1), this)
-                        && kind == "abort"
-                        && let Value::Js(listeners) = call.get(signal, "_listeners")?
-                        && let Value::Number(at) = method(call, &listeners, "indexOf", std::slice::from_ref(listener))?
-                        && at >= 0.0
-                    {
-                        method(call, &listeners, "splice", &[Value::Number(at), Value::Number(1.0)])?;
-                    }
-                    Ok(Value::Undefined)
-                }),
-                ("throwIfAborted", |call, this, _| {
-                    if let Value::Js(signal) = this
-                        && matches!(call.get(signal, "aborted")?, Value::Bool(true))
-                    {
-                        let reason = call.get(signal, "reason")?;
-                        let reason = call.to_string(&reason)?;
-                        return Err(Error::Dom("AbortError", reason));
-                    }
-                    Ok(Value::Undefined)
-                }),
-            ],
+            // Its listeners are `EventTarget`'s, whose prototype its own extends.
+            vec![("throwIfAborted", |call, this, _| {
+                if let Value::Js(signal) = this
+                    && matches!(call.get(signal, "aborted")?, Value::Bool(true))
+                {
+                    let reason = call.get(signal, "reason")?;
+                    let reason = call.to_string(&reason)?;
+                    return Err(Error::Dom("AbortError", reason));
+                }
+                Ok(Value::Undefined)
+            })],
         ),
     ]
 }
@@ -408,6 +384,10 @@ pub(crate) fn install<E: Engine>(runtime: &mut Runtime<E>, global: &E::Handle) -
             if name == "AbortSignal" {
                 call.set(&constructor, "abort", &Value::Js(signal_abort.clone()))?;
                 call.set(&constructor, "timeout", &Value::Js(signal_timeout.clone()))?;
+                let event_target = object(call, global, "EventTarget")?;
+                let event_target = call.get(&event_target, "prototype")?;
+                let object_class = object(call, global, "Object")?;
+                method(call, &object_class, "setPrototypeOf", &[Value::Js(prototype.clone()), event_target])?;
             }
             call.set(global, name, &Value::Js(constructor))?;
             prototypes.push(prototype);
@@ -852,16 +832,14 @@ fn take_body<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>) -> Result<Vec<u8
 /// An `AbortSignal` that hasn't aborted.
 fn new_signal<H: Clone>(call: &mut dyn Call<H>) -> Result<H, Error> {
     let signal = create(call, |c| &c.abort_signal)?;
-    let listeners = call.new_array(&[])?;
-    for (key, value) in
-        [("aborted", Value::Bool(false)), ("reason", Value::Undefined), ("onabort", Value::Null), ("_listeners", Value::Js(listeners))]
-    {
+    for (key, value) in [("aborted", Value::Bool(false)), ("reason", Value::Undefined), ("onabort", Value::Null)] {
         call.set(&signal, key, &value)?;
     }
     Ok(signal)
 }
 
-/// Aborts `signal` for `reason` (an `AbortError` when none), calling its listeners once.
+/// Aborts `signal` for `reason` (an `AbortError` when none): an `abort` event for `onabort` and its
+/// listeners, once.
 fn abort_signal<H: Clone>(call: &mut dyn Call<H>, signal: &Value<H>, reason: Option<Value<H>>) -> Result<Value<H>, Error> {
     let Value::Js(signal) = signal else {
         return Err(Error::Script("not an AbortSignal".into()));
@@ -875,23 +853,12 @@ fn abort_signal<H: Clone>(call: &mut dyn Call<H>, signal: &Value<H>, reason: Opt
     };
     call.set(signal, "aborted", &Value::Bool(true))?;
     call.set(signal, "reason", &reason)?;
-    let event = call.new_object()?;
-    call.set(&event, "type", &Value::String("abort".into()))?;
-    call.set(&event, "target", &Value::Js(signal.clone()))?;
+    let event = crate::events::new_event(call, "abort")?;
+    let target = Value::Js(signal.clone());
     if let Value::Js(onabort) = call.get(signal, "onabort")? {
-        call.call(&onabort, &Value::Js(signal.clone()), &[Value::Js(event.clone())])?;
+        call.call(&onabort, &target, std::slice::from_ref(&event))?;
     }
-    if let Value::Js(listeners) = call.get(signal, "_listeners")? {
-        let count = match call.get(&listeners, "length")? {
-            Value::Number(n) if n.is_finite() && n >= 0.0 => n as usize,
-            _ => 0,
-        };
-        for i in 0..count {
-            if let Value::Js(listener) = call.get(&listeners, &i.to_string())? {
-                call.call(&listener, &Value::Js(signal.clone()), &[Value::Js(event.clone())])?;
-            }
-        }
-    }
+    crate::events::dispatch(call, &target, &event)?;
     Ok(Value::Undefined)
 }
 

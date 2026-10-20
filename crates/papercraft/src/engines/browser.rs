@@ -57,17 +57,25 @@ impl Engine for Browser {
             })
             .into_js_value();
         // The closure is an arrow function, which `new` can't call, and is also the proxy's target.
-        proxy(&apply, "apply", &apply)
+        proxy(&apply, &[("apply", &apply)])
     }
 
     fn constructor(&mut self, _name: &str, function: HostFunction<JsValue>) -> Result<JsValue, Error> {
         let host = self.host.clone();
-        let construct = Closure::<dyn FnMut(JsValue, Array) -> Result<JsValue, JsValue>>::new(move |_target: JsValue, args: Array| {
-            call_host(function, &host, Value::Undefined, &args)
-        })
+        let construct = Closure::<dyn FnMut(JsValue, Array, JsValue) -> Result<JsValue, JsValue>>::new(
+            move |_target: JsValue, args: Array, new_target: JsValue| {
+                // `this` is an object of the class it was called as (`new.target`).
+                let prototype = Reflect::get(&new_target, &"prototype".into())?;
+                let made: JsValue = Object::create(prototype.unchecked_ref::<Object>()).into();
+                let result = call_host(function, &host, Value::Js(made.clone()), &args)?;
+                Ok(if result.is_object() { result } else { made })
+            },
+        )
         .into_js_value();
+        let call = Closure::<dyn FnMut() -> Result<JsValue, JsValue>>::new(|| Err(js_sys::TypeError::new("a constructor needs 'new'").into()))
+            .into_js_value();
         // A proxy can only be called with `new` if its target can: `Object` is the plainest one.
-        proxy(&Object::new().constructor().into(), "construct", &construct)
+        proxy(&Object::new().constructor().into(), &[("construct", &construct), ("apply", &call)])
     }
 
     fn with_call<R>(&mut self, f: impl FnOnce(&mut dyn Call<JsValue>) -> Result<R, Error>) -> Result<R, Error> {
@@ -163,9 +171,11 @@ impl Call<JsValue> for BrowserCall {
 }
 
 /// A proxy of `target` whose `trap` is `handler`. It has its target's name: proxies can't be named.
-fn proxy(target: &JsValue, trap: &str, handler: &JsValue) -> Result<JsValue, Error> {
+fn proxy(target: &JsValue, handlers: &[(&str, &JsValue)]) -> Result<JsValue, Error> {
     let traps = Object::new();
-    Reflect::set(&traps, &trap.into(), handler).map_err(js_error)?;
+    for (trap, handler) in handlers {
+        Reflect::set(&traps, &(*trap).into(), handler).map_err(js_error)?;
+    }
     let target: &Object = target.dyn_ref().ok_or_else(|| Error::Script("not an object".into()))?;
     Ok(Proxy::new(target, &traps).into())
 }

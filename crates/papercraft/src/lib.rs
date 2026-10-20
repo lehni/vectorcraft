@@ -18,6 +18,7 @@ mod dom;
 mod drawing;
 mod engine;
 mod engines;
+mod events;
 mod exception;
 #[cfg(not(target_arch = "wasm32"))]
 mod fetch;
@@ -154,6 +155,8 @@ pub struct Host<H> {
     urls: Option<urls::Classes<H>>,
     /// The realm's error classes, for the exceptions host functions throw.
     exceptions: Option<exception::Classes<H>>,
+    /// What `EventTarget` and `Event` share.
+    events: Option<events::Classes<H>>,
     /// What `DOMMatrix` and the other geometry classes share.
     geometry: Option<geometry::Classes<H>>,
     /// What `structuredClone()` uses of the realm.
@@ -214,6 +217,7 @@ impl<H> Default for Host<H> {
             #[cfg(not(target_arch = "wasm32"))]
             urls: None,
             exceptions: None,
+            events: None,
             geometry: None,
             clone_classes: None,
             console: None,
@@ -267,6 +271,8 @@ impl<E: Engine> Runtime<E> {
         exception::install(&mut engine, &global)?;
         geometry::install(&mut engine, &global)?;
         storage::install(&mut engine, &global)?;
+        // Before the classes that are event targets (`AbortSignal`).
+        events::install(&mut engine, &global)?;
         install_globals(&mut engine)?;
         let paper = engine.with_call(|call| object(call, &global, "paper"))?;
         let load = engine.function("load", modules::load)?;

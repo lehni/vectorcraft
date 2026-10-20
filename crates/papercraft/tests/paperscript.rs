@@ -925,6 +925,52 @@ fn navigator_speaks_the_apps_language<E: Engine>() {
     assert_eq!(runtime.take_output(), ["en-US en-US", "de de"]);
 }
 
+fn event_targets_are_the_browsers<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "class Emitter extends EventTarget { ping() { return this.dispatchEvent(new CustomEvent('ping', { detail: 42, cancelable: true })) } }\n\
+             const emitter = new Emitter()\n\
+             const log = []\n\
+             const listener = event => log.push('a ' + event.detail + ' ' + (event.target === emitter) + ' ' + (event.currentTarget === emitter))\n\
+             emitter.addEventListener('ping', listener)\n\
+             emitter.addEventListener('ping', listener)\n\
+             emitter.addEventListener('ping', () => log.push('once'), { once: true })\n\
+             emitter.addEventListener('ping', { handleEvent(event) { log.push('handler ' + (this !== emitter)); event.preventDefault() } })\n\
+             emitter.addEventListener('ping', () => { throw new Error('oops') })\n\
+             const controller = new AbortController()\n\
+             emitter.addEventListener('ping', () => log.push('until aborted'), { signal: controller.signal })\n\
+             console.log(emitter instanceof Emitter, emitter instanceof EventTarget, emitter.ping(), log.join(', '))\n\
+             log.length = 0; controller.abort(); emitter.removeEventListener('ping', listener)\n\
+             console.log(emitter.ping(), log.join(', '))\n\
+             const event = new Event('x', { cancelable: true })\n\
+             emitter.addEventListener('x', e => { e.stopImmediatePropagation(); e.preventDefault() }, { passive: true })\n\
+             emitter.addEventListener('x', () => log.push('never'))\n\
+             console.log(emitter.dispatchEvent(event), event.defaultPrevented, event.eventPhase, Event.AT_TARGET, controller.signal instanceof EventTarget)\n\
+             const thrown = f => { try { f() } catch (e) { return e.name } }\n\
+             console.log(thrown(() => EventTarget()), thrown(() => emitter.dispatchEvent({})), Object.prototype.toString.call(event))",
+        )
+        .unwrap();
+    // Reports go on with where the error was, as each engine writes it.
+    let report = "Uncaught Error: oops";
+    let output: Vec<String> = runtime.take_output().into_iter().map(|line| if line.starts_with(report) { report.to_owned() } else { line }).collect();
+    assert_eq!(
+        output,
+        [
+            // A listener added twice runs once; one that throws is reported, and the others run.
+            "Uncaught Error: oops",
+            "true true false a 42 true true, once, handler true, until aborted",
+            "Uncaught Error: oops",
+            "false handler true",
+            // A passive listener can't prevent the default.
+            "true false 0 2 true",
+            "TypeError TypeError [object Event]",
+        ]
+    );
+}
+
 fn runtimes_live_side_by_side<E: Engine>() {
     // As the app runs them: a second script starts while the first keeps running, and the first
     // stops first.
@@ -1115,6 +1161,11 @@ macro_rules! engine_tests {
             #[test]
             fn navigator_speaks_the_apps_language() {
                 super::navigator_speaks_the_apps_language::<$engine>();
+            }
+
+            #[test]
+            fn event_targets_are_the_browsers() {
+                super::event_targets_are_the_browsers::<$engine>();
             }
 
             #[test]

@@ -339,11 +339,16 @@ fn call_host<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionCallbackArg
         .and_then(|index| usize::try_from(index).ok())
         .and_then(|index| context_data(scope).ok()?.functions.borrow().get(index).copied());
     let value = function.ok_or_else(|| missing("such host function")).and_then(|HostFunctionEntry { function, constructor }| {
-        let this = if constructor { Value::Undefined } else { from_v8(scope, args.this().into()) };
+        if constructor && args.new_target().is_undefined() {
+            return Err(Error::Type("a constructor needs 'new'".into()));
+        }
+        // A constructor's `this` is the object `new` made.
+        let this = from_v8(scope, args.this().into());
         let values: Vec<_> = (0..args.length()).map(|i| from_v8(scope, args.get(i))).collect();
         function(&mut V8Call { scope }, &this, &values).and_then(|value| to_v8(scope, &value))
     });
     match value {
+        // Nothing returned: `new` gives the object it made.
         Ok(value) => result.set(value),
         Err(error) => {
             let thrown = crate::exception::value(&mut V8Call { scope }, &error).and_then(|value| to_v8(scope, &value));

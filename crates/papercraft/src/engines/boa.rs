@@ -41,7 +41,6 @@ impl Engine for Boa {
     }
 
     fn constructor(&mut self, name: &str, function: HostFunction<JsValue>) -> Result<JsValue, Error> {
-        // Boa calls native constructors with `this` undefined.
         Ok(self.host_function(name, function, true))
     }
 
@@ -60,7 +59,23 @@ impl Boa {
     }
 
     fn host_function(&mut self, name: &str, function: HostFunction<JsValue>, constructor: bool) -> JsValue {
-        let native = NativeFunction::from_copy_closure(move |this, args, context| call_host(function, this, args, context));
+        let native = NativeFunction::from_copy_closure(move |this, args, context| {
+            if !constructor {
+                return call_host(function, this, args, context);
+            }
+            // Boa calls a native constructor with `this` the class it was called as (`new.target`),
+            // and undefined without `new`.
+            let Some(new_target) = this.as_object() else {
+                return Err(JsNativeError::typ().with_message("a constructor needs 'new'").into());
+            };
+            let made = JsObject::with_object_proto(context.intrinsics());
+            if let Some(prototype) = new_target.get(boa_engine::js_string!("prototype"), context)?.as_object() {
+                made.set_prototype(Some(prototype.clone()));
+            }
+            let made = JsValue::from(made);
+            let result = call_host(function, &made, args, context)?;
+            Ok(if result.is_object() { result } else { made })
+        });
         let function = FunctionObjectBuilder::new(self.context.realm(), native).name(JsString::from(name)).constructor(constructor).build();
         JsObject::from(function).into()
     }

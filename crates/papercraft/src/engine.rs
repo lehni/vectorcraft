@@ -87,8 +87,10 @@ pub trait Engine: Sized {
     /// A function that calls `function`, named `name` in scripts.
     fn function(&mut self, name: &str, function: HostFunction<Self::Handle>) -> Result<Self::Handle, Error>;
 
-    /// A constructor that calls `function` with `this` undefined: `new` returns the object it
-    /// returns. Scripts can't call it without `new`.
+    /// A constructor that calls `function` with `this` the object `new` made, of the class it was
+    /// called as (`new.target`, so classes can extend it), as in JavaScript: `new` returns that
+    /// object, unless `function` returns another one. Called without `new`, it throws a
+    /// `TypeError`.
     fn constructor(&mut self, name: &str, function: HostFunction<Self::Handle>) -> Result<Self::Handle, Error>;
 
     /// Runs `f` with the engine's values, as a [`HostFunction`] has them.
