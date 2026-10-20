@@ -3,8 +3,8 @@
 //! Each runtime is a V8 context in its thread's one isolate. V8 enters an isolate when it makes
 //! one, and the isolates of a thread must be dropped in the reverse order of their creation, which
 //! runtimes that start and stop in any order (running scripts) can't keep: so they share one,
-//! made on first use and kept for the thread's lifetime. A context keeps its runtime's host state
-//! in a slot.
+//! made on first use and kept for the thread's lifetime. An engine owns its runtime's state, which
+//! host functions find by the context they're called in ([`CONTEXTS`]).
 //!
 //! The first engine of a process runs the prelude in an isolate of its own and keeps a snapshot of
 //! its heap, which every isolate then starts from: a context begins with the prelude done, without
@@ -23,14 +23,19 @@ type V8Host = Rc<RefCell<Host<Handle>>>;
 thread_local! {
     /// The thread's isolate, shared by its runtimes.
     static ISOLATE: RefCell<Option<v8::OwnedIsolate>> = const { RefCell::new(None) };
+
+    /// The runtime state of the thread's contexts, while their engines live. It's kept here, not
+    /// in a slot of the context, whose state rusty_v8 frees from a GC finalizer: dropped
+    /// runtimes' contexts crashed it now and then when they were collected.
+    static CONTEXTS: RefCell<Vec<(v8::Global<v8::Context>, Rc<ContextData>)>> = const { RefCell::new(Vec::new()) };
 }
 
 /// The snapshot of the prelude, made with the first engine; none when V8 couldn't make one, and
 /// each context runs the prelude itself then.
 static SNAPSHOT: OnceLock<Option<Vec<u8>>> = OnceLock::new();
 
-/// What a context keeps for its runtime: the host state, and the host functions, each function's
-/// data its index here.
+/// A context's runtime state: the host state, and the host functions, each function's data its
+/// index here.
 struct ContextData {
     host: V8Host,
     functions: RefCell<Vec<HostFunctionEntry>>,
@@ -51,13 +56,13 @@ impl Drop for V8 {
     /// Frees the context's runtime state: it holds handles into the context, which would keep the
     /// context alive in the isolate, which a thread's runtimes share, for as long as the thread.
     fn drop(&mut self) {
-        // While the thread ends, its isolate may be gone already, with the context.
-        let _ = with_isolate(|isolate| {
-            let scope = pin!(v8::HandleScope::new(isolate));
-            let scope = &mut scope.init();
-            v8::Local::new(scope, &self.context).remove_slot::<ContextData>();
-            Ok(())
+        // Out of the list before it's freed, which frees handles; none while the thread ends.
+        let data = CONTEXTS.try_with(|contexts| {
+            let mut contexts = contexts.borrow_mut();
+            let at = contexts.iter().position(|(context, _)| *context == self.context)?;
+            Some(contexts.swap_remove(at))
         });
+        drop(data);
     }
 }
 
@@ -92,14 +97,13 @@ fn snapshot(prelude: Prelude<V8>) -> Option<Vec<u8>> {
     let thread = std::thread::spawn(move || {
         initialize();
         ISOLATE.with(|cell| cell.replace(Some(v8::Isolate::snapshot_creator(None, None))));
-        let mut engine = V8::with_context(Rc::new(RefCell::new(Host::default()))).ok()?;
+        // Without runtime state, which the prelude doesn't need: it makes no host functions.
+        let mut engine = V8::with_context(None).ok()?;
         prelude(&mut engine).ok()?;
         with_isolate(|isolate| {
             let scope = pin!(v8::HandleScope::new(isolate));
             let scope = &mut scope.init();
             let context = v8::Local::new(scope, &engine.context);
-            // Slots hold Rust values, which a snapshot can't.
-            context.clear_all_slots();
             scope.set_default_context(context);
             Ok(())
         })
@@ -129,7 +133,7 @@ impl Engine for V8 {
 
     fn new(host: V8Host, prelude: Prelude<Self>) -> Result<Self, Error> {
         let snapshot = SNAPSHOT.get_or_init(|| snapshot(prelude));
-        let mut engine = Self::with_context(host)?;
+        let mut engine = Self::with_context(Some(host))?;
         if snapshot.is_none() {
             prelude(&mut engine)?;
         }
@@ -179,14 +183,18 @@ impl Engine for V8 {
 }
 
 impl V8 {
-    /// An engine with a new context of the thread's isolate.
-    fn with_context(host: V8Host) -> Result<Self, Error> {
+    /// An engine with a new context of the thread's isolate, which keeps `host` for its host
+    /// functions.
+    fn with_context(host: Option<V8Host>) -> Result<Self, Error> {
         with_isolate(|isolate| {
             let scope = pin!(v8::HandleScope::new(isolate));
             let scope = &mut scope.init();
-            let context = v8::Context::new(scope, Default::default());
-            context.set_slot(Rc::new(ContextData { host, functions: RefCell::new(Vec::new()) }));
-            Ok(Self { context: v8::Global::new(scope, context) })
+            let context = v8::Global::new(scope, v8::Context::new(scope, Default::default()));
+            if let Some(host) = host {
+                let data = Rc::new(ContextData { host, functions: RefCell::new(Vec::new()) });
+                CONTEXTS.with(|contexts| contexts.borrow_mut().push((context.clone(), data)));
+            }
+            Ok(Self { context })
         })
     }
 
@@ -211,7 +219,9 @@ impl V8 {
 
 /// The runtime state of the context `scope` is in.
 fn context_data(scope: &v8::PinScope<'_, '_>) -> Result<Rc<ContextData>, Error> {
-    scope.get_current_context().get_slot::<ContextData>().ok_or_else(|| missing("runtime"))
+    let current = scope.get_current_context();
+    let data = CONTEXTS.with(|contexts| contexts.borrow().iter().find(|(context, _)| current == *context).map(|(_, data)| data.clone()));
+    data.ok_or_else(|| missing("runtime"))
 }
 
 /// The engine's values, inside a host function or through [`Engine::with_call`].
@@ -412,12 +422,33 @@ fn to_v8<'s>(scope: &v8::PinScope<'s, '_>, value: &Value<Handle>) -> Result<v8::
 mod tests {
     use super::*;
 
+    /// The prelude of every engine here: a process has one, which its first engine snapshots.
+    fn prelude(engine: &mut V8) -> Result<(), Error> {
+        engine.eval("globalThis.made = [1, 2, 3]").map(|_| ())
+    }
+
     #[test]
     fn a_dropped_engine_frees_its_runtime_state() {
         let host = Rc::new(RefCell::new(Host::default()));
         let weak = Rc::downgrade(&host);
-        let engine = V8::new(host, |_| Ok(())).unwrap();
+        let engine = V8::new(host, prelude).unwrap();
         drop(engine);
         assert!(weak.upgrade().is_none(), "the context still holds the host");
+    }
+
+    #[test]
+    fn contexts_from_the_snapshot_are_collected() {
+        // Many contexts made and dropped, then collected: each one's slots are freed by a weak
+        // callback, which must find only its own, none the snapshot carried over.
+        for _ in 0..100 {
+            let host = Rc::new(RefCell::new(Host::default()));
+            let mut engine = V8::new(host, prelude).unwrap();
+            engine.eval("made.push(4)").unwrap();
+        }
+        with_isolate(|isolate| {
+            isolate.low_memory_notification();
+            Ok(())
+        })
+        .unwrap();
     }
 }
