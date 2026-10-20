@@ -9,7 +9,7 @@
  *
  * All rights reserved.
  *
- * Date: Tue Oct 20 06:52:44 2026 +0200
+ * Date: Tue Oct 20 07:37:39 2026 +0200
  *
  ***
  *
@@ -18441,14 +18441,21 @@ Base.exports.PaperScript = function() {
 			}
 		}
 
-		var moduleCount = 0;
+		var moduleCount = 0,
+			isModule = false;
 
-		function getImport(source) {
-			return '__$import__(' + JSON.stringify(source.value) + ')';
+		function getImport(source, as) {
+			return '__$import__(' + JSON.stringify(source.value)
+					+ (as ? ', "' + as + '"' : '') + ')';
 		}
 
 		function handleModules(node) {
 			switch (node.type) {
+			case 'ImportExpression':
+				replaceCode(node, 'Promise.resolve().then(function() { '
+						+ 'return __$import__(' + getCode(node.source)
+						+ ', "dynamic"); })');
+				break;
 			case 'ImportDeclaration':
 				var module = getImport(node.source),
 					named = [];
@@ -18459,7 +18466,9 @@ Base.exports.PaperScript = function() {
 								+ '__.' + specifier.imported.name);
 						return null;
 					}
-					return local + ' = ' + module;
+					return local + ' = ' + getImport(node.source,
+							specifier.type === 'ImportDefaultSpecifier'
+								? 'default' : 'namespace');
 				}).filter(Boolean);
 				if (named.length) {
 					vars.push('__$module' + moduleCount + '__ = ' + module);
@@ -18471,19 +18480,22 @@ Base.exports.PaperScript = function() {
 						: module + ';');
 				break;
 			case 'ExportAllDeclaration':
+				isModule = true;
 				replaceCode(node, node.exported
 						? 'module.exports.' + node.exported.name + ' = '
-							+ getImport(node.source) + ';'
-						: '(function(m) { for (var k in m) '
-							+ 'module.exports[k] = m[k]; })('
+							+ getImport(node.source, 'namespace') + ';'
+						: '(function(m) { for (var k in m) if (k !== '
+							+ '"default") module.exports[k] = m[k]; })('
 							+ getImport(node.source) + ');');
 				break;
 			case 'ExportDefaultDeclaration':
+				isModule = true;
 				replaceCode({
 					range: [node.start, node.declaration.start]
-				}, 'module.exports = ');
+				}, 'module.exports.default = ');
 				break;
 			case 'ExportNamedDeclaration':
+				isModule = true;
 				var declaration = node.declaration;
 				var specifiers = node.specifiers;
 				if (declaration) {
@@ -18607,6 +18619,10 @@ Base.exports.PaperScript = function() {
 				preserveParens: true,
 				sourceType: 'module'
 			}), null, paperFeatures);
+			if (isModule) {
+				code += '\nObject.defineProperty(module.exports, '
+						+ '"__esModule", { value: true });';
+			}
 		}
 		if (map) {
 			if (offsetCode) {
@@ -18655,12 +18671,26 @@ Base.exports.PaperScript = function() {
 		}
 		var load = options && options.load,
 			url = options && options.url;
-		function __$import__(specifier) {
+		function __$import__(specifier, as) {
 			if (!load) {
 				throw new Error('Unable to import \'' + specifier + '\': no '
 						+ 'loader was passed to PaperScript.execute().');
 			}
-			return load(specifier, url);
+			var exports = load(specifier, url);
+			return as === 'dynamic'
+					? Promise.resolve(exports).then(function(exports) {
+						return getImported(exports, 'namespace');
+					})
+					: getImported(exports, as);
+		}
+
+		function getImported(exports, as) {
+			var isModule = exports && exports.__esModule;
+			return as === 'default'
+					? isModule ? exports.default : exports
+					: as === 'namespace' && !isModule
+						? Base.set({ default: exports }, exports)
+						: exports;
 		}
 		expose({ __$__: __$__, $__: $__, __$assign__: __$assign__,
 				__$import__: __$import__,

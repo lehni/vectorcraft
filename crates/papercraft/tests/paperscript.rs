@@ -206,8 +206,10 @@ fn scripts_import_modules<E: Engine>(name: &str) {
     let _ = std::fs::remove_dir_all(&folder);
     std::fs::create_dir_all(folder.join("lib")).unwrap();
     let write = |file: &str, code: &str| std::fs::write(folder.join(file), code).unwrap();
-    write("shapes.js", "console.log('shapes runs')\nexport const size = 10\nexport function twice(point) { return point * 2 }");
-    write("name.js", "export default 'shapes'");
+    write(
+        "shapes.js",
+        "console.log('shapes runs')\nexport const size = 10\nexport function twice(point) { return point * 2 }\nexport default 'shapes'",
+    );
     write("lib/util.js", "import { size, twice } from '../shapes.js'\nexport const big = twice(new Point(size, 1))");
     write("a.js", "import { b } from './b.js'\nexport const a = 1");
     write("b.js", "import { a } from './a.js'\nexport const b = 2");
@@ -217,13 +219,16 @@ fn scripts_import_modules<E: Engine>(name: &str) {
     runtime
         .execute(
             &scope,
-            "import shapes from './name.js'\n\
-             import { size } from './shapes.js'\n\
+            "import shapes, { size } from './shapes.js'\n\
              import * as util from './lib/util.js'\n\
              console.log(shapes, size, util.big)",
         )
         .unwrap();
     assert_eq!(runtime.take_output(), ["shapes runs", "shapes 10 { x: 20, y: 2 }"], "shapes.js ran once, for both importers");
+    runtime.execute(&scope, "import('./shapes.js').then(m => console.log('dynamic', m.default, m.size))").unwrap();
+    assert_eq!(runtime.take_output(), ["dynamic shapes 10"], "the same module, already loaded");
+    runtime.execute(&scope, "import('./missing.js').catch(e => console.log('rejected'))").unwrap();
+    assert_eq!(runtime.take_output(), ["rejected"]);
     let error = runtime.execute(&scope, "import { a } from './a.js'").unwrap_err();
     assert!(error.to_string().contains("imports itself"), "{error}");
     let error = runtime.execute(&scope, "import x from './missing.js'").unwrap_err();
