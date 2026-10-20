@@ -72,9 +72,6 @@ static PLATFORM: OnceLock<v8::SharedRef<v8::Platform>> = OnceLock::new();
 /// Starts V8, once per process.
 fn initialize() {
     PLATFORM.get_or_init(|| {
-        // Compiled at once, so the task that settles `WebAssembly.instantiate()` is there when
-        // the call into V8 ends ([`run_tasks`]), not later, from a compiling thread.
-        v8::V8::set_flags_from_string("--no-wasm-async-compilation");
         let platform = v8::new_default_platform(0, false).make_shared();
         v8::V8::initialize_platform(platform.clone());
         v8::V8::initialize();
