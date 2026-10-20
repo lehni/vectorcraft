@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use serde_json::{Value, json};
-use vectorcraft_papercraft::{Engine, PaletteEvent, Runtime};
+use vectorcraft_scriptographer::{Engine, PaletteEvent, Runtime};
 
 /// Runs `script` with dialogs answered by `answers`, in turn. Returns the questions and the output.
 fn run<E: Engine>(script: &str, answers: Vec<Value>) -> (Vec<Value>, Vec<String>) {
@@ -28,7 +28,7 @@ fn alert_and_confirm_ask_and_wait<E: Engine>() {
     assert_eq!(
         questions,
         [
-            json!({"type": "alert", "title": "PaperCraft", "message": "Done."}),
+            json!({"type": "alert", "title": "Scriptographer", "message": "Done."}),
             json!({"type": "confirm", "title": "Circles", "message": "Draw them?"})
         ]
     );
@@ -68,7 +68,7 @@ fn choose_color_is_a_prompt_with_one_color<E: Engine>() {
     let (questions, output) = run::<E>(script, vec![json!({"color": "#00ff00"}), Value::Null]);
     assert_eq!(
         questions[0],
-        json!({"type": "prompt", "title": "PaperCraft", "components": [{"name": "color", "type": "color", "value": "#ff0000"}]})
+        json!({"type": "prompt", "title": "Scriptographer", "components": [{"name": "color", "type": "color", "value": "#ff0000"}]})
     );
     assert_eq!(output, ["1 null"]);
 }
@@ -245,6 +245,6 @@ macro_rules! engine_tests {
 }
 
 #[cfg(all(feature = "v8", not(target_arch = "wasm32")))]
-engine_tests!(v8, vectorcraft_papercraft::V8);
+engine_tests!(v8, vectorcraft_scriptographer::V8);
 #[cfg(feature = "boa")]
-engine_tests!(boa, vectorcraft_papercraft::Boa);
+engine_tests!(boa, vectorcraft_scriptographer::Boa);

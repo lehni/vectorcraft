@@ -1584,14 +1584,13 @@ file-filter	Templates	Шаблони
 	Stop Running Scripts	Зупинити виконувані скрипти
 	Evaluate Script	Обчислити скрипт
 	New Script	Новий скрипт
-	PaperCraft Console	Консоль PaperCraft
-	PaperCraft Tool	Інструмент PaperCraft
-	About PaperCraft	Про PaperCraft
-	About PaperCraft…	Про PaperCraft…
+	Scriptographer Console	Консоль Scriptographer
+	Scriptographer Tool	Інструмент Scriptographer
+	About Scriptographer	Про Scriptographer
+	About Scriptographer…	Про Scriptographer…
 	Paper.js Reference…	Довідник Paper.js…
 	Scripting with Paper.js {version}	Скрипти на Paper.js {version}
 	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js: Юрг Лені та Джонатан Пакі
-	After Scriptographer by Jürg Lehni	За мотивами Scriptographer Юрга Лені
 	Choose Scripts Folder…	Вибрати теку скриптів…
 	Choose the folder your scripts are in.	Виберіть теку, у якій лежать ваші скрипти.
 	Clear Console	Очистити консоль
@@ -1606,7 +1605,7 @@ file-filter	Templates	Шаблони
 	New Folder	Нова тека
 	Show / Hide Console	Показати / сховати консоль
 	Run a tool script to assign it to this tool button	Запустіть скрипт інструмента, щоб призначити його цій кнопці
-	PaperCraft	PaperCraft
+	Scriptographer	Scriptographer
 	Install Plug-in	Встановити модуль
 	Install Plug-in…	Встановити модуль…
 	Open this setting's help page	Відкрити сторінку довідки для цього параметра

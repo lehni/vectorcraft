@@ -2918,14 +2918,13 @@ theme	Appearance	Vormgeving
 	Stop Running Scripts	Actieve scripts stoppen
 	Evaluate Script	Script evalueren
 	New Script	Nieuw script
-	PaperCraft Console	PaperCraft-console
-	PaperCraft Tool	PaperCraft-gereedschap
-	About PaperCraft	Over PaperCraft
-	About PaperCraft…	Over PaperCraft…
+	Scriptographer Console	Scriptographer-console
+	Scriptographer Tool	Scriptographer-gereedschap
+	About Scriptographer	Over Scriptographer
+	About Scriptographer…	Over Scriptographer…
 	Paper.js Reference…	Paper.js-naslag…
 	Scripting with Paper.js {version}	Scripts met Paper.js {version}
 	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js door Jürg Lehni en Jonathan Puckey
-	After Scriptographer by Jürg Lehni	Naar Scriptographer van Jürg Lehni
 	Choose Scripts Folder…	Scriptmap kiezen…
 	Choose the folder your scripts are in.	Kies de map waarin je scripts staan.
 	Clear Console	Console wissen
@@ -2940,7 +2939,7 @@ theme	Appearance	Vormgeving
 	New Folder	Nieuwe map
 	Show / Hide Console	Console tonen / verbergen
 	Run a tool script to assign it to this tool button	Voer een toolscript uit om het aan deze toolknop toe te wijzen
-	PaperCraft	PaperCraft
+	Scriptographer	Scriptographer
 	Begin Undo Group	Groep voor ongedaan maken beginnen
 	End Undo Group	Groep voor ongedaan maken beëindigen
 	Apply Effect	Effect toepassen

@@ -643,9 +643,9 @@ hotspot = "Where the pin goes."
 [[cursor]]
 id = "Script"
 group = "Drawing and editing tools"
-shown_when = ["The PaperCraft Tool, while a tool script is assigned to it and it is the active tool: the script gets the mouse, and draws."]
+shown_when = ["The Scriptographer Tool, while a tool script is assigned to it and it is the active tool: the script gets the mouse, and draws."]
 hotspot = "The lead tip."
-look = "A small hollow pencil pointing down-left, in thin lines, with a round eraser end: the PaperCraft Tool's own cursor, kept as it was."
+look = "A small hollow pencil pointing down-left, in thin lines, with a round eraser end: the Scriptographer Tool's own cursor, kept as it was."
 
 [[cursor]]
 id = "Measure"

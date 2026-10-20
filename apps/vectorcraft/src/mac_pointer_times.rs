@@ -1,6 +1,6 @@
 //! The system's times of the mouse events (`NSEvent.timestamp`), which egui leaves out: an AppKit
 //! monitor notes each move, drag, press and release as the app receives it, and before each frame
-//! they become the app's [`PointerTimes`], by egui's clock. A PaperCraft tool script measures the
+//! they become the app's [`PointerTimes`], by egui's clock. A Scriptographer tool script measures the
 //! mouse's speed by them: the frame's time instead is late by however long the frame took to start.
 //!
 //! The monitor needs an `unsafe` call: AppKit's handler type can't say that the block must return

@@ -1055,8 +1055,8 @@ fn main() -> std::process::ExitCode {
                 if prefs_enabled() {
                     let libraries = prefs_path().and_then(|p| Some(p.parent()?.join("Libraries").to_string_lossy().to_string()));
                     app.session.libraries.set_dir(libraries);
-                    // PaperCraft scripts' `localStorage`, likewise.
-                    app.ui.papercraft_storage = prefs_path().and_then(|p| Some(p.parent()?.join("PaperCraft Storage")));
+                    // Scriptographer scripts' `localStorage`, likewise.
+                    app.ui.scriptographer_storage = prefs_path().and_then(|p| Some(p.parent()?.join("Scriptographer Storage")));
                 }
                 // Data Recovery copies live next to the preferences too (none for runs without
                 // preferences, such as agents' test runs, unless the recoveryFolder preference is set).

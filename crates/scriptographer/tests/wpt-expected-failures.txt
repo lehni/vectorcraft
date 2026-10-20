@@ -1,5 +1,5 @@
 # The web-platform-tests (https://github.com/web-platform-tests/wpt, BSD-3-Clause) that
-# PaperCraft fails, by file and title: see tests/wpt.rs.
+# Scriptographer fails, by file and title: see tests/wpt.rs.
 css/geometry/DOMMatrix-001.html: new DOMMatrix(" ")
 css/geometry/DOMMatrix-001.html: new DOMMatrix(" none")
 css/geometry/DOMMatrix-001.html: new DOMMatrix("")

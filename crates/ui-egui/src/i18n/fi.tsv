@@ -3081,14 +3081,13 @@ theme	Appearance	Ulkoasu
 	Stop Running Scripts	Pysäytä käynnissä olevat komentosarjat
 	Evaluate Script	Arvioi komentosarja
 	New Script	Uusi komentosarja
-	PaperCraft Console	PaperCraft-konsoli
-	PaperCraft Tool	PaperCraft-työkalu
-	About PaperCraft	Tietoja PaperCraftista
-	About PaperCraft…	Tietoja PaperCraftista…
+	Scriptographer Console	Scriptographer-konsoli
+	Scriptographer Tool	Scriptographer-työkalu
+	About Scriptographer	Tietoja Scriptographerista
+	About Scriptographer…	Tietoja Scriptographerista…
 	Paper.js Reference…	Paper.js-viiteopas…
 	Scripting with Paper.js {version}	Komentosarjat Paper.js:llä {version}
 	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js: Jürg Lehni ja Jonathan Puckey
-	After Scriptographer by Jürg Lehni	Jürg Lehnin Scriptographerin pohjalta
 	Choose Scripts Folder…	Valitse komentosarjakansio…
 	Choose the folder your scripts are in.	Valitse kansio, jossa komentosarjasi ovat.
 	Clear Console	Tyhjennä konsoli
@@ -3103,7 +3102,7 @@ theme	Appearance	Ulkoasu
 	New Folder	Uusi kansio
 	Show / Hide Console	Näytä / piilota konsoli
 	Run a tool script to assign it to this tool button	Suorita työkalukomentosarja liittääksesi sen tähän työkalupainikkeeseen
-	PaperCraft	PaperCraft
+	Scriptographer	Scriptographer
 	Begin Undo Group	Aloita kumoamisryhmä
 	End Undo Group	Lopeta kumoamisryhmä
 	Apply Effect	Käytä tehostetta

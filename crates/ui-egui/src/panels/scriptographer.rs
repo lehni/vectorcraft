@@ -1,13 +1,13 @@
-//! The PaperCraft panel: the scripts folders as a tree, each under its name, as Scriptographer's
+//! The Scriptographer panel: the scripts folders as a tree, each under its name, as the original Scriptographer's
 //! palette showed its repositories.
-//! Tool scripts (they define mouse or key handlers) have a pencil, the one the PaperCraft Tool
+//! Tool scripts (they define mouse or key handlers) have a pencil, the one the Scriptographer Tool
 //! stands for a coloured one, running scripts their name in the accent colour. Double-click opens a
-//! script in its editor. The bottom bar has Scriptographer's buttons in its groups: execute the
+//! script in its editor. The bottom bar has the original Scriptographer's buttons in its groups: execute the
 //! selected script and stop the running ones, edit or show it in its folder, create a script or a
 //! folder, and on the right,
 //! show or hide the console. The panel menu manages the folders, and opens the Paper.js reference
-//! and About PaperCraft; the app lists the folders again by itself when it comes to the front.
-//! A click into the tree gives it the arrow keys, Return and ⌘E, as Scriptographer's ([`keys`]);
+//! and About Scriptographer; the app lists the folders again by itself when it comes to the front.
+//! A click into the tree gives it the arrow keys, Return and ⌘E, as the original Scriptographer's ([`keys`]);
 //! its selection shows in the accent tint while it has them.
 
 use std::collections::BTreeSet;
@@ -21,10 +21,10 @@ use crate::scripts::{Entry, EntryKind};
 use crate::theme::Tokens;
 use crate::{VectorcraftApp, icons, widgets};
 
-pub const ID: &str = "papercraft";
+pub const ID: &str = "scriptographer";
 
-const SELECTED: &str = "papercraft-selected";
-const OPEN: &str = "papercraft-open";
+const SELECTED: &str = "scriptographer-selected";
+const OPEN: &str = "scriptographer-open";
 const ROW: f32 = 22.0;
 const INDENT: f32 = 14.0;
 /// Whether the panel menu has Reload: hidden for now, as the folders are listed again by themselves
@@ -39,7 +39,7 @@ const BELOW: f32 = 1.0;
 const GAP: f32 = 8.0;
 
 pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
-    if app.ui.papercraft_folders.is_empty() {
+    if app.ui.scriptographer_folders.is_empty() {
         ui.add_space(6.0);
         widgets::dim_label(ui, tl!("Choose the folder your scripts are in."));
         ui.add_space(4.0);
@@ -48,7 +48,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
         }
         return;
     }
-    let folders = app.ui.papercraft_folders.clone();
+    let folders = app.ui.scriptographer_folders.clone();
     let mut selected: Option<PathBuf> = pstate(ui.ctx(), SELECTED);
     let mut open: BTreeSet<PathBuf> = pstate(ui.ctx(), OPEN);
     let (mut run, mut edit) = (None, None);
@@ -91,12 +91,12 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
             // The console's button on the right.
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if widgets::icon_button(ui, "terminal", tl!("Show / Hide Console"), false, BUTTON).clicked() {
-                    command(app, "window.panel", json!({ "panel": crate::panels::papercraft_console::ID, "toggle": true }));
+                    command(app, "window.panel", json!({ "panel": crate::panels::scriptographer_console::ID, "toggle": true }));
                 }
             });
         });
         let tree = ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
-            egui::ScrollArea::vertical().id_salt("papercraft-tree").auto_shrink([false, false]).show(ui, |ui| {
+            egui::ScrollArea::vertical().id_salt("scriptographer-tree").auto_shrink([false, false]).show(ui, |ui| {
                 let entries = app.scripts.tree(&folders, false);
                 let mut rows = Vec::new();
                 flatten(entries, 0, &open, &mut rows);
@@ -160,7 +160,7 @@ pub(super) fn bottom_bar(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
 
 /// The panel's (≡) menu: list the folders again, or manage them.
 pub fn menu(app: &mut VectorcraftApp, ui: &mut Ui) {
-    if SHOW_RELOAD && widgets::menu_item(ui, "Reload", !app.ui.papercraft_folders.is_empty(), false) {
+    if SHOW_RELOAD && widgets::menu_item(ui, "Reload", !app.ui.scriptographer_folders.is_empty(), false) {
         app.scripts.forget_tree();
     }
     if widgets::menu_item(ui, "Manage Script Folders…", true, false) {
@@ -169,12 +169,12 @@ pub fn menu(app: &mut VectorcraftApp, ui: &mut Ui) {
     if widgets::menu_item(ui, "Paper.js Reference…", true, false) {
         command(app, "ui.paperReference", json!({}));
     }
-    if widgets::menu_item(ui, "About PaperCraft…", true, false) {
-        command(app, "ui.papercraftAbout", json!({}));
+    if widgets::menu_item(ui, "About Scriptographer…", true, false) {
+        command(app, "ui.scriptographerAbout", json!({}));
     }
 }
 
-/// The panel's keys while it has them, since a click into its tree, as Scriptographer's: ↑ and ↓
+/// The panel's keys while it has them, since a click into its tree, as the original Scriptographer's: ↑ and ↓
 /// select the row above or below, ← and → close and open the selected folder, Return opens the
 /// selected script in its editor (a folder: opens or closes it) and ⌘E runs it, its own while the
 /// panel has the keys. Escape, or the panel closing, gives them back.
@@ -186,7 +186,7 @@ pub(crate) fn keys(app: &mut VectorcraftApp, ctx: &egui::Context) {
         app.key_panel = None;
         return;
     }
-    let folders = app.ui.papercraft_folders.clone();
+    let folders = app.ui.scriptographer_folders.clone();
     let mut selected: Option<PathBuf> = pstate(ctx, SELECTED);
     let mut open: BTreeSet<PathBuf> = pstate(ctx, OPEN);
     let rows: Vec<(PathBuf, bool)> = {
@@ -275,7 +275,7 @@ struct Row {
     open: bool,
     /// A script that runs, or a tool script that is loaded.
     running: bool,
-    /// The tool script the PaperCraft Tool button stands for.
+    /// The tool script the Scriptographer Tool button stands for.
     active: bool,
 }
 
@@ -293,7 +293,7 @@ fn row(ui: &mut Ui, depth: usize, entry: &Entry, Row { selected, focused, open, 
     let icon = match &entry.kind {
         EntryKind::Folder(_) => {
             let disclosure = icon_rect(x);
-            let toggle = ui.interact(disclosure, ui.id().with(("papercraft-disclosure", &entry.path)), Sense::click());
+            let toggle = ui.interact(disclosure, ui.id().with(("scriptographer-disclosure", &entry.path)), Sense::click());
             icons::paint(ui, if open { "chevron-down" } else { "chevron-right" }, disclosure, t.text_dim);
             if toggle.clicked() {
                 action = Some(Action::Toggle);
@@ -302,15 +302,15 @@ fn row(ui: &mut Ui, depth: usize, entry: &Entry, Row { selected, focused, open, 
         }
         EntryKind::Script { tool } => {
             if *tool {
-                "dc-papercraft-tool"
+                "dc-scriptographer-tool"
             } else {
                 "file-code"
             }
         }
     };
-    // The tool script the PaperCraft Tool stands for has the coloured pencil, as in Scriptographer.
+    // The tool script the Scriptographer Tool stands for has the coloured pencil, as in the original Scriptographer.
     if active {
-        icons::paint(ui, "dc-papercraft-tool-active", icon_rect(x + 16.0), egui::Color32::WHITE);
+        icons::paint(ui, "dc-scriptographer-tool-active", icon_rect(x + 16.0), egui::Color32::WHITE);
     } else {
         icons::paint(ui, icon, icon_rect(x + 16.0), t.icon);
     }
@@ -334,7 +334,7 @@ fn add_folder(app: &mut VectorcraftApp) {
     crate::picks::button(app, |app| {
         if let Some(path) = crate::picks::folder(app) {
             let name = std::path::Path::new(&path).file_name().map_or_else(|| path.clone(), |n| n.to_string_lossy().into_owned());
-            app.ui.papercraft_folders.push(crate::state::ScriptFolder { name, path, visible: true });
+            app.ui.scriptographer_folders.push(crate::state::ScriptFolder { name, path, visible: true });
             app.prefs_changed = true;
         }
     });

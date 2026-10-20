@@ -198,7 +198,7 @@ impl Worker {
         let (shared, is_stopped) = (interrupt.clone(), stopped.clone());
         let is_stopped = move || is_stopped.load(std::sync::atomic::Ordering::SeqCst);
         std::thread::Builder::new()
-            .name("papercraft script".into())
+            .name("scriptographer script".into())
             .spawn(move || {
                 let inbox = std::rc::Rc::new(inbox);
                 let mut script = match Script::<PlatformEngine>::new(size, &setup, doc, selection) {

@@ -1809,14 +1809,13 @@ font-technology	Variable	バリアブル
 	Stop Running Scripts	実行中のスクリプトを停止
 	Evaluate Script	スクリプトを評価
 	New Script	新規スクリプト
-	PaperCraft Console	PaperCraft コンソール
-	PaperCraft Tool	PaperCraft ツール
-	About PaperCraft	PaperCraft について
-	About PaperCraft…	PaperCraft について…
+	Scriptographer Console	Scriptographer コンソール
+	Scriptographer Tool	Scriptographer ツール
+	About Scriptographer	Scriptographer について
+	About Scriptographer…	Scriptographer について…
 	Paper.js Reference…	Paper.js リファレンス…
 	Scripting with Paper.js {version}	Paper.js {version} によるスクリプト
 	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js：Jürg Lehni、Jonathan Puckey
-	After Scriptographer by Jürg Lehni	Jürg Lehni の Scriptographer に基づく
 	Choose Scripts Folder…	スクリプトフォルダーを選択…
 	Choose the folder your scripts are in.	スクリプトのあるフォルダーを選択してください。
 	Clear Console	コンソールをクリア
@@ -1831,7 +1830,7 @@ font-technology	Variable	バリアブル
 	New Folder	新規フォルダー
 	Show / Hide Console	コンソールを表示 / 非表示
 	Run a tool script to assign it to this tool button	ツールスクリプトを実行すると、このツールボタンに割り当てられます
-	PaperCraft	PaperCraft
+	Scriptographer	Scriptographer
 	Install Plug-in	プラグインをインストール
 	Intensity:	強度:
 	Intent:	インテント:

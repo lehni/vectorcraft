@@ -101,7 +101,7 @@ fn construct<E: Engine>(call: &mut dyn Call<E::Handle>, this: &Value<E::Handle>,
     let interrupt = Arc::new(Mutex::new(None));
     let stop = interrupt.clone();
     std::thread::Builder::new()
-        .name("papercraft worker".into())
+        .name("scriptographer worker".into())
         .spawn(move || run::<E>(key, &name, language, &inbox, &outbox, &stop))
         .map_err(|e| Error::Script(format!("Worker: no thread for it: {e}")))?;
     let number = {

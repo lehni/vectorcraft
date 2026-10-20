@@ -197,8 +197,8 @@ fn pen_pressure(ui: &Ui, app: &VectorcraftApp, pressed: bool) -> f32 {
 /// pen force a touch event gave just before it, or the pressure the host's feed kept for that move
 /// ([`StylusFeed::take_moves`], macOS), if any. The last move is the pointer's position. For pens
 /// and fingers (frames with touch events or with the feed's moves), and for a mouse when `mouse` (a
-/// PaperCraft tool script has it: scripts get every move, as in browsers); else a mouse's moves are
-/// left as they were.
+/// Scriptographer tool script has it: scripts get every move, as in browsers); else a mouse's moves
+/// are left as they were.
 fn frame_moves(ui: &Ui, stylus: Option<&StylusFeed>, mouse: bool) -> Vec<(Pos2, Option<f32>)> {
     let pressures = stylus.map(StylusFeed::take_moves).unwrap_or_default();
     ui.input(|i| {
@@ -239,7 +239,7 @@ pub fn mods(m: egui::Modifiers, space: bool) -> Mods {
 
 /// The system's own times of this frame's pointer events, by egui's clock in seconds, oldest first,
 /// where the platform knows them (macOS): egui leaves them out. The platform sets them before
-/// each frame; a PaperCraft tool script measures the mouse's speed by them.
+/// each frame; a Scriptographer tool script measures the mouse's speed by them.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PointerTimes {
     /// Of the moves and drags.
@@ -668,7 +668,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     // Selection visuals and tool overlays.
     let revolve_edit = app.ui.dialog.as_ref().is_some_and(crate::dialogs::revolve_gizmo::active);
     let view_info = app.view_info();
-    // View → Hide Gradient Annotator hides the Gradient tool's annotator. While a PaperCraft tool
+    // View → Hide Gradient Annotator hides the Gradient tool's annotator. While a Scriptographer tool
     // script has the mouse, the app's tool shows nothing.
     let script_tool = app.scripts.active_tool().is_some();
     let mut overlays = if !revolve_edit && !script_tool && (app.session.tool_id() != "gradient" || app.ui.view.gradient_annotator) {
@@ -1750,7 +1750,7 @@ pub(crate) fn release_over_panel(app: &mut VectorcraftApp, ctx: &egui::Context) 
 
 /// Send a pointer event to the active tool and act on UI requests (dialogs, tool switches).
 pub fn dispatch(app: &mut VectorcraftApp, ev: &PointerEvent, view: vectorcraft_engine::ViewInfo) {
-    // A PaperCraft tool script, while it is the active tool, has the event instead.
+    // A Scriptographer tool script, while it is the active tool, has the event instead.
     if crate::scripts::pointer(app, ev) {
         return;
     }

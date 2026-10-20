@@ -48,7 +48,7 @@ vectorcraft-metafile = { path = "crates/metafile" }
 vectorcraft-plugins = { path = "crates/plugins" }
 vectorcraft-affinity = { path = "crates/affinity" }
 vectorcraft-scriptcheck = { path = "crates/scriptcheck" }
-vectorcraft-papercraft = { path = "crates/papercraft" }
+vectorcraft-scriptographer = { path = "crates/scriptographer" }
 
 # foundation
 kurbo = { version = "0.13", features = ["serde"] }
@@ -152,10 +152,10 @@ hayro-cmap = { git = "https://github.com/storytold/craft-libs", rev = "2eca9b3a5
 hayro-postscript = { git = "https://github.com/storytold/craft-libs", rev = "2eca9b3a53a98ac52efed2a27353c6a6927ead10" }
 krilla = { git = "https://github.com/storytold/craft-libs", rev = "2eca9b3a53a98ac52efed2a27353c6a6927ead10" }
 # Boa 0.22.0 with the fix for boa-dev/boa#5600 (a getter that defines an own property ran again from
-# the same property read: PaperCraft's lost move in the Boa engine). Drop it for the Boa release with
+# the same property read: Scriptographer's lost move in the Boa engine). Drop it for the Boa release with
 # the fix.
 boa_engine = { git = "https://github.com/lehni/boa", rev = "11304bd4baeb5c7c5293bfc3f0d350ade16e4a7a" }
 # color 0.3.3 (under peniko and vello) with linebender/color#231: the named colors spelled grey,
-# and legacy hsl() with whitespace before its commas, which PaperCraft's canvas parses. Drop it for
+# and legacy hsl() with whitespace before its commas, which Scriptographer's canvas parses. Drop it for
 # the color release with the fix.
 color = { git = "https://github.com/lehni/color", rev = "aa7c1de5c92180a9de236c8705259a68620cf632" }

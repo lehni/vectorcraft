@@ -1,4 +1,4 @@
-//! The PaperCraft panel's script folders, as Scriptographer's repositories were: Script Folders
+//! The Scriptographer panel's script folders, as the original Scriptographer's repositories were: Script Folders
 //! lists them in the panel's order, each with its name, its folder (Choose… picks another), whether
 //! the panel shows it, and buttons to move it up or down or remove it; Add Folder… adds one. New
 //! Folder asks for the name of a folder to make in one.
@@ -28,7 +28,7 @@ pub(super) const SPEC: DialogSpec = DialogSpec {
         false
     },
     confirm: |app, d| {
-        app.ui.papercraft_folders = folders(d).into_iter().filter(|f| !f.path.is_empty()).collect();
+        app.ui.scriptographer_folders = folders(d).into_iter().filter(|f| !f.path.is_empty()).collect();
         app.prefs_changed = true;
         app.scripts.forget_tree();
         app.ui.dialog = None;
@@ -58,7 +58,7 @@ pub(super) const NEW_FOLDER_SPEC: DialogSpec = DialogSpec {
 
 /// Opens Script Folders with the folders as they are.
 pub(crate) fn open(app: &mut VectorcraftApp) {
-    app.ui.dialog = Some(Dialog::new(KIND, json!({ "folders": app.ui.papercraft_folders })));
+    app.ui.dialog = Some(Dialog::new(KIND, json!({ "folders": app.ui.scriptographer_folders })));
 }
 
 /// Opens New Folder for a folder in `folder`, suggesting `name`.

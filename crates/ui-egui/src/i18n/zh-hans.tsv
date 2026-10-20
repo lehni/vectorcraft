@@ -1516,14 +1516,13 @@ file-filter	Templates	模板
 	Stop Running Scripts	停止运行中的脚本
 	Evaluate Script	计算脚本
 	New Script	新建脚本
-	PaperCraft Console	PaperCraft 控制台
-	PaperCraft Tool	PaperCraft 工具
-	About PaperCraft	关于 PaperCraft
-	About PaperCraft…	关于 PaperCraft…
+	Scriptographer Console	Scriptographer 控制台
+	Scriptographer Tool	Scriptographer 工具
+	About Scriptographer	关于 Scriptographer
+	About Scriptographer…	关于 Scriptographer…
 	Paper.js Reference…	Paper.js 参考…
 	Scripting with Paper.js {version}	使用 Paper.js {version} 编写脚本
 	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js 作者：Jürg Lehni 与 Jonathan Puckey
-	After Scriptographer by Jürg Lehni	源自 Jürg Lehni 的 Scriptographer
 	Choose Scripts Folder…	选择脚本文件夹…
 	Choose the folder your scripts are in.	请选择存放脚本的文件夹。
 	Clear Console	清除控制台
@@ -1538,7 +1537,7 @@ file-filter	Templates	模板
 	New Folder	新建文件夹
 	Show / Hide Console	显示 / 隐藏控制台
 	Run a tool script to assign it to this tool button	运行工具脚本即可将其指定给此工具按钮
-	PaperCraft	PaperCraft
+	Scriptographer	Scriptographer
 	Install Plug-in	安装插件
 	Install Plug-in…	安装增效工具…
 	Open this setting's help page	打开此设置的帮助页面

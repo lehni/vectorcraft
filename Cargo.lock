@@ -5270,7 +5270,7 @@ dependencies = [
  "http",
  "httparse",
  "log",
- "rand 0.10.3",
+ "rand",
  "rustls",
  "rustls-pki-types",
  "sha1",
@@ -5800,34 +5800,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vectorcraft-papercraft"
-version = "0.16.0"
-dependencies = [
- "boa_engine",
- "getrandom 0.3.4",
- "image",
- "js-sys",
- "serde_json",
- "sha2",
- "svgtypes 0.16.1",
- "thiserror 2.0.21",
- "tungstenite",
- "ureq",
- "url",
- "v8",
- "vectorcraft-color",
- "vectorcraft-doc",
- "vectorcraft-engine",
- "vectorcraft-format",
- "vectorcraft-geom",
- "vectorcraft-text",
- "vello_common 0.2.0",
- "vello_cpu 0.2.0",
- "wasm-bindgen",
- "web-sys",
-]
-
-[[package]]
 name = "vectorcraft-pathops"
 version = "0.16.0"
 dependencies = [
@@ -5916,6 +5888,34 @@ name = "vectorcraft-scriptcheck"
 version = "0.16.0"
 dependencies = [
  "proptest",
+]
+
+[[package]]
+name = "vectorcraft-scriptographer"
+version = "0.16.0"
+dependencies = [
+ "boa_engine",
+ "getrandom 0.3.4",
+ "image",
+ "js-sys",
+ "serde_json",
+ "sha2",
+ "svgtypes 0.16.1",
+ "thiserror 2.0.21",
+ "tungstenite",
+ "ureq",
+ "url",
+ "v8",
+ "vectorcraft-color",
+ "vectorcraft-doc",
+ "vectorcraft-engine",
+ "vectorcraft-format",
+ "vectorcraft-geom",
+ "vectorcraft-text",
+ "vello_common 0.2.0",
+ "vello_cpu 0.2.0",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]
@@ -6042,10 +6042,10 @@ dependencies = [
  "vectorcraft-eps",
  "vectorcraft-format",
  "vectorcraft-geom",
- "vectorcraft-papercraft",
  "vectorcraft-pdf",
  "vectorcraft-plugins",
  "vectorcraft-render",
+ "vectorcraft-scriptographer",
  "vectorcraft-svg",
  "vectorcraft-testkit",
  "vectorcraft-text",

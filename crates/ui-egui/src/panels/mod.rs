@@ -31,12 +31,12 @@ pub mod links;
 pub mod magic_wand;
 pub mod navigator;
 pub mod opentype;
-pub mod papercraft;
-pub mod papercraft_console;
 pub mod paragraph;
 pub mod pathfinder;
 pub mod pattern_options;
 pub mod properties;
+pub mod scriptographer;
+pub mod scriptographer_console;
 pub mod separations;
 pub mod stroke;
 pub mod svg_interactivity;
@@ -141,7 +141,7 @@ pub(crate) fn selection_len(app: &VectorcraftApp) -> usize {
 
 /// Icon panels whose list takes the height they are given, their bottom bar at the bottom: the
 /// popped-out or floating panel gives them one ([`crate::dock::panel_body`]).
-pub const FILLS_HEIGHT: &[&str] = &[papercraft::ID, papercraft_console::ID];
+pub const FILLS_HEIGHT: &[&str] = &[scriptographer::ID, scriptographer_console::ID];
 
 pub fn show_icon_panel(app: &mut VectorcraftApp, ui: &mut Ui, id: &str) {
     match id {
@@ -155,8 +155,8 @@ pub fn show_icon_panel(app: &mut VectorcraftApp, ui: &mut Ui, id: &str) {
         "align" => align::show(app, ui),
         "pathfinder" => pathfinder::show(app, ui),
         blend::ID => blend::show(app, ui),
-        papercraft::ID => papercraft::show(app, ui),
-        papercraft_console::ID => papercraft_console::show(app, ui),
+        scriptographer::ID => scriptographer::show(app, ui),
+        scriptographer_console::ID => scriptographer_console::show(app, ui),
         "transform" => transform::show(app, ui),
         "history" => history::show(app, ui),
         "actions" => actions::show(app, ui),
@@ -228,7 +228,7 @@ pub fn panel_menu_items(app: &mut VectorcraftApp, ui: &mut Ui, id: &str) -> bool
         "tabs" => tabs::menu(app, ui),
         "libraries" => libraries::menu(app, ui),
         flattener_preview::ID => flattener_preview::menu(app, ui),
-        papercraft::ID => papercraft::menu(app, ui),
+        scriptographer::ID => scriptographer::menu(app, ui),
         "attributes" => attributes::menu(app, ui),
         svg_interactivity::ID => svg_interactivity::menu(app, ui),
         "colorThemes" => color_themes::menu(app, ui),

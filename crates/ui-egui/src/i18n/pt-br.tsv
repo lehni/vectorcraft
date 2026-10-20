@@ -1352,14 +1352,13 @@
 	Stop Running Scripts	Parar scripts em execução
 	Evaluate Script	Avaliar script
 	New Script	Novo script
-	PaperCraft Console	Console do PaperCraft
-	PaperCraft Tool	Ferramenta PaperCraft
-	About PaperCraft	Sobre o PaperCraft
-	About PaperCraft…	Sobre o PaperCraft…
+	Scriptographer Console	Console do Scriptographer
+	Scriptographer Tool	Ferramenta Scriptographer
+	About Scriptographer	Sobre o Scriptographer
+	About Scriptographer…	Sobre o Scriptographer…
 	Paper.js Reference…	Referência do Paper.js…
 	Scripting with Paper.js {version}	Scripts com Paper.js {version}
 	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js por Jürg Lehni e Jonathan Puckey
-	After Scriptographer by Jürg Lehni	Baseado no Scriptographer de Jürg Lehni
 	Choose Scripts Folder…	Escolher pasta de scripts…
 	Choose the folder your scripts are in.	Escolha a pasta onde estão seus scripts.
 	Clear Console	Limpar console
@@ -1374,7 +1373,7 @@
 	New Folder	Nova pasta
 	Show / Hide Console	Mostrar / ocultar console
 	Run a tool script to assign it to this tool button	Execute um script de ferramenta para atribuí-lo a este botão
-	PaperCraft	PaperCraft
+	Scriptographer	Scriptographer
 	Install Plug-in	Instalar Plug-in
 	Install Plug-in…	Instalar Plug-in…
 	Open this setting's help page	Abrir a página de ajuda desta configuração

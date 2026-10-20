@@ -7,7 +7,7 @@ use serde_json::json;
 use vectorcraft_color::{Color, Paint};
 use vectorcraft_doc::{Node, NodeId};
 use vectorcraft_engine::Session;
-use vectorcraft_papercraft::{Engine, Runtime};
+use vectorcraft_scriptographer::{Engine, Runtime};
 
 /// A session with one layer holding two rectangles, a (bottom) and b.
 fn document() -> (Session, NodeId, NodeId) {
@@ -121,7 +121,7 @@ fn scripts_without_on_frame_stop<E: Engine>() {
 
 /// One frame as the app runs it: the project catches up with the document, the timers run, and
 /// what they changed goes back.
-fn frame<E: Engine>(s: &mut Session, runtime: &mut Runtime<E>, scope: &vectorcraft_papercraft::Scope<E::Handle>, now: f64) {
+fn frame<E: Engine>(s: &mut Session, runtime: &mut Runtime<E>, scope: &vectorcraft_scriptographer::Scope<E::Handle>, now: f64) {
     let st = s.active().unwrap();
     runtime.update(scope, st.doc.clone(), st.selection.clone()).unwrap();
     runtime.run_timers(now).unwrap();
@@ -219,7 +219,7 @@ fn artboards_and_the_active_one<E: Engine>() {
 }
 
 fn tool_scripts_get_pointer_events<E: Engine>() {
-    use vectorcraft_papercraft::{Modifiers, MouseEvent};
+    use vectorcraft_scriptographer::{Modifiers, MouseEvent};
     let (s, _, _) = document();
     let st = s.active().unwrap();
     let mut runtime = Runtime::<E>::new().unwrap();
@@ -255,7 +255,7 @@ fn tool_scripts_get_pointer_events<E: Engine>() {
 }
 
 fn tool_scripts_get_key_events<E: Engine>() {
-    use vectorcraft_papercraft::Modifiers;
+    use vectorcraft_scriptographer::Modifiers;
     let (s, _, _) = document();
     let st = s.active().unwrap();
     let mut runtime = Runtime::<E>::new().unwrap();
@@ -420,13 +420,13 @@ macro_rules! engine_tests {
 }
 
 #[cfg(feature = "boa")]
-engine_tests!(boa, vectorcraft_papercraft::Boa);
+engine_tests!(boa, vectorcraft_scriptographer::Boa);
 #[cfg(all(feature = "v8", not(target_arch = "wasm32")))]
-engine_tests!(v8, vectorcraft_papercraft::V8);
+engine_tests!(v8, vectorcraft_scriptographer::V8);
 
 #[test]
 fn zz_after_delete() {
-    use vectorcraft_papercraft::{Modifiers, MouseEvent, V8};
+    use vectorcraft_scriptographer::{Modifiers, MouseEvent, V8};
     let (mut s, a, b) = document();
     let st = s.active().unwrap();
     let mut runtime = Runtime::<V8>::new().unwrap();

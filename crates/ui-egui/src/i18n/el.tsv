@@ -1492,14 +1492,13 @@ font-technology	Variable	Μεταβλητές
 	Stop Running Scripts	Διακοπή εκτελούμενων σεναρίων
 	Evaluate Script	Αξιολόγηση σεναρίου
 	New Script	Νέο σενάριο
-	PaperCraft Console	Κονσόλα PaperCraft
-	PaperCraft Tool	Εργαλείο PaperCraft
-	About PaperCraft	Σχετικά με το PaperCraft
-	About PaperCraft…	Σχετικά με το PaperCraft…
+	Scriptographer Console	Κονσόλα Scriptographer
+	Scriptographer Tool	Εργαλείο Scriptographer
+	About Scriptographer	Σχετικά με το Scriptographer
+	About Scriptographer…	Σχετικά με το Scriptographer…
 	Paper.js Reference…	Τεκμηρίωση Paper.js…
 	Scripting with Paper.js {version}	Σενάρια με το Paper.js {version}
 	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js από τους Jürg Lehni και Jonathan Puckey
-	After Scriptographer by Jürg Lehni	Κατά το Scriptographer του Jürg Lehni
 	Choose Scripts Folder…	Επιλογή φακέλου σεναρίων…
 	Choose the folder your scripts are in.	Επιλέξτε τον φάκελο όπου βρίσκονται τα σενάριά σας.
 	Clear Console	Εκκαθάριση κονσόλας
@@ -1514,7 +1513,7 @@ font-technology	Variable	Μεταβλητές
 	New Folder	Νέος φάκελος
 	Show / Hide Console	Εμφάνιση / απόκρυψη κονσόλας
 	Run a tool script to assign it to this tool button	Εκτελέστε ένα σενάριο εργαλείου για να το αντιστοιχίσετε σε αυτό το κουμπί
-	PaperCraft	PaperCraft
+	Scriptographer	Scriptographer
 	Install Plug-in	Εγκατάσταση προσθέτου
 	Install Plug-in…	Εγκατάσταση προσθέτου…
 	Open this setting's help page	Άνοιγμα της σελίδας βοήθειας αυτής της ρύθμισης

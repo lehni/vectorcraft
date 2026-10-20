@@ -1,4 +1,4 @@
-//! PaperCraft: PaperScript and the Paper.js API in VectorCraft.
+//! Scriptographer: PaperScript and the Paper.js API in VectorCraft.
 //!
 //! A [`Runtime`] loads Paper.js into a JavaScript [`Engine`]: V8 on desktop, the browser's engine
 //! on the web, Boa where V8 isn't available. The globals Paper.js needs from its host (`self`,
@@ -75,8 +75,8 @@ pub type PlatformEngine = Boa;
 
 /// Paper.js with the PaperScript compiler and items backed by a host document: the vendored
 /// `paper-hosted.js` build of Paper.js 0.14.0-develop (MIT; `dist/paper-hosted.js` of the npm package),
-/// or the build `PAPERCRAFT_PAPER_JS` names (see `build.rs`).
-const PAPER_JS: &str = include_str!(env!("PAPERCRAFT_PAPER_JS_PATH"));
+/// or the build `SCRIPTOGRAPHER_PAPER_JS` names (see `build.rs`).
+const PAPER_JS: &str = include_str!(env!("SCRIPTOGRAPHER_PAPER_JS_PATH"));
 
 /// Acorn 8.19.0 (MIT; `dist/acorn.js` of the npm package), which PaperScript prefers to the Acorn
 /// 0.5 Paper.js bundles when it finds it as `self.acorn`: scripts can use today's JavaScript.

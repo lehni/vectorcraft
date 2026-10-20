@@ -1,7 +1,7 @@
-//! `cargo xtask corpus --wpt`: the web-platform-tests that check PaperCraft's browser APIs, from
+//! `cargo xtask corpus --wpt`: the web-platform-tests that check Scriptographer's browser APIs, from
 //! the WPT repository at a pinned commit (BSD-3-Clause), checked against one sha256 over the
 //! files in `xtask/wpt-corpus.sha256`. They land in `corpus/wpt/` (gitignored, never committed);
-//! `vectorcraft-papercraft`'s `wpt` test runs them when present.
+//! `vectorcraft-scriptographer`'s `wpt` test runs them when present.
 //!
 //! A sparse, shallow checkout fetches only the folders below. Moving the pin: change the commit,
 //! re-run, write the new sha256 the error prints into the manifest, and update the test's list of

@@ -1,4 +1,4 @@
-//! The PaperCraft Console panel, as Scriptographer's console was: a multi-line field on top where
+//! The Scriptographer Console panel, as the original Scriptographer's console was: a multi-line field on top where
 //! Return runs the line it ends as PaperScript, in the console's own project on the active document
 //! (each line one undo step), and under it everything scripts printed, errors in the error colour.
 
@@ -9,9 +9,9 @@ use super::{pstate, set_pstate};
 use crate::theme::Tokens;
 use crate::{VectorcraftApp, widgets};
 
-pub const ID: &str = "papercraftConsole";
+pub const ID: &str = "scriptographerConsole";
 
-const INPUT: &str = "papercraft-console-input";
+const INPUT: &str = "scriptographer-console-input";
 
 pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
@@ -34,15 +34,15 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     set_pstate(ui.ctx(), INPUT, input);
     // Laid out from the bottom: the bar stays at the bottom, the log takes the height above it.
     ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-        super::papercraft::bottom_bar(ui, |ui| {
+        super::scriptographer::bottom_bar(ui, |ui| {
             // Scriptographer's console cleared with its refresh arrows.
-            if widgets::icon_button(ui, "refresh-cw", tl!("Clear Console"), false, super::papercraft::BUTTON).clicked() {
+            if widgets::icon_button(ui, "refresh-cw", tl!("Clear Console"), false, super::scriptographer::BUTTON).clicked() {
                 app.scripts.clear_log();
             }
         });
         ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
             widgets::divider(ui);
-            egui::ScrollArea::vertical().id_salt("papercraft-console-log").auto_shrink([false, false]).stick_to_bottom(true).show(ui, |ui| {
+            egui::ScrollArea::vertical().id_salt("scriptographer-console-log").auto_shrink([false, false]).stick_to_bottom(true).show(ui, |ui| {
                 // One read-only text, so lines can be selected together and copied.
                 let mut text = String::new();
                 let mut errors = Vec::new();

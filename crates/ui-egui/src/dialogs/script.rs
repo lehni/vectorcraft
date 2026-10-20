@@ -1,4 +1,4 @@
-//! A PaperCraft script's dialog: `Dialog.alert`, `confirm` and `prompt`, while the script waits
+//! A Scriptographer script's dialog: `Dialog.alert`, `confirm` and `prompt`, while the script waits
 //! for the answer ([`crate::scripts`]), and the components palettes share with it. Its title,
 //! message, labels and options are the script's, shown as they are.
 //!

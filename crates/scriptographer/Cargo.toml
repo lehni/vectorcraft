@@ -1,6 +1,6 @@
 [package]
-name = "vectorcraft-papercraft"
-description = "PaperCraft: PaperScript and the Paper.js API in VectorCraft, run by V8, the browser's engine or Boa"
+name = "vectorcraft-scriptographer"
+description = "Scriptographer: PaperScript and the Paper.js API in VectorCraft, run by V8, the browser's engine or Boa"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

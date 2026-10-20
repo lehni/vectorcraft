@@ -20,7 +20,7 @@ use serde_json::{Map, Value as Json, json};
 use crate::{Call, Engine, Error, Runtime, Value, handle, method, object};
 
 /// The title of a dialog the script doesn't name.
-const TITLE: &str = "PaperCraft";
+const TITLE: &str = "Scriptographer";
 
 /// What answers a script's dialogs: it gets the question, and returns the answer once the user gave
 /// it.

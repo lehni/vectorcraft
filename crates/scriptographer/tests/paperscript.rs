@@ -3,7 +3,7 @@
 //! The same tests for every engine, through [`Runtime`].
 
 use serde_json::Value;
-use vectorcraft_papercraft::{Engine, Runtime, Setup};
+use vectorcraft_scriptographer::{Engine, Runtime, Setup};
 
 fn runs_paperscript_with_console_and_paper_globals<E: Engine>() {
     let mut runtime = Runtime::<E>::new().unwrap();
@@ -125,7 +125,7 @@ fn animation_frames_run_once_a_frame<E: Engine>() {
 }
 
 fn files_read_write_and_list<E: Engine>(name: &str) {
-    let folder = std::env::temp_dir().join(format!("papercraft-files-{name}-{}", std::process::id()));
+    let folder = std::env::temp_dir().join(format!("scriptographer-files-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&folder);
     std::fs::create_dir_all(&folder).unwrap();
     let mut runtime = Runtime::<E>::new().unwrap();
@@ -222,7 +222,7 @@ fn scripts_have_the_browsers_everyday_apis<E: Engine>() {
 }
 
 fn scripts_import_modules<E: Engine>(name: &str) {
-    let folder = std::env::temp_dir().join(format!("papercraft-imports-{name}-{}", std::process::id()));
+    let folder = std::env::temp_dir().join(format!("scriptographer-imports-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&folder);
     std::fs::create_dir_all(folder.join("lib")).unwrap();
     let write = |file: &str, code: &str| std::fs::write(folder.join(file), code).unwrap();
@@ -804,7 +804,7 @@ fn geometry_classes_are_the_browsers<E: Engine>() {
 }
 
 fn local_storage_lasts_and_session_storage_doesnt<E: Engine>(name: &str) {
-    let folder = std::env::temp_dir().join(format!("papercraft-storage-{name}-{}", std::process::id()));
+    let folder = std::env::temp_dir().join(format!("scriptographer-storage-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&folder);
     let (script, storage) = (folder.join("script.js").to_string_lossy().into_owned(), folder.join("storage"));
     let run = |source: &str| {
@@ -1062,7 +1062,7 @@ fn run_until_done<E: Engine>(runtime: &mut Runtime<E>) {
 }
 
 fn workers_run_scripts_on_their_threads<E: Engine>(name: &str) {
-    let folder = std::env::temp_dir().join(format!("papercraft-workers-{name}-{}", std::process::id()));
+    let folder = std::env::temp_dir().join(format!("scriptographer-workers-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&folder);
     std::fs::create_dir_all(&folder).unwrap();
     std::fs::write(folder.join("helper.js"), "function double(n) { return n * 2 }").unwrap();
@@ -1342,6 +1342,6 @@ macro_rules! engine_tests {
 }
 
 #[cfg(feature = "boa")]
-engine_tests!(boa, vectorcraft_papercraft::Boa);
+engine_tests!(boa, vectorcraft_scriptographer::Boa);
 #[cfg(all(feature = "v8", not(target_arch = "wasm32")))]
-engine_tests!(v8, vectorcraft_papercraft::V8);
+engine_tests!(v8, vectorcraft_scriptographer::V8);

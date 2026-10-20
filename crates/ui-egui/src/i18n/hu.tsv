@@ -1976,14 +1976,13 @@ file-filter	Templates	Sablonok
 	Stop Running Scripts	Futó szkriptek leállítása
 	Evaluate Script	Szkript kiértékelése
 	New Script	Új szkript
-	PaperCraft Console	PaperCraft-konzol
-	PaperCraft Tool	PaperCraft eszköz
-	About PaperCraft	A PaperCraft névjegye
-	About PaperCraft…	A PaperCraft névjegye…
+	Scriptographer Console	Scriptographer-konzol
+	Scriptographer Tool	Scriptographer eszköz
+	About Scriptographer	A Scriptographer névjegye
+	About Scriptographer…	A Scriptographer névjegye…
 	Paper.js Reference…	Paper.js-referencia…
 	Scripting with Paper.js {version}	Szkriptek a Paper.js {version} segítségével
 	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js: Jürg Lehni és Jonathan Puckey
-	After Scriptographer by Jürg Lehni	Jürg Lehni Scriptographere nyomán
 	Choose Scripts Folder…	Szkriptmappa kiválasztása…
 	Choose the folder your scripts are in.	Válassza ki a szkriptjeit tartalmazó mappát.
 	Clear Console	Konzol törlése
@@ -1998,7 +1997,7 @@ file-filter	Templates	Sablonok
 	New Folder	Új mappa
 	Show / Hide Console	Konzol megjelenítése / elrejtése
 	Run a tool script to assign it to this tool button	Futtasson egy eszközszkriptet, hogy ehhez az eszközgombhoz rendelje
-	PaperCraft	PaperCraft
+	Scriptographer	Scriptographer
 	Install Plug-in	Bővítmény telepítése
 	Install Plug-in…	Bővítmény telepítése…
 	Open this setting's help page	A beállítás súgóoldalának megnyitása

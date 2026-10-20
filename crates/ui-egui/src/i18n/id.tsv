@@ -2904,14 +2904,13 @@ theme	Appearance	Tampilan
 	Stop Running Scripts	Hentikan Skrip yang Berjalan
 	Evaluate Script	Evaluasi Skrip
 	New Script	Skrip Baru
-	PaperCraft Console	Konsol PaperCraft
-	PaperCraft Tool	Alat PaperCraft
-	About PaperCraft	Tentang PaperCraft
-	About PaperCraft…	Tentang PaperCraft…
+	Scriptographer Console	Konsol Scriptographer
+	Scriptographer Tool	Alat Scriptographer
+	About Scriptographer	Tentang Scriptographer
+	About Scriptographer…	Tentang Scriptographer…
 	Paper.js Reference…	Referensi Paper.js…
 	Scripting with Paper.js {version}	Skrip dengan Paper.js {version}
 	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js oleh Jürg Lehni dan Jonathan Puckey
-	After Scriptographer by Jürg Lehni	Berdasarkan Scriptographer oleh Jürg Lehni
 	Choose Scripts Folder…	Pilih Folder Skrip…
 	Choose the folder your scripts are in.	Pilih folder tempat skrip Anda berada.
 	Clear Console	Bersihkan Konsol
@@ -2926,7 +2925,7 @@ theme	Appearance	Tampilan
 	New Folder	Folder Baru
 	Show / Hide Console	Tampilkan / Sembunyikan Konsol
 	Run a tool script to assign it to this tool button	Jalankan skrip alat untuk menetapkannya ke tombol alat ini
-	PaperCraft	PaperCraft
+	Scriptographer	Scriptographer
 	Begin Undo Group	Mulai grup urungkan
 	End Undo Group	Akhiri grup urungkan
 	Apply Effect	Terapkan efek

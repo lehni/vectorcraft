@@ -1228,7 +1228,7 @@ fn a_panel_in_the_docking_layout_does_not_also_pop_out() {
     let mut app = app();
     app.run("window.panel.move", json!({"panel":"swatches", "anchor":"layers", "zone":"top"})).unwrap();
     app.run("window.panel.float", json!({"panel":"swatches", "x":50,"y":70,"width":330,"height":410})).unwrap();
-    // Only the docking layout has it, as after the PaperCraft Console was dragged out of its
+    // Only the docking layout has it, as after the Scriptographer Console was dragged out of its
     // flyout into a floating window: the older floating groups don't.
     app.ui.floating_panels.retain(|g| !g.panels.iter().any(|p| p == "swatches"));
     assert!(app.ui.docking.as_ref().unwrap().contains(&"swatches".to_string()));

@@ -3141,14 +3141,13 @@ theme	Appearance	Motiv
 	Stop Running Scripts	Zastavit spuštěné skripty
 	Evaluate Script	Vyhodnotit skript
 	New Script	Nový skript
-	PaperCraft Console	Konzole PaperCraft
-	PaperCraft Tool	Nástroj PaperCraft
-	About PaperCraft	O aplikaci PaperCraft
-	About PaperCraft…	O aplikaci PaperCraft…
+	Scriptographer Console	Konzole Scriptographer
+	Scriptographer Tool	Nástroj Scriptographer
+	About Scriptographer	O aplikaci Scriptographer
+	About Scriptographer…	O aplikaci Scriptographer…
 	Paper.js Reference…	Reference Paper.js…
 	Scripting with Paper.js {version}	Skriptování s Paper.js {version}
 	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js od Jürga Lehniho a Jonathana Puckeyho
-	After Scriptographer by Jürg Lehni	Podle Scriptographeru od Jürga Lehniho
 	Choose Scripts Folder…	Vybrat složku skriptů…
 	Choose the folder your scripts are in.	Vyberte složku, ve které jsou vaše skripty.
 	Clear Console	Vymazat konzoli
@@ -3163,7 +3162,7 @@ theme	Appearance	Motiv
 	New Folder	Nová složka
 	Show / Hide Console	Zobrazit / skrýt konzoli
 	Run a tool script to assign it to this tool button	Spusťte skript nástroje, aby se přiřadil tomuto tlačítku nástroje
-	PaperCraft	PaperCraft
+	Scriptographer	Scriptographer
 	Begin Undo Group	Zahájit skupinu kroků zpět
 	End Undo Group	Ukončit skupinu kroků zpět
 	Apply Effect	Použít efekt

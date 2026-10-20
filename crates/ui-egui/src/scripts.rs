@@ -1,19 +1,19 @@
-//! PaperCraft: PaperScript files (`.js`) run on the active document. A script sees the document
+//! Scriptographer: PaperScript files (`.js`) run on the active document. A script sees the document
 //! as a Paper.js project, and what it changes comes back as one undo step. A script with `onFrame`
 //! or an interval keeps running, driven by the app's frames, until it stops or Stop Running
 //! Scripts stops it; the whole run is one undo step while nothing else edits the document in
-//! between. Each script runs on a thread of its own (`vectorcraft_papercraft::worker`): the app
+//! between. Each script runs on a thread of its own (`vectorcraft_scriptographer::worker`): the app
 //! sends it its work with the document as it is, waits a moment for what it changed, and goes on
 //! when it takes longer. Edits made in the meantime win over the script's. A script runs on the document it started on: it waits while another one is active, and stops
-//! when its document closes. One tool script at a time is the PaperCraft Tool, which works in
+//! when its document closes. One tool script at a time is the Scriptographer Tool, which works in
 //! every document. A script's dialogs (`Dialog.prompt`…) show as app dialogs while it waits, its
 //! palettes (`new Palette`) as floating panels while it runs.
 //!
 //! `ui.runScript {path?}` runs a script (without a path it asks for the file),
 //! `ui.stopScripts` stops the running ones and `ui.evaluateScript {code}` runs a line in the
 //! console's own project, which lives as long as the app. Everything scripts print and every error
-//! goes to the log the PaperCraft Console panel shows; the last line also shows in the status bar.
-//! The scripts folders (`UiState::papercraft_folders`) are what the PaperCraft panel lists. A
+//! goes to the log the Scriptographer Console panel shows; the last line also shows in the status bar.
+//! The scripts folders (`UiState::scriptographer_folders`) are what the Scriptographer panel lists. A
 //! script's view is the first artboard, so `view.bounds` is its size.
 
 use std::collections::{BTreeSet, VecDeque};
@@ -23,8 +23,8 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 use vectorcraft_doc::{Document, NodeId};
-use vectorcraft_papercraft::worker::{Pointer, Reply, Request, Work, Worker};
-use vectorcraft_papercraft::{Modifiers, MouseEvent, PaletteEvent, Setup};
+use vectorcraft_scriptographer::worker::{Pointer, Reply, Request, Work, Worker};
+use vectorcraft_scriptographer::{Modifiers, MouseEvent, PaletteEvent, Setup};
 use vectorcraft_tools::Cursor;
 
 use crate::state::ScriptFolder;
@@ -65,9 +65,9 @@ pub struct Scripts {
     pointer: Option<(u64, Vec<Pointer>)>,
     /// The scripts folders whose `__init__` scripts ran.
     initialized: Option<Vec<ScriptFolder>>,
-    /// The tool script the PaperCraft Tool button stands for: the last one run, until it fails.
+    /// The tool script the Scriptographer Tool button stands for: the last one run, until it fails.
     tool: Option<ToolScript>,
-    /// Whether the PaperCraft Tool is the active tool: the canvas then sends its pointer events to
+    /// Whether the Scriptographer Tool is the active tool: the canvas then sends its pointer events to
     /// the tool script.
     tool_active: bool,
 }
@@ -93,7 +93,7 @@ pub enum EntryKind {
     },
 }
 
-/// The tool script, global as the PaperCraft Tool is: as PaperScript fixes a script's `project`
+/// The tool script, global as the Scriptographer Tool is: as PaperScript fixes a script's `project`
 /// when it runs, it runs once in each document, the first time the tool is used there.
 #[derive(Clone)]
 struct ToolScript {
@@ -176,17 +176,17 @@ impl Scripts {
         self.running.iter().chain(&self.console).any(|s| s.timers || (s.busy.is_some() && s.asking.is_none()))
     }
 
-    /// The tool script the PaperCraft Tool button stands for.
+    /// The tool script the Scriptographer Tool button stands for.
     pub fn tool(&self) -> Option<&Path> {
         self.tool.as_ref().map(|t| t.path.as_path())
     }
 
-    /// The tool script, while the PaperCraft Tool is the active tool.
+    /// The tool script, while the Scriptographer Tool is the active tool.
     pub fn active_tool(&self) -> Option<&Path> {
         self.tool().filter(|_| self.tool_active)
     }
 
-    /// Makes the PaperCraft Tool the active tool, when a tool script is assigned to it.
+    /// Makes the Scriptographer Tool the active tool, when a tool script is assigned to it.
     pub fn select_tool(&mut self) {
         self.tool_active = self.tool.is_some();
         self.activate_tool(self.tool_active);
@@ -199,7 +199,7 @@ impl Scripts {
         }
     }
 
-    /// Unloads the tool scripts the PaperCraft Tool no longer stands for, from every document.
+    /// Unloads the tool scripts the Scriptographer Tool no longer stands for, from every document.
     fn tidy(&mut self) {
         if self.tool.is_none() {
             self.tool_active = false;
@@ -209,7 +209,7 @@ impl Scripts {
     }
 
     /// Makes the app's own tools active again: the canvas no longer sends pointer events to the
-    /// tool script, which stays assigned to the PaperCraft Tool.
+    /// tool script, which stays assigned to the Scriptographer Tool.
     pub fn deselect_tool(&mut self) {
         if self.tool_active {
             self.tool_active = false;
@@ -391,7 +391,7 @@ pub(crate) fn stop(app: &mut VectorcraftApp) -> Result<Value, String> {
     Ok(json!({ "stopped": stopped }))
 }
 
-/// Calls the scripts' `handler` ([`vectorcraft_papercraft::HANDLERS`]), where they define it.
+/// Calls the scripts' `handler` ([`vectorcraft_scriptographer::HANDLERS`]), where they define it.
 pub(crate) fn notify(app: &mut VectorcraftApp, handler: &'static str) {
     let mut scripts = std::mem::take(&mut app.scripts.running);
     scripts.extend(app.scripts.console.take());
@@ -419,8 +419,8 @@ fn start(app: &VectorcraftApp, name: String, path: Option<PathBuf>, source: Stri
     let (doc, selection) = (state.doc.clone(), state.selection.clone());
     let size = doc.artboards.first().map_or((800.0, 600.0), |a| (a.rect.width(), a.rect.height()));
     let file = path.as_ref().map(|p| p.to_string_lossy().into_owned());
-    let preferences = file.as_ref().and_then(|f| app.ui.papercraft_preferences.get(f)).cloned().unwrap_or_else(|| json!({}));
-    let setup = Setup { file, preferences, storage: app.ui.papercraft_storage.clone(), language: Some(app.ui_language().code().to_owned()) };
+    let preferences = file.as_ref().and_then(|f| app.ui.scriptographer_preferences.get(f)).cloned().unwrap_or_else(|| json!({}));
+    let setup = Setup { file, preferences, storage: app.ui.scriptographer_storage.clone(), language: Some(app.ui_language().code().to_owned()) };
     let worker = Worker::spawn(size, setup, doc, selection).map_err(|e| e.to_string())?;
     let queued = if source.is_empty() { VecDeque::new() } else { VecDeque::from([Work::Execute(source.clone())]) };
     static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -464,8 +464,8 @@ pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
     }
     // The folders' `__init__` scripts run once a document is open, and again when the folders
     // change, as in Scriptographer.
-    if app.session.active().is_some() && app.scripts.initialized.as_ref() != Some(&app.ui.papercraft_folders) {
-        let folders = app.ui.papercraft_folders.clone();
+    if app.session.active().is_some() && app.scripts.initialized.as_ref() != Some(&app.ui.scriptographer_folders) {
+        let folders = app.ui.scriptographer_folders.clone();
         app.scripts.initialized = Some(folders.clone());
         for path in folders.iter().filter(|f| f.visible).flat_map(|f| init_scripts(Path::new(&f.path), 0)) {
             // A failing script says so in the log.
@@ -482,7 +482,7 @@ pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
     let active = app.session.active().map(|d| d.uid);
     scripts.retain_mut(|script| {
         if !is_open(app, script.doc) {
-            // The tool script stays the PaperCraft Tool's, for the other documents.
+            // The tool script stays the Scriptographer Tool's, for the other documents.
             if !script.tool {
                 app.scripts.push_log(format!("{} stopped: its document closed", script.name), false);
             }
@@ -586,7 +586,7 @@ fn send(app: &mut VectorcraftApp, script: &mut Running, work: Work) -> Result<()
         }
     });
     let paint = &app.session.paint;
-    let style = vectorcraft_papercraft::host::current_style(&paint.fill, &paint.stroke, paint.stroke_width);
+    let style = vectorcraft_scriptographer::host::current_style(&paint.fill, &paint.stroke, paint.stroke_width);
     script.worker.send(Request::Run { doc, selection, artboard, style, work });
     Ok(())
 }
@@ -617,7 +617,7 @@ fn settle(app: &mut VectorcraftApp, script: &mut Running, wait: Duration) -> Opt
                 show_output(app, output);
                 // Kept with the app's settings, for the script's next run.
                 if let (Some(preferences), Some(path)) = (preferences, &script.path) {
-                    app.ui.papercraft_preferences.insert(path.to_string_lossy().into_owned(), preferences);
+                    app.ui.scriptographer_preferences.insert(path.to_string_lossy().into_owned(), preferences);
                     app.prefs_changed = true;
                 }
                 script.busy = None;
@@ -662,14 +662,14 @@ pub(crate) fn palettes(app: &mut VectorcraftApp, ctx: &egui::Context) {
         let file = script.path.as_ref().map_or_else(|| script.name.clone(), |p| p.to_string_lossy().into_owned());
         for view in &mut script.palettes {
             let key = format!("{file}\u{1f}{}", view.title);
-            let placed = app.ui.papercraft_palettes.get(&key).map(|p| egui::pos2(p[0], p[1]));
+            let placed = app.ui.scriptographer_palettes.get(&key).map(|p| egui::pos2(p[0], p[1]));
             // A new area shows from its second frame, once it knows its size.
             if view.pos.is_none() {
                 ctx.request_repaint();
             }
             let pos = *view.pos.get_or_insert_with(|| placed.unwrap_or(start + egui::vec2(shown, shown)));
             shown += 24.0;
-            let area = egui::Id::new(("papercraft-palette", script.id, view.id));
+            let area = egui::Id::new(("scriptographer-palette", script.id, view.id));
             let size = ctx.memory(|m| m.area_rect(area)).map_or(egui::vec2(300.0, 200.0), |r| r.size());
             let pos = crate::floating::clamp([pos.x, pos.y], size, screen);
             egui::Area::new(area).order(egui::Order::Middle).fixed_pos(pos).show(ctx, |ui| {
@@ -700,7 +700,7 @@ pub(crate) fn palettes(app: &mut VectorcraftApp, ctx: &egui::Context) {
                         view.pos = Some(pos + grip.drag_delta());
                     }
                     if grip.drag_stopped() {
-                        app.ui.papercraft_palettes.insert(key.clone(), [pos.x, pos.y]);
+                        app.ui.scriptographer_palettes.insert(key.clone(), [pos.x, pos.y]);
                         app.prefs_changed = true;
                     }
                     let x = ui.interact(close, ui.id().with("close"), egui::Sense::click());
@@ -1030,14 +1030,14 @@ fn load_tool(app: &mut VectorcraftApp, ToolScript { path, source, .. }: ToolScri
     Ok(script)
 }
 
-/// The canvas cursor while the PaperCraft Tool is the active tool, as Scriptographer's tool had it:
+/// The canvas cursor while the Scriptographer Tool is the active tool, as Scriptographer's tool had it:
 /// a pencil, or the crosshair with Use Precise Cursors.
 pub(crate) fn cursor(app: &VectorcraftApp) -> Option<Cursor> {
     app.scripts.active_tool()?;
     Some(if app.session.prefs.use_precise_cursors { Cursor::Script.precise() } else { Cursor::Script })
 }
 
-/// The PaperCraft Tool's button in the toolbox, under the app's tools, as Scriptographer's tool
+/// The Scriptographer Tool's button in the toolbox, under the app's tools, as Scriptographer's tool
 /// button: dimmed until a tool script is run, then named after it and selected while it is the
 /// active tool. Clicking it makes the tool script the active tool again; double-clicking it calls
 /// the script's `onEditOptions()` too.
@@ -1058,8 +1058,8 @@ pub(crate) fn tool_button(app: &mut VectorcraftApp, ui: &mut egui::Ui, center_x:
         // then a coloured one (painted untinted).
         let icon = egui::Rect::from_center_size(rect.center(), egui::vec2(18.0, 18.0));
         match &assigned {
-            Some(_) => crate::icons::paint(ui, "dc-papercraft-tool-active", icon, egui::Color32::WHITE),
-            None => crate::icons::paint(ui, "dc-papercraft-tool", icon, t.text_disabled),
+            Some(_) => crate::icons::paint(ui, "dc-scriptographer-tool-active", icon, egui::Color32::WHITE),
+            None => crate::icons::paint(ui, "dc-scriptographer-tool", icon, t.text_disabled),
         }
         let tip = assigned.clone().unwrap_or_else(|| tl!("Run a tool script to assign it to this tool button").to_owned());
         let resp = resp.on_hover_text(tip);
@@ -1083,10 +1083,10 @@ fn report(app: &mut VectorcraftApp, name: &str, error: &str) {
     app.status(message);
 }
 
-/// Shows the PaperCraft Console when it isn't showing, as Scriptographer's did when a script
+/// Shows the Scriptographer Console when it isn't showing, as Scriptographer's did when a script
 /// printed.
 fn show_console(app: &mut VectorcraftApp) {
-    let params = json!({ "panel": crate::panels::papercraft_console::ID });
+    let params = json!({ "panel": crate::panels::scriptographer_console::ID });
     if crate::menus::checked(app, "window.panel", &params) != Some(true) {
         // Showing a panel doesn't fail.
         let _ = app.run("window.panel", params);
@@ -1203,9 +1203,13 @@ pub(crate) fn new_script(app: &mut VectorcraftApp, p: &Value) -> Result<Value, S
 fn target_folder(app: &VectorcraftApp, p: &Value) -> Result<PathBuf, String> {
     match p.get("folder").and_then(Value::as_str) {
         Some(folder) => Ok(PathBuf::from(folder)),
-        None => {
-            app.ui.papercraft_folders.iter().find(|f| f.visible).map(|f| PathBuf::from(&f.path)).ok_or_else(|| "choose a scripts folder first".into())
-        }
+        None => app
+            .ui
+            .scriptographer_folders
+            .iter()
+            .find(|f| f.visible)
+            .map(|f| PathBuf::from(&f.path))
+            .ok_or_else(|| "choose a scripts folder first".into()),
     }
 }
 

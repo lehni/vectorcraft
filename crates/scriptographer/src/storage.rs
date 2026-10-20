@@ -15,7 +15,7 @@ const QUOTA: usize = 5 * 1024 * 1024;
 
 /// The key of the hidden property that tells a storage which one it is (`true` for
 /// `sessionStorage`).
-const SESSION: &str = "__papercraftSessionStorage";
+const SESSION: &str = "__scriptographerSessionStorage";
 
 /// The least time between writes of a script's `localStorage`, in milliseconds.
 const WRITE_INTERVAL: f64 = 1000.0;

@@ -38,7 +38,7 @@ commands:
   corpus [--download] [--affinity] [--wpt]
                   show where test corpora live; --download fetches PngSuite into corpus/pngsuite,
                   --affinity the pinned public Affinity documents into corpus/affinity, --wpt the
-                  pinned web-platform-tests PaperCraft runs into corpus/wpt
+                  pinned web-platform-tests Scriptographer runs into corpus/wpt
   bundle          build dist/VectorCraft.app (macOS) with assets/app-icon/vectorcraft.icns
   ico <out.ico> <png>...
                   pack PNGs into a Windows .ico (used by packaging/icons.sh)
@@ -335,7 +335,7 @@ Tests that use a corpus skip cleanly when it is absent.
   corpus/affinity/   public Affinity documents (CC0/MIT/Apache-2.0) at pinned commits, sha256
                      verified: oracles for the Affinity reader. Fetch: cargo xtask corpus --affinity
   corpus/wpt/        web-platform-tests (BSD-3-Clause) at a pinned commit, sha256 verified: the
-                     browser APIs' conformance tests for PaperCraft. Fetch: cargo xtask corpus --wpt
+                     browser APIs' conformance tests for Scriptographer. Fetch: cargo xtask corpus --wpt
 ",
         corpus.display()
     );

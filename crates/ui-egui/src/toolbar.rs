@@ -173,7 +173,7 @@ fn body(app: &mut VectorcraftApp, ui: &mut Ui, cols: usize, floating: Option<egu
     gresp.on_hover_cursor(egui::CursorIcon::Grab).on_hover_text(grip_tip);
     // The tools and the controls under them scroll in a window too short for them.
     widgets::strip_scroll(ui, "toolbar", |ui| {
-        // While the PaperCraft Tool is active, none of the app's tools is.
+        // While the Scriptographer Tool is active, none of the app's tools is.
         let active = if app.scripts.active_tool().is_some() { "" } else { app.session.tool_id() };
         // The tool button whose long press opened its flyout, until the next press.
         let held_id = egui::Id::new("toolbar-held");

@@ -1565,14 +1565,13 @@ font-technology	Variable	Variables
 	Stop Running Scripts	Detener scripts en ejecución
 	Evaluate Script	Evaluar script
 	New Script	Nuevo script
-	PaperCraft Console	Consola de PaperCraft
-	PaperCraft Tool	Herramienta PaperCraft
-	About PaperCraft	Acerca de PaperCraft
-	About PaperCraft…	Acerca de PaperCraft…
+	Scriptographer Console	Consola de Scriptographer
+	Scriptographer Tool	Herramienta Scriptographer
+	About Scriptographer	Acerca de Scriptographer
+	About Scriptographer…	Acerca de Scriptographer…
 	Paper.js Reference…	Referencia de Paper.js…
 	Scripting with Paper.js {version}	Scripts con Paper.js {version}
 	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js por Jürg Lehni y Jonathan Puckey
-	After Scriptographer by Jürg Lehni	Basado en Scriptographer de Jürg Lehni
 	Choose Scripts Folder…	Elegir carpeta de scripts…
 	Choose the folder your scripts are in.	Elija la carpeta donde están sus scripts.
 	Clear Console	Borrar consola
@@ -1587,7 +1586,7 @@ font-technology	Variable	Variables
 	New Folder	Carpeta nueva
 	Show / Hide Console	Mostrar / ocultar consola
 	Run a tool script to assign it to this tool button	Ejecute un script de herramienta para asignarlo a este botón
-	PaperCraft	PaperCraft
+	Scriptographer	Scriptographer
 	Install Plug-in	Instalar plugin
 	Install Plug-in…	Instalar plugin…
 	Open this setting's help page	Abrir la página de ayuda de este ajuste

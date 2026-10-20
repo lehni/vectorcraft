@@ -121,7 +121,7 @@ fn pen(p: &mut Ink, o: Pos2, badge: &str) {
     }
 }
 
-/// The PaperCraft Tool's pencil: Scriptographer's 16 × 16 tool cursor, traced. Its points are on
+/// The Scriptographer Tool's pencil: the original Scriptographer's 16 × 16 tool cursor, traced. Its points are on
 /// that bitmap's pixel centres, `(x, y)` from the top left, the hotspot the lead tip's pixel at
 /// `(0, 14)`: 1-point lines on white, as the bitmap had them.
 fn script_pencil(p: &mut Ink, o: Pos2) {

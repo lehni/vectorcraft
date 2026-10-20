@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use serde_json::json;
 use vectorcraft_engine::Session;
-use vectorcraft_papercraft::Setup;
-use vectorcraft_papercraft::worker::{Reply, Request, Work, Worker};
+use vectorcraft_scriptographer::Setup;
+use vectorcraft_scriptographer::worker::{Reply, Request, Work, Worker};
 
 const WAIT: Duration = Duration::from_secs(10);
 

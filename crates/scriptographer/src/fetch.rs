@@ -693,7 +693,7 @@ fn store_form<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, list: Vec<FormE
 fn multipart<H: Clone>(call: &mut dyn Call<H>, form: &Value<H>) -> Result<(Vec<u8>, Option<String>), Error> {
     let mut random = [0u8; 12];
     getrandom::fill(&mut random).map_err(|e| Error::Script(format!("FormData: {e}")))?;
-    let boundary = format!("----PaperCraft{}", random.iter().map(|b| format!("{b:02x}")).collect::<String>());
+    let boundary = format!("----Scriptographer{}", random.iter().map(|b| format!("{b:02x}")).collect::<String>());
     let quote = |s: &str| s.replace('\r', "%0D").replace('\n', "%0A").replace('"', "%22");
     let mut bytes = Vec::new();
     for (name, value, filename) in form_entries(call, form)? {

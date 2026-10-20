@@ -1853,14 +1853,13 @@ file-filter	Templates	Mẫu
 	Stop Running Scripts	Dừng các tập lệnh đang chạy
 	Evaluate Script	Đánh giá tập lệnh
 	New Script	Tập lệnh mới
-	PaperCraft Console	Bảng điều khiển PaperCraft
-	PaperCraft Tool	Công cụ PaperCraft
-	About PaperCraft	Giới thiệu PaperCraft
-	About PaperCraft…	Giới thiệu PaperCraft…
+	Scriptographer Console	Bảng điều khiển Scriptographer
+	Scriptographer Tool	Công cụ Scriptographer
+	About Scriptographer	Giới thiệu Scriptographer
+	About Scriptographer…	Giới thiệu Scriptographer…
 	Paper.js Reference…	Tài liệu tham khảo Paper.js…
 	Scripting with Paper.js {version}	Tập lệnh với Paper.js {version}
 	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js của Jürg Lehni và Jonathan Puckey
-	After Scriptographer by Jürg Lehni	Dựa trên Scriptographer của Jürg Lehni
 	Choose Scripts Folder…	Chọn thư mục tập lệnh…
 	Choose the folder your scripts are in.	Chọn thư mục chứa các tập lệnh của bạn.
 	Clear Console	Xóa bảng điều khiển
@@ -1875,7 +1874,7 @@ file-filter	Templates	Mẫu
 	New Folder	Thư mục mới
 	Show / Hide Console	Hiện / ẩn bảng điều khiển
 	Run a tool script to assign it to this tool button	Chạy một tập lệnh công cụ để gán nó cho nút công cụ này
-	PaperCraft	PaperCraft
+	Scriptographer	Scriptographer
 	Install Plug-in	Cài đặt plug-in
 	Install Plug-in…	Cài đặt plug-in…
 	Open this setting's help page	Mở trang trợ giúp của thiết lập này

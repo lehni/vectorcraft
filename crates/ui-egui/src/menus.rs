@@ -1098,52 +1098,52 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
         "ui.runScript",
         "Run Script…",
         "",
-        "{path?: a .js file} run a PaperScript file on the active document with PaperCraft, as one undo step (the last console.log line shows in the status bar); a script with onFrame or an interval keeps running until ui.stopScripts; without a path pick one → {changed, running, tool}, or {started: true} when it is still working after 2 s (it goes on, on its own thread)",
+        "{path?: a .js file} run a PaperScript file on the active document with Scriptographer, as one undo step (the last console.log line shows in the status bar); a script with onFrame or an interval keeps running until ui.stopScripts; without a path pick one → {changed, running, tool}, or {started: true} when it is still working after 2 s (it goes on, on its own thread)",
     ),
     (
         "ui.stopScripts",
         "Stop Running Scripts",
         "Cmd+.",
-        "{} stop the PaperCraft scripts that keep running (onFrame, intervals) or are still working, mid-loop → {stopped}",
+        "{} stop the Scriptographer scripts that keep running (onFrame, intervals) or are still working, mid-loop → {stopped}",
     ),
     (
         "ui.evaluateScript",
         "Evaluate Script",
         "",
-        "{code} run PaperScript in the PaperCraft console's own project on the active document, as one undo step; what it prints goes to the console → {changed}",
+        "{code} run PaperScript in the Scriptographer console's own project on the active document, as one undo step; what it prints goes to the console → {changed}",
     ),
     (
         "ui.newScript",
         "New Script",
         "",
-        "{folder?: default the first PaperCraft scripts folder shown, name?: without one, a save dialog asks for it, suggesting the first free Untitled N.js} make an empty script there → {path}",
+        "{folder?: default the first Scriptographer scripts folder shown, name?: without one, a save dialog asks for it, suggesting the first free Untitled N.js} make an empty script there → {path}",
     ),
     (
         "ui.newScriptFolder",
         "Create New Folder…",
         "",
-        "{folder?: default the first PaperCraft scripts folder shown, name?} make a folder there; without a name, dialog `newScriptFolder` (fields `folder`, `name`, suggesting the first free Untitled N) asks for it → {path} or {pending}",
+        "{folder?: default the first Scriptographer scripts folder shown, name?} make a folder there; without a name, dialog `newScriptFolder` (fields `folder`, `name`, suggesting the first free Untitled N) asks for it → {path} or {pending}",
     ),
-    ("ui.editScript", "Edit Script…", "", "{path} open a PaperCraft script in the system's editor for its kind of file"),
+    ("ui.editScript", "Edit Script…", "", "{path} open a Scriptographer script in the system's editor for its kind of file"),
     (
         "ui.scriptTool",
-        "PaperCraft Tool",
+        "Scriptographer Tool",
         "",
-        "{} make the PaperCraft Tool the active tool, when a tool script is assigned to it (its onActivate runs) → {active}",
+        "{} make the Scriptographer Tool the active tool, when a tool script is assigned to it (its onActivate runs) → {active}",
     ),
-    ("ui.revealScript", "Show in Folder", "", "{path} show a PaperCraft script or folder in the system file manager (desktop)"),
+    ("ui.revealScript", "Show in Folder", "", "{path} show a Scriptographer script or folder in the system file manager (desktop)"),
     ("ui.paperReference", "Paper.js Reference…", "", "{} open the Paper.js reference (paperjs.org) in the browser"),
     (
-        "ui.papercraftAbout",
-        "About PaperCraft…",
+        "ui.scriptographerAbout",
+        "About Scriptographer…",
         "",
-        "{} open About PaperCraft (dialog `papercraftAbout`): the Paper.js logo and version, credits and links",
+        "{} open About Scriptographer (dialog `scriptographerAbout`): the Paper.js logo and version, credits and links",
     ),
     (
         "ui.scriptFolders",
         "Manage Script Folders…",
         "",
-        "{} open the PaperCraft panel's Script Folders (dialog `scriptFolders`, field `folders`: [{name, path, visible}] in the panel's order); OK keeps them",
+        "{} open the Scriptographer panel's Script Folders (dialog `scriptFolders`, field `folders`: [{name, path, visible}] in the panel's order); OK keeps them",
     ),
     (
         "ui.perspectiveGridDialog",
@@ -1990,7 +1990,7 @@ pub fn run_ui_command(app: &mut VectorcraftApp, id: &str, p: &Value) -> Option<R
             app.scripts.select_tool();
             Ok(json!({ "active": app.scripts.active_tool().is_some() }))
         }
-        "ui.papercraftAbout" => crate::dialogs::papercraft_about::open(app),
+        "ui.scriptographerAbout" => crate::dialogs::scriptographer_about::open(app),
         "ui.revealScript" => crate::scripts::reveal(app, p),
         "ui.paperReference" => {
             app.open_url("https://paperjs.org/reference/global/");
@@ -3282,10 +3282,10 @@ pub fn menu_tree_named(english_names: bool) -> Vec<(&'static str, Vec<Item>)> {
                 sub("Toolbars", vec![c("Advanced", "window.toolbarAdvanced"), c("Double Column", "window.toolbarColumns")]),
                 Sep,
                 sub(
-                    "PaperCraft",
+                    "Scriptographer",
                     vec![
-                        panel("PaperCraft", crate::panels::papercraft::ID),
-                        panel("PaperCraft Console", crate::panels::papercraft_console::ID),
+                        panel("Scriptographer", crate::panels::scriptographer::ID),
+                        panel("Scriptographer Console", crate::panels::scriptographer_console::ID),
                         Sep,
                         c("Run Script…", "ui.runScript"),
                         c("Stop Running Scripts", "ui.stopScripts"),

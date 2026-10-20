@@ -73,7 +73,7 @@ Generated-in-code art is original and has no file to list. This covers the defau
 | `assets/icons/chart-column.svg` | Lucide Icons and Contributors | https://lucide.dev (lucide-static v1.49.0; header kept in file) | ISC (`assets/icons/LICENSE-lucide.txt`) |  |
 | `assets/icons/chevron-down.svg` | Lucide Icons and Contributors | https://lucide.dev (lucide-static v1.49.0; header kept in file) | ISC; derived from Feather, also MIT (`assets/icons/LICENSE-lucide.txt`) |  |
 | `assets/icons/chevron-up.svg` | Lucide Icons and Contributors | https://lucide.dev (lucide-static v1.49.0; header kept in file) | ISC; derived from Feather, also MIT (`assets/icons/LICENSE-lucide.txt`) |  |
-| `assets/papercraft/paper-js.png` | Jürg Lehni (author of the Paper.js logo) | https://paperjs.org/about/paper-js.gif (converted to PNG) | MIT (confirmed by the author, 2026-10-20) | PaperCraft's About |
+| `assets/scriptographer/paper-js.png` | Jürg Lehni (author of the Paper.js logo) | https://paperjs.org/about/paper-js.gif (converted to PNG) | MIT (confirmed by the author, 2026-10-20) | Scriptographer's About |
 | `assets/icons/refresh-cw.svg` | Lucide Icons and Contributors | https://lucide.dev (lucide-static v1.49.0; header kept in file) | ISC; derived from Feather, also MIT (`assets/icons/LICENSE-lucide.txt`) |  |
 | `assets/icons/chevron-left.svg` | Lucide Icons and Contributors | https://lucide.dev (lucide-static v1.49.0; header kept in file) | ISC; derived from Feather, also MIT (`assets/icons/LICENSE-lucide.txt`) |  |
 | `assets/icons/chevron-right.svg` | Lucide Icons and Contributors | https://lucide.dev (lucide-static v1.49.0; header kept in file) | ISC; derived from Feather, also MIT (`assets/icons/LICENSE-lucide.txt`) |  |
@@ -172,9 +172,9 @@ Generated-in-code art is original and has no file to list. This covers the defau
 | `assets/icons/dc-new-stroke.svg` | VectorCraft contributors | Original work, drawn for VectorCraft | MIT OR Apache-2.0 |  |
 | `assets/icons/dc-objects-on-path.svg` | VectorCraft contributors | Original work, drawn for VectorCraft: three small squares along a curve | MIT OR Apache-2.0 |  |
 | `assets/icons/dc-options.svg` | VectorCraft contributors | Original work, drawn for VectorCraft | MIT OR Apache-2.0 |  |
-| `assets/icons/dc-papercraft-tool.svg` | Jürg Lehni and VectorCraft contributors | Original work, drawn for VectorCraft after the tool icons Jürg Lehni drew for Scriptographer (2009) | MIT OR Apache-2.0 | PaperCraft Tool button |
-| `assets/icons/dc-papercraft-tool-active.svg` | Jürg Lehni and VectorCraft contributors | Original work, drawn for VectorCraft after the tool icons Jürg Lehni drew for Scriptographer (2009) | MIT OR Apache-2.0 | PaperCraft Tool button |
 | `assets/icons/dc-para-bullets.svg` | VectorCraft contributors | Original work, drawn for VectorCraft: three dots, each before a line | MIT OR Apache-2.0 |  |
+| `assets/icons/dc-scriptographer-tool.svg` | Jürg Lehni and VectorCraft contributors | Original work, drawn for VectorCraft after the tool icons Jürg Lehni drew for Scriptographer (2009) | MIT OR Apache-2.0 | Scriptographer Tool button |
+| `assets/icons/dc-scriptographer-tool-active.svg` | Jürg Lehni and VectorCraft contributors | Original work, drawn for VectorCraft after the tool icons Jürg Lehni drew for Scriptographer (2009) | MIT OR Apache-2.0 | Scriptographer Tool button |
 | `assets/icons/dc-para-center.svg` | VectorCraft contributors | Original work, drawn for VectorCraft | MIT OR Apache-2.0 |  |
 | `assets/icons/dc-para-justify-all.svg` | VectorCraft contributors | Original work, drawn for VectorCraft | MIT OR Apache-2.0 |  |
 | `assets/icons/dc-para-justify-center.svg` | VectorCraft contributors | Original work, drawn for VectorCraft | MIT OR Apache-2.0 |  |

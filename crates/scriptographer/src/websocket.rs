@@ -133,7 +133,7 @@ fn construct<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>
     let (sent, incoming) = channel();
     let address = url.to_string();
     std::thread::Builder::new()
-        .name("papercraft websocket".into())
+        .name("scriptographer websocket".into())
         .spawn(move || run(&address, &protocols, &received, &sent))
         .map_err(|e| Error::Script(format!("WebSocket: no thread for it: {e}")))?;
     let number = {

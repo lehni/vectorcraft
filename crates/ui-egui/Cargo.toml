@@ -37,7 +37,7 @@ vectorcraft-pdf = { workspace = true }
 vectorcraft-cad = { workspace = true }
 vectorcraft-eps = { workspace = true }
 vectorcraft-format = { workspace = true }
-vectorcraft-papercraft = { workspace = true }
+vectorcraft-scriptographer = { workspace = true }
 egui = { workspace = true, features = ["bytemuck"] }
 # With egui's `bytemuck`: copies rendered rasters into egui images whole (`canvas::color_image`).
 bytemuck = "1"

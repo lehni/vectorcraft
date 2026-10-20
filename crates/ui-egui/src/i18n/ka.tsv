@@ -2716,14 +2716,13 @@ theme	Appearance	იერსახე
 	Stop Running Scripts	გაშვებული სკრიპტების შეჩერება
 	Evaluate Script	სკრიპტის შეფასება
 	New Script	ახალი სკრიპტი
-	PaperCraft Console	PaperCraft-ის კონსოლი
-	PaperCraft Tool	PaperCraft-ის ხელსაწყო
-	About PaperCraft	PaperCraft-ის შესახებ
-	About PaperCraft…	PaperCraft-ის შესახებ…
+	Scriptographer Console	Scriptographer-ის კონსოლი
+	Scriptographer Tool	Scriptographer-ის ხელსაწყო
+	About Scriptographer	Scriptographer-ის შესახებ
+	About Scriptographer…	Scriptographer-ის შესახებ…
 	Paper.js Reference…	Paper.js-ის ცნობარი…
 	Scripting with Paper.js {version}	სკრიპტები Paper.js {version}-ით
 	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js — იურგ ლენი და ჯონათან პაკი
-	After Scriptographer by Jürg Lehni	იურგ ლენის Scriptographer-ის მიხედვით
 	Choose Scripts Folder…	სკრიპტების საქაღალდის არჩევა…
 	Choose the folder your scripts are in.	აირჩიეთ საქაღალდე, სადაც თქვენი სკრიპტებია.
 	Clear Console	კონსოლის გასუფთავება
@@ -2738,7 +2737,7 @@ theme	Appearance	იერსახე
 	New Folder	ახალი საქაღალდე
 	Show / Hide Console	კონსოლის ჩვენება / დამალვა
 	Run a tool script to assign it to this tool button	გაუშვით ხელსაწყოს სკრიპტი, რომ ეს ღილაკი მას მიენიჭოს
-	PaperCraft	PaperCraft
+	Scriptographer	Scriptographer
 	Begin Undo Group	დაბრუნების ჯგუფის დაწყება
 	End Undo Group	დაბრუნების ჯგუფის დასრულება
 	Apply Effect	ეფექტის გამოყენება

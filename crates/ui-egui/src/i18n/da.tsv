@@ -2904,14 +2904,13 @@ theme	Appearance	Udseende
 	Stop Running Scripts	Stop kørende scripts
 	Evaluate Script	Evaluer script
 	New Script	Nyt script
-	PaperCraft Console	PaperCraft-konsol
-	PaperCraft Tool	PaperCraft-værktøj
-	About PaperCraft	Om PaperCraft
-	About PaperCraft…	Om PaperCraft…
+	Scriptographer Console	Scriptographer-konsol
+	Scriptographer Tool	Scriptographer-værktøj
+	About Scriptographer	Om Scriptographer
+	About Scriptographer…	Om Scriptographer…
 	Paper.js Reference…	Paper.js-reference…
 	Scripting with Paper.js {version}	Scripting med Paper.js {version}
 	Paper.js by Jürg Lehni and Jonathan Puckey	Paper.js af Jürg Lehni og Jonathan Puckey
-	After Scriptographer by Jürg Lehni	Efter Scriptographer af Jürg Lehni
 	Choose Scripts Folder…	Vælg scriptmappe…
 	Choose the folder your scripts are in.	Vælg den mappe, dine scripts ligger i.
 	Clear Console	Ryd konsol
@@ -2926,7 +2925,7 @@ theme	Appearance	Udseende
 	New Folder	Ny mappe
 	Show / Hide Console	Vis / skjul konsol
 	Run a tool script to assign it to this tool button	Kør et værktøjsscript for at knytte det til denne værktøjsknap
-	PaperCraft	PaperCraft
+	Scriptographer	Scriptographer
 	Begin Undo Group	Start fortrydelsesgruppe
 	End Undo Group	Afslut fortrydelsesgruppe
 	Apply Effect	Anvend effekt

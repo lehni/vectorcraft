@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-//! The web-platform-tests of the browser APIs PaperCraft has, against them in V8, when `cargo xtask
+//! The web-platform-tests of the browser APIs Scriptographer has, against them in V8, when `cargo xtask
 //! corpus --wpt` has fetched them; skipped when it hasn't: `OffscreenCanvas` in a worker
 //! (`html/canvas/offscreen`) and the geometry interfaces (`css/geometry`). A test's scripts (its
 //! `importScripts()` or `<script>`s) run as one, after testharness.js, as a shell runs them. The tests that fail are listed in `tests/wpt-expected-failures.txt`: this test
@@ -43,7 +43,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use vectorcraft_papercraft::{Runtime, V8};
+use vectorcraft_scriptographer::{Runtime, V8};
 
 /// Reports each test's result, and the harness's, as JSON lines on the console.
 const REPORTER: &str = "add_completion_callback(function (tests, status) {\n\
@@ -55,7 +55,7 @@ const REPORTER: &str = "add_completion_callback(function (tests, status) {\n\
 const STATUSES: [&str; 5] = ["PASS", "FAIL", "TIMEOUT", "NOTRUN", "PRECONDITION_FAILED"];
 
 const LIST_HEADER: &str = "# The web-platform-tests (https://github.com/web-platform-tests/wpt, BSD-3-Clause) that\n\
-# PaperCraft fails, by file and title: see tests/wpt.rs.\n";
+# Scriptographer fails, by file and title: see tests/wpt.rs.\n";
 
 /// How long a test file may take, its async tests included.
 const TIMEOUT: Duration = Duration::from_secs(5);

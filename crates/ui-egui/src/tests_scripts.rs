@@ -1,4 +1,4 @@
-//! PaperCraft scripts in the app: running ones keep running through what the user does.
+//! Scriptographer scripts in the app: running ones keep running through what the user does.
 
 use serde_json::json;
 use vectorcraft_engine::Session;
@@ -46,8 +46,11 @@ mod tempfile_path {
         pub fn new(source: &str) -> Self {
             static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
             let n = &N;
-            let path =
-                std::env::temp_dir().join(format!("papercraft-{}-{}.js", std::process::id(), n.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+            let path = std::env::temp_dir().join(format!(
+                "scriptographer-{}-{}.js",
+                std::process::id(),
+                n.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
             std::fs::write(&path, source).unwrap();
             Self(path)
         }
@@ -103,8 +106,8 @@ fn a_tool_script_draws_with_the_mouse_one_undo_step_per_drag() {
     // Choosing one of the app's tools gives the canvas back to it.
     app.select_tool("selection");
     assert!(!pointer(&mut app, Down, 0.0));
-    assert!(app.scripts.tool().is_some(), "the tool script stays assigned to the PaperCraft Tool");
-    // The PaperCraft Tool's button makes it the active tool again.
+    assert!(app.scripts.tool().is_some(), "the tool script stays assigned to the Scriptographer Tool");
+    // The Scriptographer Tool's button makes it the active tool again.
     app.scripts.select_tool();
     assert!(pointer(&mut app, Down, 0.0));
 }
@@ -157,7 +160,7 @@ fn an_animation_goes_on_after_the_user_moves_its_object() {
 /// A tool script that draws a circle where the mouse goes down.
 const TOOL: &str = "function onMouseDown(event) { new Path.Circle({ center: event.point, radius: 5 }) }";
 
-/// There is one PaperCraft Tool button: running a tool script replaces the one it stood for.
+/// There is one Scriptographer Tool button: running a tool script replaces the one it stood for.
 #[test]
 fn a_tool_script_replaces_the_previous_one() {
     let (mut app, _) = app();
@@ -190,7 +193,7 @@ fn scripts_stop_when_their_document_closes() {
     assert!(app.scripts.log().iter().all(|l| !l.error), "without errors");
 }
 
-/// The PaperCraft Tool is global: it draws in whichever document is active, and stays when a
+/// The Scriptographer Tool is global: it draws in whichever document is active, and stays when a
 /// document closes.
 #[test]
 fn the_tool_works_in_every_document() {
@@ -208,7 +211,7 @@ fn the_tool_works_in_every_document() {
     app.ui.dialog.as_mut().unwrap().fields.insert("discard".into(), json!(true));
     crate::dialogs::confirm(&mut app).unwrap();
     crate::scripts::frame(&mut app, &ctx, 1.0);
-    assert_eq!(app.scripts.tool(), Some(tool.0.as_path()), "it stays the PaperCraft Tool's");
+    assert_eq!(app.scripts.tool(), Some(tool.0.as_path()), "it stays the Scriptographer Tool's");
     assert!(pointer(&mut app, vectorcraft_tools::PointerKind::Down, 50.0));
     assert_eq!(children(&app), 2, "and draws in the first document");
     assert!(app.scripts.log().iter().all(|l| !l.error));
@@ -228,7 +231,7 @@ fn an_endless_script_goes_on_alone_until_stopped() {
     assert!(!app.scripts.is_running());
 }
 
-/// While the PaperCraft Tool is the active tool, the canvas shows its pencil.
+/// While the Scriptographer Tool is the active tool, the canvas shows its pencil.
 #[test]
 fn the_tool_has_its_own_cursor() {
     let (mut app, _) = app();
@@ -410,7 +413,7 @@ struct TempFolder(std::path::PathBuf);
 
 impl TempFolder {
     fn new(name: &str) -> Self {
-        let path = std::env::temp_dir().join(format!("papercraft-{name}-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("scriptographer-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).unwrap();
         Self(path)
@@ -444,7 +447,7 @@ fn script_folders_are_the_roots_of_the_tree() {
 fn new_scripts_and_folders_are_named_by_the_user() {
     let (mut app, _) = app();
     let folder = TempFolder::new("new");
-    app.ui.papercraft_folders = vec![folder.script_folder("Mine")];
+    app.ui.scriptographer_folders = vec![folder.script_folder("Mine")];
     let asked = std::rc::Rc::new(std::cell::RefCell::new(None));
     let (seen, into) = (asked.clone(), folder.0.clone());
     app.services.pick_save = Some(Box::new(move |pick: &crate::FilePick| {
@@ -472,7 +475,7 @@ fn new_scripts_and_folders_are_named_by_the_user() {
 fn script_folders_dialog_keeps_the_list() {
     let (mut app, _) = app();
     let (a, b) = (TempFolder::new("dialog-a"), TempFolder::new("dialog-b"));
-    app.ui.papercraft_folders = vec![a.script_folder("A"), b.script_folder("B")];
+    app.ui.scriptographer_folders = vec![a.script_folder("A"), b.script_folder("B")];
     app.run("ui.scriptFolders", json!({})).unwrap();
     let dialog = app.ui.dialog.as_mut().unwrap();
     assert_eq!(dialog.kind, crate::dialogs::script_folders::KIND);
@@ -480,7 +483,7 @@ fn script_folders_dialog_keeps_the_list() {
     renamed.visible = false;
     dialog.fields.insert("folders".into(), json!([renamed, a.script_folder("A")]));
     crate::dialogs::confirm(&mut app).unwrap();
-    assert_eq!(app.ui.papercraft_folders, [renamed, a.script_folder("A")]);
+    assert_eq!(app.ui.scriptographer_folders, [renamed, a.script_folder("A")]);
     assert!(app.prefs_changed);
 }
 
@@ -524,12 +527,12 @@ fn init_scripts_run_by_themselves() {
     std::fs::create_dir_all(folder.0.join("Tools")).unwrap();
     std::fs::write(folder.0.join("Tools").join("__init__.js"), "script.keepAlive = true\nconsole.log('ready')").unwrap();
     std::fs::write(folder.0.join("a.js"), "").unwrap();
-    app.ui.papercraft_folders = vec![folder.script_folder("Mine")];
+    app.ui.scriptographer_folders = vec![folder.script_folder("Mine")];
     crate::scripts::frame(&mut app, &egui::Context::default(), 0.0);
     assert!(app.scripts.log().iter().any(|l| l.text == "ready"));
     crate::scripts::frame(&mut app, &egui::Context::default(), 0.1);
     assert_eq!(app.scripts.log().iter().filter(|l| l.text == "ready").count(), 1, "once");
-    let crate::scripts::EntryKind::Folder(children) = &app.scripts.tree(&app.ui.papercraft_folders.clone(), false)[0].kind else { panic!() };
+    let crate::scripts::EntryKind::Folder(children) = &app.scripts.tree(&app.ui.scriptographer_folders.clone(), false)[0].kind else { panic!() };
     let names: Vec<&str> = children.iter().map(|c| c.name.as_str()).collect();
     assert_eq!(names, ["Tools", "a.js"], "and the Tools folder shows no __init__");
 }
@@ -544,7 +547,7 @@ fn script_preferences_last_from_one_run_to_the_next() {
     }
     let counts: Vec<&str> = app.scripts.log().iter().map(|l| l.text.as_str()).collect();
     assert_eq!(counts, ["0", "1"]);
-    assert_eq!(app.ui.papercraft_preferences[path.0.to_string_lossy().as_ref()], json!({"count": 2}));
+    assert_eq!(app.ui.scriptographer_preferences[path.0.to_string_lossy().as_ref()], json!({"count": 2}));
     assert!(app.prefs_changed, "kept with the app's settings");
 }
 
@@ -651,7 +654,7 @@ fn the_console_runs_the_line_return_ends() {
     let frame = |app: &mut VectorcraftApp, events: Vec<egui::Event>| {
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 300.0));
         let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ui| {
-            crate::panels::papercraft_console::show(app, ui);
+            crate::panels::scriptographer_console::show(app, ui);
         });
         out.textures_delta.clear();
     };
@@ -730,7 +733,7 @@ fn a_script_knows_the_active_artboard() {
 #[test]
 fn the_console_shows_when_a_script_prints() {
     let (mut app, _) = app();
-    let shown = |app: &VectorcraftApp| crate::menus::checked(app, "window.panel", &json!({ "panel": crate::panels::papercraft_console::ID }));
+    let shown = |app: &VectorcraftApp| crate::menus::checked(app, "window.panel", &json!({ "panel": crate::panels::scriptographer_console::ID }));
     assert_ne!(shown(&app), Some(true));
     let quiet = tempfile_path::Path::new("var a = 1");
     app.run("ui.runScript", json!({ "path": quiet.0.to_string_lossy() })).unwrap();
@@ -818,7 +821,7 @@ fn a_palettes_menu_runs_its_entries() {
     assert!(app.scripts.log().iter().any(|l| l.text == "about"), "{:?}", app.scripts.log().iter().map(|l| &l.text).collect::<Vec<_>>());
 }
 
-/// Double-clicking the PaperCraft Tool's button calls its script's `onEditOptions()`, as
+/// Double-clicking the Scriptographer Tool's button calls its script's `onEditOptions()`, as
 /// Scriptographer's tool buttons did.
 #[test]
 fn double_clicking_the_tool_button_edits_its_options() {
@@ -859,12 +862,12 @@ fn a_tool_scripts_preview_goes_at_the_next_drag() {
     assert_eq!(children(&app), 2, "the rectangle and the last line");
 }
 
-/// A click into the PaperCraft panel's tree gives it the arrow keys, Return and ⌘E, as
+/// A click into the Scriptographer panel's tree gives it the arrow keys, Return and ⌘E, as
 /// Scriptographer's: they walk the tree, open folders and run scripts instead of nudging the
 /// selection; Escape gives them back.
 #[test]
 fn the_panel_walks_its_tree_with_the_keys() {
-    use crate::panels::papercraft::ID;
+    use crate::panels::scriptographer::ID;
     use egui::{Key, Modifiers};
     let (mut app, id) = app();
     app.run("select.set", json!({ "ids": [id] })).unwrap();
@@ -872,27 +875,27 @@ fn the_panel_walks_its_tree_with_the_keys() {
     for name in ["a.js", "b.js"] {
         std::fs::write(folder.0.join(name), format!("print('{name}')")).unwrap();
     }
-    app.ui.papercraft_folders = vec![folder.script_folder("Scripts")];
+    app.ui.scriptographer_folders = vec![folder.script_folder("Scripts")];
     app.run("window.panel", json!({ "panel": ID })).unwrap();
     let ctx = egui::Context::default();
     let state = |key: &str| egui::Id::new(("panel-state", key));
     ctx.data_mut(|d| {
-        d.insert_temp(state("papercraft-open"), std::collections::BTreeSet::from([folder.0.clone()]));
-        d.insert_temp(state("papercraft-selected"), Some(folder.0.join("a.js")));
+        d.insert_temp(state("scriptographer-open"), std::collections::BTreeSet::from([folder.0.clone()]));
+        d.insert_temp(state("scriptographer-selected"), Some(folder.0.join("a.js")));
     });
     app.key_panel = Some(ID);
     let key = |app: &mut VectorcraftApp, key: Key, modifiers: Modifiers| {
         let events = vec![egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers }];
         let mut out = ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| crate::shortcuts::handle(app, ui.ctx()));
         out.textures_delta.clear();
-        ctx.data(|d| d.get_temp::<Option<std::path::PathBuf>>(state("papercraft-selected"))).flatten()
+        ctx.data(|d| d.get_temp::<Option<std::path::PathBuf>>(state("scriptographer-selected"))).flatten()
     };
     let before = left(&app, id);
     assert_eq!(key(&mut app, Key::ArrowDown, Modifiers::NONE), Some(folder.0.join("b.js")));
     assert_eq!(left(&app, id), before, "the arrows don't nudge the selection meanwhile");
     assert_eq!(key(&mut app, Key::ArrowLeft, Modifiers::NONE), Some(folder.0.clone()), "a script's folder");
     key(&mut app, Key::ArrowLeft, Modifiers::NONE);
-    assert!(ctx.data(|d| d.get_temp::<std::collections::BTreeSet<std::path::PathBuf>>(state("papercraft-open"))).unwrap().is_empty(), "closed");
+    assert!(ctx.data(|d| d.get_temp::<std::collections::BTreeSet<std::path::PathBuf>>(state("scriptographer-open"))).unwrap().is_empty(), "closed");
     key(&mut app, Key::Enter, Modifiers::NONE);
     key(&mut app, Key::ArrowDown, Modifiers::NONE);
     assert_eq!(key(&mut app, Key::E, Modifiers::COMMAND), Some(folder.0.join("a.js")), "Return opened it again");
@@ -903,18 +906,18 @@ fn the_panel_walks_its_tree_with_the_keys() {
     assert_eq!(left(&app, id), before + 1.0, "the arrows nudge again");
 }
 
-/// A click on a row of the PaperCraft panel gives it the keys; a click elsewhere gives them back.
+/// A click on a row of the Scriptographer panel gives it the keys; a click elsewhere gives them back.
 #[test]
 fn a_click_into_the_panel_gives_it_the_keys() {
     let (mut app, _) = app();
     let folder = TempFolder::new("focus");
-    app.ui.papercraft_folders = vec![folder.script_folder("Scripts")];
+    app.ui.scriptographer_folders = vec![folder.script_folder("Scripts")];
     let ctx = egui::Context::default();
     crate::theme::install_fonts(&ctx);
     let frame = |app: &mut VectorcraftApp, events: Vec<egui::Event>| {
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, 400.0));
         let mut out =
-            ctx.run_ui(egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ui| crate::panels::papercraft::show(app, ui));
+            ctx.run_ui(egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ui| crate::panels::scriptographer::show(app, ui));
         out.textures_delta.clear();
         crate::tests_removeanchors::shapes_text(&out.shapes.iter().map(|c| c.shape.clone()).collect::<Vec<_>>())
     };
@@ -927,7 +930,7 @@ fn a_click_into_the_panel_gives_it_the_keys() {
     for events in click(row) {
         frame(&mut app, events);
     }
-    assert_eq!(app.key_panel, Some(crate::panels::papercraft::ID));
+    assert_eq!(app.key_panel, Some(crate::panels::scriptographer::ID));
     // The bottom bar, outside the tree.
     for events in click(egui::pos2(150.0, 395.0)) {
         frame(&mut app, events);

@@ -489,7 +489,7 @@ pub struct VectorcraftApp {
     /// uses the lossless internal clipboard) and what came with a paste (a Paste event's text, a
     /// picture or file the host read: [`Self::paste_from_host`]).
     clipboard_out: Option<String>,
-    /// PaperCraft scripts that keep running ([`scripts`]).
+    /// Scriptographer scripts that keep running ([`scripts`]).
     scripts: scripts::Scripts,
     clipboard_published: Option<String>,
     pub(crate) clipboard_in: Option<vectorcraft_engine::cmd::clipboard::Flavour>,
@@ -543,7 +543,7 @@ pub struct VectorcraftApp {
     /// The system's times of this frame's pointer events, where the platform knows them.
     pub pointer_times: canvas::PointerTimes,
     /// The panel that has the keys it uses, since a click into it, ahead of the canvas and the
-    /// shortcuts; any other key works as always ([`panels::papercraft::keys`]).
+    /// shortcuts; any other key works as always ([`panels::scriptographer::keys`]).
     pub(crate) key_panel: Option<&'static str>,
     /// Modifiers the keyboard holds (from the host's input), given back after synthetic input.
     host_modifiers: egui::Modifiers,

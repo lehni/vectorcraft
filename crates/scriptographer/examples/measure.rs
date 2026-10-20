@@ -1,9 +1,9 @@
 //! Times loading Paper.js and running scripts, in every engine built in:
-//! `cargo run --release -p vectorcraft-papercraft --example measure`.
+//! `cargo run --release -p vectorcraft-scriptographer --example measure`.
 
 use std::time::{Duration, Instant};
 
-use vectorcraft_papercraft::{Engine, Error, Runtime};
+use vectorcraft_scriptographer::{Engine, Error, Runtime};
 
 const CIRCLE: &str = "new Path.Circle({ center: view.bounds.center, radius: 100, fillColor: 'red' })";
 
@@ -64,8 +64,8 @@ fn measure<E: Engine>(name: &str) -> Result<(), Error> {
 
 fn main() -> Result<(), Error> {
     #[cfg(all(feature = "v8", not(target_arch = "wasm32")))]
-    measure::<vectorcraft_papercraft::V8>("V8")?;
+    measure::<vectorcraft_scriptographer::V8>("V8")?;
     #[cfg(feature = "boa")]
-    measure::<vectorcraft_papercraft::Boa>("Boa")?;
+    measure::<vectorcraft_scriptographer::Boa>("Boa")?;
     Ok(())
 }
