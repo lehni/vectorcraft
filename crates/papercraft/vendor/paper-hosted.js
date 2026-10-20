@@ -9,7 +9,7 @@
  *
  * All rights reserved.
  *
- * Date: Tue Oct 20 07:54:35 2026 +0200
+ * Date: Tue Oct 20 08:50:08 2026 +0200
  *
  ***
  *
@@ -6993,28 +6993,22 @@ statics: {
 	},
 
 	getTimeOf: function(v, point) {
-		var p0 = new Point(v[0], v[1]),
-			p3 = new Point(v[6], v[7]),
-			epsilon = 1e-12,
-			geomEpsilon = 1e-7,
-			t = point.isClose(p0, epsilon) ? 0
-			  : point.isClose(p3, epsilon) ? 1
-			  : null;
-		if (t === null) {
-			var coords = [point.x, point.y],
-				roots = [];
-			for (var c = 0; c < 2; c++) {
-				var count = Curve.solveCubic(v, c, coords[c], roots, 0, 1);
-				for (var i = 0; i < count; i++) {
-					var u = roots[i];
-					if (point.isClose(Curve.getPoint(v, u), geomEpsilon))
-						return u;
-				}
+		var epsilon = 1e-7;
+		if (point.isClose(new Point(v[0], v[1]), epsilon))
+			return 0;
+		if (point.isClose(new Point(v[6], v[7]), epsilon))
+			return 1;
+		var coords = [point.x, point.y],
+			roots = [];
+		for (var c = 0; c < 2; c++) {
+			var count = Curve.solveCubic(v, c, coords[c], roots, 0, 1);
+			for (var i = 0; i < count; i++) {
+				var u = roots[i];
+				if (point.isClose(Curve.getPoint(v, u), epsilon))
+					return u;
 			}
 		}
-		return point.isClose(p0, geomEpsilon) ? 0
-			 : point.isClose(p3, geomEpsilon) ? 1
-			 : null;
+		return null;
 	},
 
 	getNearestTime: function(v, point) {
@@ -10730,8 +10724,8 @@ PathItem.inject(new function() {
 		if (_path2 && (operator.subtract || operator.exclude)
 				^ (_path2.isClockwise() ^ _path1.isClockwise()))
 			_path2.reverse();
-		var crossings = divideLocations(CurveLocation.expand(
-				_path1.getIntersections(_path2, filterIntersection))),
+		var intersections = divideLocations(CurveLocation.expand(
+				_path1.getIntersections(_path2))),
 			paths1 = getPaths(_path1),
 			paths2 = _path2 && getPaths(_path2),
 			segments = [],
@@ -10755,7 +10749,7 @@ PathItem.inject(new function() {
 			return list;
 		}
 
-		if (crossings.length) {
+		if (intersections.length) {
 			collectPaths(paths1);
 			if (paths2)
 				collectPaths(paths2);
@@ -10777,8 +10771,8 @@ PathItem.inject(new function() {
 				};
 			}
 
-			for (var i = 0, l = crossings.length; i < l; i++) {
-				propagateWinding(crossings[i]._segment, _path1, _path2,
+			for (var i = 0, l = intersections.length; i < l; i++) {
+				propagateWinding(intersections[i]._segment, _path1, _path2,
 						curveCollisionsMap, operator);
 			}
 			for (var i = 0, l = segments.length; i < l; i++) {
@@ -11373,14 +11367,13 @@ PathItem.inject(new function() {
 						if (!seg || !seg._path) {
 							seg = null;
 							branch = branches.pop();
-							if (branch) {
+							if (branch)
 								visited = branch.visited;
-								handleIn = branch.handleIn;
-							}
 						}
 					} while (branch && !isValid(seg));
 					if (!seg)
 						break;
+					handleIn = branch.handleIn;
 				}
 				var next = seg.getNext();
 				path.add(new Segment(seg._point, handleIn,
@@ -11472,18 +11465,17 @@ PathItem.inject(new function() {
 				}
 			}
 			if (hasCrossings) {
+				if (hasOverlaps) {
+					Base.each(paths, function(path) {
+						Base.each(path._segments, function(segment) {
+							segment._intersection = null;
+						});
+					});
+				}
 				divideLocations(intersections, hasOverlaps && function(inter) {
 					var curve1 = inter.getCurve(),
-						seg1 = inter.getSegment(),
-						other = inter._intersection,
-						curve2 = other._curve,
-						seg2 = other._segment;
-					if (curve1 && curve2 && curve1._path && curve2._path)
-						return true;
-					if (seg1)
-						seg1._intersection = null;
-					if (seg2)
-						seg2._intersection = null;
+						curve2 = inter._intersection._curve;
+					return curve1 && curve2 && curve1._path && curve2._path;
 				}, clearCurves);
 				if (clearCurves)
 					clearCurveHandles(clearCurves);
