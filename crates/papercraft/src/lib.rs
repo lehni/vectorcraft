@@ -72,6 +72,7 @@ pub struct Host<H> {
     next_interval_id: u32,
     /// The time of the last [`Runtime::run_timers`], in milliseconds.
     now: f64,
+    /// The timers of `setInterval` and `setTimeout`.
     intervals: Vec<Interval<H>>,
     /// The document the project reads from ([`Runtime::bind`]).
     bound: Option<binding::Bound>,
@@ -99,6 +100,8 @@ struct Interval<H> {
     callback: H,
     delay: f64,
     due: f64,
+    /// An interval's, which runs again; else a timeout's, which runs once.
+    repeats: bool,
 }
 
 impl<H> Default for Host<H> {
@@ -231,13 +234,18 @@ impl<E: Engine> Runtime<E> {
             let mut host = self.host.borrow_mut();
             host.now = now;
             for interval in host.intervals.iter_mut().filter(|interval| interval.due <= now) {
+                due.push(interval.callback.clone());
                 // Keep the cadence, but don't catch up on intervals missed while the host was busy.
                 interval.due += interval.delay;
                 if interval.due <= now {
                     interval.due = now + interval.delay;
                 }
-                due.push(interval.callback.clone());
+                // A timeout runs once.
+                if !interval.repeats {
+                    interval.due = f64::NAN;
+                }
             }
+            host.intervals.retain(|interval| !interval.due.is_nan());
         }
         // Callbacks may set or clear intervals, so they run after the borrow ends.
         self.engine.with_call(|call| {
@@ -248,7 +256,7 @@ impl<E: Engine> Runtime<E> {
         })
     }
 
-    /// Whether the scripts have something left to run: an interval, which `onFrame` uses too.
+    /// Whether the scripts have something left to run: a timer, which `onFrame` uses too.
     pub fn is_running(&self) -> bool {
         !self.host.borrow().intervals.is_empty()
     }
@@ -479,13 +487,14 @@ fn method<H: Clone>(call: &mut dyn Call<H>, owner: &H, key: &str, args: &[Value<
 }
 
 /// The globals Paper.js expects in a web worker: `self` (the global object), `navigator`,
-/// `console`, `setInterval` / `clearInterval` for its frame loop, and `OffscreenCanvas` for CSS
-/// colours.
+/// `console`, the timers (`setInterval` for its frame loop) and `OffscreenCanvas` for CSS colours;
+/// and Scriptographer's `print()`, which logs as `console.log()` does.
 fn install_globals<E: Engine>(engine: &mut E, host: &Rc<RefCell<Host<E::Handle>>>) -> Result<(), Error> {
     let global = engine.global()?;
     let log = engine.function("log", console_log)?;
-    let set_interval = engine.function("setInterval", set_interval)?;
-    let clear_interval = engine.function("clearInterval", clear_interval)?;
+    let set_interval = engine.function("setInterval", |call, _, args| set_timer(call, args, true))?;
+    let set_timeout = engine.function("setTimeout", |call, _, args| set_timer(call, args, false))?;
+    let clear_timer = engine.function("clearInterval", clear_timer)?;
     engine.with_call(|call| {
         call.set(&global, "self", &Value::Js(global.clone()))?;
         // Paper.js reads the platform from the user agent, for its key modifiers.
@@ -494,10 +503,16 @@ fn install_globals<E: Engine>(engine: &mut E, host: &Rc<RefCell<Host<E::Handle>>
         call.set(&navigator, "userAgent", &Value::String(user_agent))?;
         call.set(&global, "navigator", &Value::Js(navigator))?;
         let console = call.new_object()?;
-        call.set(&console, "log", &Value::Js(log))?;
+        for name in ["log", "info", "warn", "error"] {
+            call.set(&console, name, &Value::Js(log.clone()))?;
+        }
         call.set(&global, "console", &Value::Js(console))?;
+        call.set(&global, "print", &Value::Js(log))?;
         call.set(&global, "setInterval", &Value::Js(set_interval))?;
-        call.set(&global, "clearInterval", &Value::Js(clear_interval))
+        call.set(&global, "setTimeout", &Value::Js(set_timeout))?;
+        // As in browsers, both clear either kind of timer.
+        call.set(&global, "clearInterval", &Value::Js(clear_timer.clone()))?;
+        call.set(&global, "clearTimeout", &Value::Js(clear_timer))
     })?;
     canvas::install(engine, &global, host)
 }
@@ -511,9 +526,11 @@ fn console_log<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -
     Ok(Value::Undefined)
 }
 
-fn set_interval<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+/// `setInterval(callback, delay)` when it `repeats`, else `setTimeout(callback, delay)`.
+fn set_timer<H: Clone>(call: &mut dyn Call<H>, args: &[Value<H>], repeats: bool) -> Result<Value<H>, Error> {
     let Some(Value::Js(callback)) = args.first() else {
-        return Err(Error::Script("setInterval: the callback is not a function".into()));
+        let name = if repeats { "setInterval" } else { "setTimeout" };
+        return Err(Error::Script(format!("{name}: the callback is not a function")));
     };
     let delay = match args.get(1) {
         Some(Value::Number(delay)) if delay.is_finite() => delay.max(0.0),
@@ -524,11 +541,11 @@ fn set_interval<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Valu
     let id = host.next_interval_id.wrapping_add(1);
     host.next_interval_id = id;
     let due = host.now + delay;
-    host.intervals.push(Interval { id, callback: callback.clone(), delay, due });
+    host.intervals.push(Interval { id, callback: callback.clone(), delay, due, repeats });
     Ok(Value::Number(f64::from(id)))
 }
 
-fn clear_interval<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+fn clear_timer<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     if let Some(Value::Number(id)) = args.first() {
         call.host()?.borrow_mut().intervals.retain(|interval| f64::from(interval.id) != *id);
     }

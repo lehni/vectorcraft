@@ -81,6 +81,29 @@ fn intervals_run_when_due<E: Engine>() {
     assert_eq!(runtime.take_output(), ["1", "2", "3"]);
 }
 
+fn timeouts_run_once<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "setTimeout(function() { print('soon') }, 10)\n\
+             setTimeout(function() { console.warn('later') }, 100)\n\
+             var cleared = setTimeout(function() { print('never') }, 20)\n\
+             clearTimeout(cleared)",
+        )
+        .unwrap();
+    for now in [5.0, 10.0, 15.0, 50.0] {
+        runtime.run_timers(now).unwrap();
+    }
+    assert_eq!(runtime.take_output(), ["soon"], "the later one waits, even past its own delay from now");
+    assert!(runtime.is_running());
+    runtime.run_timers(100.0).unwrap();
+    runtime.run_timers(200.0).unwrap();
+    assert_eq!(runtime.take_output(), ["later"]);
+    assert!(!runtime.is_running(), "nothing is left once the timeouts ran");
+}
+
 fn css_colors_resolve_without_a_canvas<E: Engine>() {
     let mut runtime = Runtime::<E>::new().unwrap();
     let scope = runtime.create_scope(800.0, 600.0).unwrap();
@@ -139,6 +162,11 @@ macro_rules! engine_tests {
             #[test]
             fn intervals_run_when_due() {
                 super::intervals_run_when_due::<$engine>();
+            }
+
+            #[test]
+            fn timeouts_run_once() {
+                super::timeouts_run_once::<$engine>();
             }
 
             #[test]
