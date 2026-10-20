@@ -1,4 +1,4 @@
-//! `EventTarget`, `Event` and `CustomEvent` for scripts outside a browser, as the DOM standard has
+//! `EventTarget`, `Event`, `CustomEvent`, `MessageEvent` and `CloseEvent` for scripts outside a browser, as the DOM standard has
 //! them, to extend (`class Emitter extends EventTarget`): listeners with `capture`, `once`,
 //! `passive` and `signal`, objects with `handleEvent()`, `dispatchEvent()`, `preventDefault()` and
 //! the propagation methods. There's no tree to propagate through: an event reaches its target only
@@ -13,12 +13,56 @@ const NONE: f64 = 0.0;
 const AT_TARGET: f64 = 2.0;
 const PHASES: [(&str, f64); 4] = [("NONE", NONE), ("CAPTURING_PHASE", 1.0), ("AT_TARGET", AT_TARGET), ("BUBBLING_PHASE", 3.0)];
 
-/// What an event keeps, its getters' names: `srcElement` is its target.
-const FIELDS: [&str; 11] =
-    ["type", "bubbles", "cancelable", "composed", "defaultPrevented", "eventPhase", "target", "currentTarget", "timeStamp", "isTrusted", "detail"];
+/// What an event keeps, its getters' names: `srcElement` is its target. The first ten are every
+/// event's; the others the subclasses', which their init dictionaries give ([`CLASSES`]).
+const FIELDS: [&str; 19] = [
+    "type",
+    "bubbles",
+    "cancelable",
+    "composed",
+    "defaultPrevented",
+    "eventPhase",
+    "target",
+    "currentTarget",
+    "timeStamp",
+    "isTrusted",
+    "detail",
+    "data",
+    "origin",
+    "lastEventId",
+    "source",
+    "ports",
+    "wasClean",
+    "code",
+    "reason",
+];
+
+/// How many of [`FIELDS`] every event has.
+const EVENT_FIELDS: usize = 10;
+
+/// A subclass field's value without one in the init dictionary, and the kind it converts to.
+#[derive(Clone, Copy)]
+enum Member {
+    /// Any value; `null` without one.
+    Any,
+    Text,
+    Number,
+    Bool,
+    /// A list; empty without one.
+    List,
+}
+
+/// The event classes, `Event` first, the others extending it: their names, and their own fields,
+/// by [`FIELDS`] index.
+const CLASSES: [(&str, &[(usize, Member)]); 4] = [
+    ("Event", &[]),
+    ("CustomEvent", &[(10, Member::Any)]),
+    ("MessageEvent", &[(11, Member::Any), (12, Member::Text), (13, Member::Text), (14, Member::Any), (15, Member::List)]),
+    ("CloseEvent", &[(16, Member::Bool), (17, Member::Number), (18, Member::Text)]),
+];
 
 /// What the classes share: the realm's `WeakMap`s of targets' listeners and events' states, the
-/// `Event` prototype, `Object`, and `performance`, the clock of `timeStamp`.
+/// event classes, `Object`, and `performance`, the clock of `timeStamp`.
 #[derive(Clone)]
 pub(crate) struct Classes<H> {
     object: H,
@@ -28,18 +72,22 @@ pub(crate) struct Classes<H> {
     remover: H,
     listeners: H,
     states: H,
-    event: H,
+    /// The constructors of [`CLASSES`].
+    events: Vec<H>,
     performance: Option<H>,
 }
 
-/// Sets `EventTarget`, `Event` and `CustomEvent` on `global`, unless it has them.
+/// Sets `EventTarget` and the event classes on `global`, unless it has them.
 pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(), Error> {
     if engine.with_call(|call| Ok(!matches!(call.get(global, "EventTarget")?, Value::Undefined)))? {
         return Ok(());
     }
     let target = engine.constructor("EventTarget", |_, _, _| Ok(Value::Undefined))?;
-    let event = engine.constructor("Event", |call, this, args| construct_event(call, this, args, false))?;
-    let custom = engine.constructor("CustomEvent", |call, this, args| construct_event(call, this, args, true))?;
+    let constructors: [HostFunction<E::Handle>; CLASSES.len()] = [construct::<_, 0>, construct::<_, 1>, construct::<_, 2>, construct::<_, 3>];
+    let mut classes = Vec::new();
+    for ((name, _), constructor) in CLASSES.iter().zip(constructors) {
+        classes.push(engine.constructor(name, constructor)?);
+    }
     let target_methods: [(&str, HostFunction<E::Handle>); 3] =
         [("addEventListener", add_listener), ("removeEventListener", remove_listener), ("dispatchEvent", dispatch_event)];
     let event_methods: [(&str, HostFunction<E::Handle>); 5] = [
@@ -62,7 +110,7 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
     macro_rules! getters {
         ($($i:literal)*) => { [$(get::<E::Handle, $i> as HostFunction<E::Handle>),*] };
     }
-    let getters: [HostFunction<E::Handle>; FIELDS.len()] = getters!(0 1 2 3 4 5 6 7 8 9 10);
+    let getters: [HostFunction<E::Handle>; FIELDS.len()] = getters!(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18);
     let mut fields = Vec::new();
     for (name, get) in FIELDS.iter().zip(getters) {
         fields.push((*name, engine.function(name, get)?));
@@ -89,61 +137,72 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
         for (name, function) in target_methods {
             call.set(&target_prototype, name, &Value::Js(function))?;
         }
-        let event_prototype = call.new_object()?;
-        for (name, function) in event_methods {
-            call.set(&event_prototype, name, &Value::Js(function))?;
+        install_class(call, global, "EventTarget", &target, &target_prototype)?;
+        let mut prototypes: Vec<E::Handle> = Vec::new();
+        for (i, ((name, own), class)) in CLASSES.iter().zip(&classes).enumerate() {
+            // The others extend `Event`.
+            let prototype = match prototypes.first() {
+                Some(event) => match method(call, &object_class, "create", &[Value::Js(event.clone())])? {
+                    Value::Js(prototype) => prototype,
+                    _ => return Err(Error::Script("Object.create made nothing".into())),
+                },
+                None => call.new_object()?,
+            };
+            if let Some(event) = classes.first().filter(|_| i > 0) {
+                method(call, &object_class, "setPrototypeOf", &[Value::Js(class.clone()), Value::Js(event.clone())])?;
+            }
+            let own_fields: Vec<usize> = if i == 0 { (0..EVENT_FIELDS).collect() } else { own.iter().map(|(field, _)| *field).collect() };
+            for field in own_fields {
+                if let Some((name, get)) = fields.get(field) {
+                    define_accessor(call, global, &prototype, name, get.clone(), None)?;
+                }
+            }
+            install_class(call, global, name, class, &prototype)?;
+            prototypes.push(prototype);
         }
-        let mut detail = None;
-        for (name, get) in fields {
-            if name == "detail" {
-                detail = Some(get);
-            } else {
-                define_accessor(call, global, &event_prototype, name, get, None)?;
+        if let (Some(event), Some(event_prototype)) = (classes.first(), prototypes.first()) {
+            for (name, function) in event_methods {
+                call.set(event_prototype, name, &Value::Js(function))?;
+            }
+            define_accessor(call, global, event_prototype, "srcElement", src_element, None)?;
+            define_accessor(call, global, event_prototype, "returnValue", get_return, Some(set_return))?;
+            define_accessor(call, global, event_prototype, "cancelBubble", get_cancel, Some(set_cancel))?;
+            for (name, phase) in PHASES {
+                call.set(event_prototype, name, &Value::Number(phase))?;
+                call.set(event, name, &Value::Number(phase))?;
             }
         }
-        define_accessor(call, global, &event_prototype, "srcElement", src_element, None)?;
-        define_accessor(call, global, &event_prototype, "returnValue", get_return, Some(set_return))?;
-        define_accessor(call, global, &event_prototype, "cancelBubble", get_cancel, Some(set_cancel))?;
-        for (name, phase) in PHASES {
-            call.set(&event_prototype, name, &Value::Number(phase))?;
-            call.set(&event, name, &Value::Number(phase))?;
-        }
-        let Value::Js(custom_prototype) = method(call, &object_class, "create", &[Value::Js(event_prototype.clone())])? else {
-            return Err(Error::Script("Object.create made nothing".into()));
-        };
-        call.set(&custom_prototype, "initCustomEvent", &Value::Js(init_custom))?;
-        if let Some(detail) = detail {
-            define_accessor(call, global, &custom_prototype, "detail", detail, None)?;
-        }
-        method(call, &object_class, "setPrototypeOf", &[Value::Js(custom.clone()), Value::Js(event.clone())])?;
-        for (name, class, prototype) in
-            [("EventTarget", &target, &target_prototype), ("Event", &event, &event_prototype), ("CustomEvent", &custom, &custom_prototype)]
-        {
-            call.set(prototype, "constructor", &Value::Js(class.clone()))?;
-            call.set(class, "prototype", &Value::Js(prototype.clone()))?;
-            call.set(global, name, &Value::Js(class.clone()))?;
-            crate::tag(call, global, prototype, name)?;
+        if let Some(custom) = prototypes.get(1) {
+            call.set(custom, "initCustomEvent", &Value::Js(init_custom))?;
         }
         let new_map = |call: &mut dyn Call<E::Handle>| match call.construct(&weak_map, &[])? {
             Value::Js(map) => Ok(map),
             _ => Err(Error::Script("new WeakMap() made nothing".into())),
         };
         let object_prototype = object(call, &object_class, "prototype")?;
-        let classes = Classes {
+        let shared = Classes {
             to_string: object(call, &object_prototype, "toString")?,
             remover,
             object: object_class,
             listeners: new_map(call)?,
             states: new_map(call)?,
-            event: event_prototype,
+            events: classes,
             performance: match call.get(global, "performance")? {
                 Value::Js(performance) => Some(performance),
                 _ => None,
             },
         };
-        call.host()?.borrow_mut().events = Some(classes);
+        call.host()?.borrow_mut().events = Some(shared);
         Ok(())
     })
+}
+
+/// Sets the class `name` on `global`, with its `prototype`.
+fn install_class<H: Clone>(call: &mut dyn Call<H>, global: &H, name: &str, class: &H, prototype: &H) -> Result<(), Error> {
+    call.set(prototype, "constructor", &Value::Js(class.clone()))?;
+    call.set(class, "prototype", &Value::Js(prototype.clone()))?;
+    call.set(global, name, &Value::Js(class.clone()))?;
+    crate::tag(call, global, prototype, name)
 }
 
 fn shared<H: Clone>(call: &mut dyn Call<H>) -> Result<Classes<H>, Error> {
@@ -185,9 +244,12 @@ fn get<H: Clone, const I: usize>(call: &mut dyn Call<H>, this: &Value<H>, _args:
     }
 }
 
-/// `new Event(type, init)` or `new CustomEvent(type, init)` (`custom`), on `this`, the object `new`
-/// made.
-fn construct_event<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>], custom: bool) -> Result<Value<H>, Error> {
+/// The constructor of `CLASSES[K]`: `new Event(type, init)`, on `this`, the object `new` made, with
+/// the fields its init dictionary gives.
+fn construct<H: Clone, const K: usize>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let Some((_, own)) = CLASSES.get(K) else {
+        return Err(Error::Type("Illegal constructor".into()));
+    };
     let Some(kind) = args.first() else {
         return Err(Error::Type("Event: the type is missing".into()));
     };
@@ -196,19 +258,18 @@ fn construct_event<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Va
         Some(Value::Js(init)) => Some(init.clone()),
         _ => None,
     };
-    let flag = |call: &mut dyn Call<H>, key: &str| -> Result<Value<H>, Error> {
-        Ok(Value::Bool(match &init {
-            Some(init) => crate::truthy(&call.get(init, key)?),
-            None => false,
-        }))
+    let member = |call: &mut dyn Call<H>, key: &str| match &init {
+        Some(init) => call.get(init, key),
+        None => Ok(Value::Undefined),
     };
     let Classes { states, performance, .. } = shared(call)?;
     let state = call.new_object()?;
+    for key in ["bubbles", "cancelable", "composed"] {
+        let value = member(call, key)?;
+        call.set(&state, key, &Value::Bool(crate::truthy(&value)))?;
+    }
     for (key, value) in [
         ("type", Value::String(kind)),
-        ("bubbles", flag(call, "bubbles")?),
-        ("cancelable", flag(call, "cancelable")?),
-        ("composed", flag(call, "composed")?),
         ("defaultPrevented", Value::Bool(false)),
         ("eventPhase", Value::Number(NONE)),
         ("target", Value::Null),
@@ -222,14 +283,21 @@ fn construct_event<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Va
         None => Value::Number(call.host()?.borrow().now),
     };
     call.set(&state, "timeStamp", &now)?;
-    let detail = match (&init, custom) {
-        (Some(init), true) => match call.get(init, "detail")? {
-            Value::Undefined => Value::Null,
-            detail => detail,
-        },
-        _ => Value::Null,
-    };
-    call.set(&state, "detail", &detail)?;
+    for (field, kind) in own.iter() {
+        let Some(key) = FIELDS.get(*field) else { continue };
+        let given = member(call, key)?;
+        let value = match (kind, given) {
+            (Member::List, Value::Undefined) => Value::Js(call.new_array(&[])?),
+            (Member::Text, Value::Undefined) => Value::String(String::new()),
+            (Member::Number, Value::Undefined) => Value::Number(0.0),
+            (Member::Any, Value::Undefined) => Value::Null,
+            (Member::Text, given) => Value::String(call.to_string(&given)?),
+            (Member::Number, given) => Value::Number(call.to_number(&given)?),
+            (Member::Bool, given) => Value::Bool(crate::truthy(&given)),
+            (_, given) => given,
+        };
+        call.set(&state, key, &value)?;
+    }
     method(call, &states, "set", &[this.clone(), Value::Js(state)])?;
     Ok(Value::Undefined)
 }
@@ -419,11 +487,32 @@ fn dispatch_event<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Val
     dispatch(call, this, &event).map(Value::Bool)
 }
 
-/// A new `Event` of `kind`, as the host fires them (`abort`).
-pub(crate) fn new_event<H: Clone>(call: &mut dyn Call<H>, kind: &str) -> Result<Value<H>, Error> {
-    let event = shared(call)?.event;
-    let constructor = object(call, &event, "constructor")?;
-    call.construct(&constructor, &[Value::String(kind.to_owned())])
+/// A new event of the class `class` (one of [`CLASSES`]) and type `kind`, with `members` as its
+/// init dictionary, as the host fires them (`abort`, `message`).
+pub(crate) fn new_event<H: Clone>(call: &mut dyn Call<H>, class: &str, kind: &str, members: &[(&str, Value<H>)]) -> Result<Value<H>, Error> {
+    let at = CLASSES.iter().position(|(name, _)| *name == class).ok_or_else(|| Error::Script(format!("no event class {class}")))?;
+    let constructor = shared(call)?.events.get(at).cloned().ok_or_else(|| Error::Script("events are not set up".into()))?;
+    let init = call.new_object()?;
+    for (key, value) in members {
+        call.set(&init, key, value)?;
+    }
+    call.construct(&constructor, &[Value::String(kind.to_owned()), Value::Js(init)])
+}
+
+/// Fires `event` at `target`, as the host fires its events: to its `on…` handler for the event's
+/// type, then to its listeners.
+pub(crate) fn fire<H: Clone>(call: &mut dyn Call<H>, target: &Value<H>, event: &Value<H>) -> Result<bool, Error> {
+    if let Value::Js(object) = target {
+        let kind = state(call, event, "type")?;
+        let handler = format!("on{}", call.to_string(&kind)?);
+        if let Value::Js(handler) = call.get(object, &handler)? {
+            // A handler that throws is reported, as a listener's is.
+            if let Err(e) = call.call(&handler, target, std::slice::from_ref(event)) {
+                call.host()?.borrow_mut().output.push(format!("Uncaught {e}"));
+            }
+        }
+    }
+    dispatch(call, target, event)
 }
 
 /// Dispatches `event` to `target`'s listeners for it, in order: whether nothing prevented its

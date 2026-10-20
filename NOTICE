@@ -43,7 +43,8 @@ ISC; all licence texts in
 crates/papercraft/vendor/LICENSE-linkedom.txt). Desktop
 builds run them in V8 (BSD-3-Clause, Google; linked through the v8 crate, MIT, the Deno authors);
 other builds in the browser's engine or in Boa (Unlicense OR MIT). On desktop, scripts' fetch() runs
-over ureq (MIT OR Apache-2.0) and rustls (Apache-2.0 OR ISC OR MIT), with ring (Apache-2.0 AND ISC)
+over ureq (MIT OR Apache-2.0) and their WebSockets over tungstenite (MIT OR Apache-2.0), both on
+rustls (Apache-2.0 OR ISC OR MIT), with ring (Apache-2.0 AND ISC)
 and rustls-webpki (ISC), and trusts the root certificates of webpki-roots, Mozilla's CA list
 (CDLA-Permissive-2.0).
 

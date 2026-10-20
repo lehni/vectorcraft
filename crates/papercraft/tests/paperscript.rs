@@ -984,6 +984,74 @@ fn the_clipboard_needs_the_app<E: Engine>() {
     assert_eq!(runtime.take_output(), ["NotAllowedError", "NotAllowedError"]);
 }
 
+/// A WebSocket server on a free local port that echoes what it's sent, for one connection; its
+/// address.
+fn echo_server() -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = format!("ws://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut socket = tungstenite::accept(stream).unwrap();
+        while let Ok(message) = socket.read() {
+            if message.is_text() || message.is_binary() {
+                socket.send(message).unwrap();
+            }
+        }
+    });
+    address
+}
+
+fn web_sockets_talk<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    let source = format!(
+        "const socket = new WebSocket('{}')\n\
+         socket.binaryType = 'arraybuffer'\n\
+         console.log(socket.readyState === WebSocket.CONNECTING, socket instanceof EventTarget)\n\
+         socket.onopen = () => {{ console.log('open', socket.readyState); socket.send('hello'); socket.send(new Uint8Array([1, 2, 3])) }}\n\
+         let count = 0\n\
+         socket.addEventListener('message', event => {{\n\
+             console.log('message', typeof event.data === 'string' ? event.data : new Uint8Array(event.data).join(), event instanceof MessageEvent)\n\
+             if (++count === 2) socket.close(4001, 'done')\n\
+         }})\n\
+         socket.onclose = event => console.log('close', event.code, event.reason, event.wasClean, socket.readyState, event instanceof CloseEvent)",
+        echo_server()
+    );
+    runtime.execute(&scope, &source).unwrap();
+    let started = std::time::Instant::now();
+    while runtime.is_running() && started.elapsed() < std::time::Duration::from_secs(5) {
+        runtime.run_timers(started.elapsed().as_secs_f64() * 1000.0).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(runtime.take_output(), ["true true", "open 1", "message hello true", "message 1,2,3 true", "close 4001 done true 3 true"]);
+    assert!(!runtime.is_running(), "a closed socket keeps the script running no more");
+}
+
+fn web_sockets_that_cant_connect_close<E: Engine>() {
+    // A port nothing listens on.
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    let source = format!(
+        "const socket = new WebSocket('ws://127.0.0.1:{port}')\n\
+         socket.onerror = event => console.log('error', event.type)\n\
+         socket.onclose = event => console.log('close', event.code, event.wasClean)\n\
+         const thrown = f => {{ try {{ f() }} catch (e) {{ return e.name }} }}\n\
+         console.log(thrown(() => new WebSocket('ftp://x')), thrown(() => socket.send('early')), thrown(() => socket.close(1001)))"
+    );
+    runtime.execute(&scope, &source).unwrap();
+    let started = std::time::Instant::now();
+    while runtime.is_running() && started.elapsed() < std::time::Duration::from_secs(5) {
+        runtime.run_timers(started.elapsed().as_secs_f64() * 1000.0).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let output = runtime.take_output();
+    assert_eq!(output.first().map(String::as_str), Some("SyntaxError InvalidStateError InvalidAccessError"));
+    // The console says why; the events don't.
+    assert!(output.get(1).is_some_and(|line| line.starts_with(&format!("WebSocket ws://127.0.0.1:{port}/: "))), "{output:?}");
+    assert_eq!(output.get(2..), Some(&["error error".to_owned(), "close 1006 false".to_owned()][..]));
+}
+
 fn runtimes_live_side_by_side<E: Engine>() {
     // As the app runs them: a second script starts while the first keeps running, and the first
     // stops first.
@@ -1184,6 +1252,16 @@ macro_rules! engine_tests {
             #[test]
             fn the_clipboard_needs_the_app() {
                 super::the_clipboard_needs_the_app::<$engine>();
+            }
+
+            #[test]
+            fn web_sockets_talk() {
+                super::web_sockets_talk::<$engine>();
+            }
+
+            #[test]
+            fn web_sockets_that_cant_connect_close() {
+                super::web_sockets_that_cant_connect_close::<$engine>();
             }
 
             #[test]

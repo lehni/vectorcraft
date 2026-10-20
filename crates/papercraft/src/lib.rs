@@ -34,6 +34,8 @@ mod storage;
 mod urls;
 #[cfg(not(target_arch = "wasm32"))]
 mod web;
+#[cfg(not(target_arch = "wasm32"))]
+mod websocket;
 pub mod worker;
 mod writeback;
 
@@ -149,6 +151,11 @@ pub struct Host<H> {
     fetch: Option<fetch::Classes<H>>,
     #[cfg(not(target_arch = "wasm32"))]
     fetches: Vec<fetch::Pending<H>>,
+    /// The open `WebSocket`s, and the number the next one gets.
+    #[cfg(not(target_arch = "wasm32"))]
+    sockets: Vec<websocket::Socket<H>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    next_socket: u32,
     #[cfg(not(target_arch = "wasm32"))]
     resolvers: Option<(H, H)>,
     /// `URL` and `URLSearchParams` outside a browser.
@@ -215,6 +222,10 @@ impl<H> Default for Host<H> {
             fetch: None,
             #[cfg(not(target_arch = "wasm32"))]
             fetches: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            sockets: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            next_socket: 0,
             #[cfg(not(target_arch = "wasm32"))]
             resolvers: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -293,6 +304,8 @@ impl<E: Engine> Runtime<E> {
         fetch::install(&mut runtime, &global)?;
         #[cfg(not(target_arch = "wasm32"))]
         urls::install(&mut runtime, &global)?;
+        #[cfg(not(target_arch = "wasm32"))]
+        websocket::install(&mut runtime.engine, &global)?;
         clone::install(&mut runtime.engine, &global)?;
         clipboard::install(&mut runtime.engine, &global)?;
         // After `performance`, its clock.
@@ -404,6 +417,8 @@ impl<E: Engine> Runtime<E> {
         self.engine.with_call(|call| {
             #[cfg(not(target_arch = "wasm32"))]
             fetch::poll(call)?;
+            #[cfg(not(target_arch = "wasm32"))]
+            websocket::poll(call)?;
             for callback in due {
                 call.call(&callback, &Value::Undefined, &[])?;
             }
@@ -419,7 +434,7 @@ impl<E: Engine> Runtime<E> {
     pub fn is_running(&self) -> bool {
         let host = self.host.borrow();
         #[cfg(not(target_arch = "wasm32"))]
-        if !host.fetches.is_empty() {
+        if !host.fetches.is_empty() || !host.sockets.is_empty() {
             return true;
         }
         !host.intervals.is_empty() || !host.frames.is_empty()

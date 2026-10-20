@@ -50,6 +50,8 @@ v8 = { workspace = true, optional = true }
 getrandom = "0.3"
 # `fetch()` and `import` from the web (browsers have their own).
 ureq = "3"
+# `WebSocket`, over the same rustls (browsers have their own).
+tungstenite = { version = "0.30", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # In browsers, Boa gets the clock and `Math.random()` from JavaScript.

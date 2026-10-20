@@ -853,12 +853,8 @@ fn abort_signal<H: Clone>(call: &mut dyn Call<H>, signal: &Value<H>, reason: Opt
     };
     call.set(signal, "aborted", &Value::Bool(true))?;
     call.set(signal, "reason", &reason)?;
-    let event = crate::events::new_event(call, "abort")?;
-    let target = Value::Js(signal.clone());
-    if let Value::Js(onabort) = call.get(signal, "onabort")? {
-        call.call(&onabort, &target, std::slice::from_ref(&event))?;
-    }
-    crate::events::dispatch(call, &target, &event)?;
+    let event = crate::events::new_event(call, "Event", "abort", &[])?;
+    crate::events::fire(call, &Value::Js(signal.clone()), &event)?;
     Ok(Value::Undefined)
 }
 
