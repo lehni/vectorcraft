@@ -842,3 +842,17 @@ fn double_clicking_the_tool_button_edits_its_options() {
     let log: Vec<&str> = app.scripts.log().iter().map(|l| l.text.as_str()).collect();
     assert_eq!(log.iter().filter(|l| **l == "options").count(), 1, "{log:?}");
 }
+
+/// What a tool script marks `removeOnDrag()` goes again at its next drag, from the document too,
+/// as Scriptographer's tools used it for a preview that follows the mouse.
+#[test]
+fn a_tool_scripts_preview_goes_at_the_next_drag() {
+    use vectorcraft_tools::PointerKind::{Down, Drag, Up};
+    let (mut app, _) = app();
+    let path = tempfile_path::Path::new("function onMouseDrag(event) { new Path.Line(event.downPoint, event.point).removeOnDrag() }");
+    app.run("ui.runScript", json!({ "path": path.0.to_string_lossy() })).unwrap();
+    for (kind, x) in [(Down, 0.0), (Drag, 15.0), (Drag, 30.0), (Drag, 45.0), (Up, 45.0)] {
+        pointer(&mut app, kind, x);
+    }
+    assert_eq!(children(&app), 2, "the rectangle and the last line");
+}
