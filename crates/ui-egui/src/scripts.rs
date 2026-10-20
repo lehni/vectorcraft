@@ -435,7 +435,12 @@ fn start(app: &VectorcraftApp, name: String, path: Option<PathBuf>, source: Stri
     let (doc, selection) = (state.doc.clone(), state.selection.clone());
     let size = doc.artboards.first().map_or((800.0, 600.0), |a| (a.rect.width(), a.rect.height()));
     let file = path.as_ref().map(|p| p.to_string_lossy().into_owned());
-    let setup = Setup { file, storage: app.ui.scriptographer_storage.clone(), language: Some(app.ui_language().code().to_owned()) };
+    let setup = Setup {
+        file,
+        storage: app.ui.scriptographer_storage.clone(),
+        cache: app.ui.scriptographer_cache.clone(),
+        language: Some(app.ui_language().code().to_owned()),
+    };
     let worker = Worker::spawn(size, setup, doc, selection).map_err(|e| e.to_string())?;
     let queued = if source.is_empty() { VecDeque::new() } else { VecDeque::from([Work::Execute(source.clone())]) };
     static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);

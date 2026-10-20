@@ -220,6 +220,23 @@ fn host_classes_can_be_subclassed<E: Engine>() {
     assert_eq!(runtime.take_output(), ["all", "3 d.txt 3 8", "TypeError"]);
 }
 
+fn web_imports_are_kept_for_the_next_run<E: Engine>(name: &str) {
+    let address = serve(2);
+    let cache = std::env::temp_dir().join(format!("scriptographer-cache-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&cache);
+    let run = || {
+        let mut runtime = Runtime::<E>::new().unwrap();
+        runtime.set_script(&Setup { cache: Some(cache.clone()), ..Setup::default() }).unwrap();
+        let scope = runtime.create_scope(800.0, 600.0).unwrap();
+        runtime.execute(&scope, &format!("import {{ kept }} from '{address}/kept.js'\nconsole.log(kept)")).unwrap();
+        runtime.take_output().into_iter().filter(|line| !line.starts_with("import ")).collect::<Vec<_>>()
+    };
+    assert_eq!(run(), ["once"], "downloaded, and kept");
+    assert_eq!(run(), ["once"], "the copy, which the server says is still the one");
+    assert_eq!(run(), ["once"], "the copy, with the server gone");
+    std::fs::remove_dir_all(&cache).unwrap();
+}
+
 fn files_are_blobs_with_a_name<E: Engine>() {
     let mut runtime = Runtime::<E>::new().unwrap();
     let scope = runtime.create_scope(800.0, 600.0).unwrap();
@@ -344,7 +361,7 @@ fn serve(count: usize) -> String {
                 let mut parts = line.split_whitespace();
                 (parts.next().unwrap().to_owned(), parts.next().unwrap().to_owned())
             };
-            let (mut length, mut kind) = (0, String::new());
+            let (mut length, mut kind, mut tag) = (0, String::new(), String::new());
             loop {
                 let mut header = String::new();
                 reader.read_line(&mut header).unwrap();
@@ -355,6 +372,7 @@ fn serve(count: usize) -> String {
                 match name.to_ascii_lowercase().as_str() {
                     "content-length" => length = value.trim().parse().unwrap(),
                     "content-type" => kind = value.trim().to_owned(),
+                    "if-none-match" => tag = value.trim().to_owned(),
                     _ => {}
                 }
             }
@@ -365,10 +383,13 @@ fn serve(count: usize) -> String {
                 "/lib/mod.js" => ("200 OK", "text/javascript", b"import { b } from '../dep.js'\nexport const a = b + new Point(1, 1)".to_vec()),
                 "/dep.js" => ("200 OK", "text/javascript", b"export const b = new Point(40, 41)".to_vec()),
                 "/echo" => ("201 Created", "text/plain", [format!("{method} {kind}\n").into_bytes(), body].concat()),
+                // Not modified when asked for the copy it gave, whose `ETag` the head names.
+                "/kept.js" if tag == "\"one\"" => ("304 Not Modified", "text/javascript", Vec::new()),
+                "/kept.js" => ("200 OK", "text/javascript", b"export const kept = 'once'".to_vec()),
                 _ => ("404 Not Found", "text/plain", b"missing".to_vec()),
             };
             let head = format!(
-                "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nX-Test: one\r\nConnection: close\r\n\r\n",
+                "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nX-Test: one\r\nETag: \"one\"\r\nConnection: close\r\n\r\n",
                 answer.len()
             );
             stream.write_all(head.as_bytes()).unwrap();
@@ -1260,6 +1281,11 @@ macro_rules! engine_tests {
             #[test]
             fn host_classes_can_be_subclassed() {
                 super::host_classes_can_be_subclassed::<$engine>();
+            }
+
+            #[test]
+            fn web_imports_are_kept_for_the_next_run() {
+                super::web_imports_are_kept_for_the_next_run::<$engine>(stringify!($module));
             }
 
             #[test]

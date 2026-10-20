@@ -38,13 +38,13 @@ pub(crate) struct Pending<H> {
 type FormEntry<H> = (String, Value<H>, Option<String>);
 
 /// A response as its thread received it.
-struct Answer {
-    status: u16,
+pub(crate) struct Answer {
+    pub status: u16,
     status_text: String,
     url: String,
     redirected: bool,
-    headers: Vec<(String, String)>,
-    body: Vec<u8>,
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
 }
 
 /// The classes, as `(global name, constructor, methods)`.
@@ -980,9 +980,9 @@ fn fetch<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) 
     Ok(made)
 }
 
-/// `GET url` on this thread: its status and body.
-pub(crate) fn get(url: &str) -> Result<(u16, Vec<u8>), String> {
-    request_on_thread("GET", url, &[], None, true).map(|answer| (answer.status, answer.body))
+/// `GET url` with `headers`, on this thread.
+pub(crate) fn get(url: &str, headers: &[(String, String)]) -> Result<Answer, String> {
+    request_on_thread("GET", url, headers, None, true)
 }
 
 /// The request, on its thread.

@@ -206,6 +206,9 @@ pub struct Host<H> {
     next_palette_id: u64,
     /// The language the app gave the script ([`Setup`]), which its workers have too.
     language: Option<String>,
+    /// The folder of the copies of what scripts import from the web ([`Setup`]), which its workers
+    /// use too.
+    cache: Option<std::path::PathBuf>,
     /// The [`HANDLERS`] the scripts defined, by name.
     handlers: Vec<(&'static str, H)>,
     /// Why a script with top-level `await` failed, once it did, for the call it happened in.
@@ -282,6 +285,7 @@ impl<H> Default for Host<H> {
             storages: None,
             next_palette_id: 0,
             language: None,
+            cache: None,
             handlers: Vec::new(),
             failure: None,
         }
@@ -298,12 +302,13 @@ pub struct Runtime<E: Engine> {
 }
 
 /// What the app gives a script when it starts: its file (none for code typed in the console), the
-/// folder the app keeps scripts' `localStorage` and `script.preferences` in, and the language the
-/// app's UI is in, as `navigator.language`.
+/// folder the app keeps scripts' `localStorage` and `script.preferences` in, the one it keeps
+/// what they import from the web in, and the language the app's UI is in, as `navigator.language`.
 #[derive(Clone, Debug, Default)]
 pub struct Setup {
     pub file: Option<String>,
     pub storage: Option<std::path::PathBuf>,
+    pub cache: Option<std::path::PathBuf>,
     pub language: Option<String>,
 }
 
@@ -527,11 +532,11 @@ impl<E: Engine> Runtime<E> {
     /// Sets the global `script`, as Scriptographer's: `script.file` and `script.directory`, the
     /// script's file and its folder as `LocalFile`s (`null` for code typed in the console), `script.keepAlive`,
     /// which the script sets to keep running when another script runs, and
-    /// `script.preferences`, the preferences the script last left ([`Runtime::take_preferences`]).
+    /// `script.preferences`, the preferences the script last left ([`Runtime::keep_preferences`]).
     /// Its `localStorage` is kept in the app's folder for them, when it has one and the script a
     /// file; `navigator.language` is the app's.
     pub fn set_script(&mut self, setup: &Setup) -> Result<(), Error> {
-        let Setup { file, storage, language } = setup;
+        let Setup { file, storage, cache, language } = setup;
         let file = file.as_deref();
         let global = self.engine.global()?;
         let directory = file.and_then(|f| std::path::Path::new(f).parent()).map(std::path::Path::to_path_buf);
@@ -541,6 +546,7 @@ impl<E: Engine> Runtime<E> {
                 host.local_storage = storage::Storage::kept_in(storage::Storage::file_for(folder, std::path::Path::new(file)));
             }
             host.language.clone_from(language);
+            host.cache.clone_from(cache);
             host.file = file.map(std::path::PathBuf::from);
             host.directory = directory.clone();
         }

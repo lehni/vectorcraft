@@ -63,7 +63,8 @@ pub(crate) fn load<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[V
     if is_web(&key) {
         call.host()?.borrow_mut().output.push(format!("import {key}"));
     }
-    let source = source(&key).map_err(|e| Error::Script(format!("import '{specifier}': {e}")))?;
+    let cache = call.host()?.borrow().cache.clone();
+    let source = source(&key, cache.as_deref()).map_err(|e| Error::Script(format!("import '{specifier}': {e}")))?;
     let (paperscript, scope) = {
         let host = call.host()?;
         let host = host.borrow();
@@ -119,22 +120,71 @@ fn is_web(key: &str) -> bool {
     url::Url::parse(key).is_ok_and(|url| matches!(url.scheme(), "https" | "http"))
 }
 
-/// The text of the script at `key` ([`locate`]): downloaded when it's a URL, else read.
-pub(crate) fn source(key: &str) -> Result<String, String> {
-    if is_web(key) { download(key) } else { std::fs::read_to_string(key).map_err(|e| e.to_string()) }
+/// The text of the script at `key` ([`locate`]): downloaded when it's a URL, with its copy in
+/// `cache`, else read.
+pub(crate) fn source(key: &str, cache: Option<&Path>) -> Result<String, String> {
+    if is_web(key) { download(key, cache) } else { std::fs::read_to_string(key).map_err(|e| e.to_string()) }
 }
 
-/// The text at `url`, downloaded on the script's thread.
+/// What the cache keeps of a download besides its text: what tells the server which one it is.
 #[cfg(not(target_arch = "wasm32"))]
-fn download(url: &str) -> Result<String, String> {
-    let answer = crate::fetch::get(url)?;
-    if !(200..300).contains(&answer.0) {
-        return Err(format!("{url} answered {}", answer.0));
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+struct Cached {
+    url: String,
+    etag: Option<String>,
+    modified: Option<String>,
+}
+
+/// The text at `url`, downloaded on the script's thread. With a `cache`, the copy kept there is
+/// what the server says is still the one (`304 Not Modified`, asked by its `ETag` or
+/// `Last-Modified`), and what stands in when the server can't be reached or fails (5xx); each
+/// download is kept there, a file named for its URL, with what tells the server which it is.
+#[cfg(not(target_arch = "wasm32"))]
+fn download(url: &str, cache: Option<&Path>) -> Result<String, String> {
+    use sha2::Digest as _;
+    let name: String = sha2::Sha256::digest(url.as_bytes()).iter().take(12).map(|b| format!("{b:02x}")).collect();
+    let files = cache.map(|cache| (cache.join(format!("{name}.js")), cache.join(format!("{name}.json"))));
+    let kept = files.as_ref().and_then(|(text, about)| {
+        let about: Cached = serde_json::from_slice(&std::fs::read(about).ok()?).ok().filter(|a: &Cached| a.url == url)?;
+        Some((std::fs::read_to_string(text).ok()?, about))
+    });
+    let mut asking = Vec::new();
+    if let Some((_, about)) = &kept {
+        asking.extend(about.etag.clone().map(|etag| ("If-None-Match".to_owned(), etag)));
+        asking.extend(about.modified.clone().map(|modified| ("If-Modified-Since".to_owned(), modified)));
     }
-    Ok(String::from_utf8_lossy(&answer.1).into_owned())
+    let answer = match crate::fetch::get(url, &asking) {
+        Ok(answer) => answer,
+        Err(e) => return kept.map(|(text, _)| text).ok_or(e),
+    };
+    match (answer.status, kept) {
+        (304, Some((text, _))) => Ok(text),
+        (500..=599, Some((text, _))) => Ok(text),
+        (200..=299, _) => {
+            let text = String::from_utf8_lossy(&answer.body).into_owned();
+            if let Some((text_file, about_file)) = files {
+                let header = |name: &str| answer.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.clone());
+                let about = Cached { url: url.to_owned(), etag: header("etag"), modified: header("last-modified") };
+                // A copy that can't be kept only costs the next download.
+                let _ = keep(&text_file, &about_file, &text, &about);
+            }
+            Ok(text)
+        }
+        (status, _) => Err(format!("{url} answered {status}")),
+    }
+}
+
+/// Keeps a download's `text` and what's `about` it.
+#[cfg(not(target_arch = "wasm32"))]
+fn keep(text_file: &Path, about_file: &Path, text: &str, about: &Cached) -> Result<(), String> {
+    if let Some(folder) = text_file.parent() {
+        std::fs::create_dir_all(folder).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(text_file, text).map_err(|e| e.to_string())?;
+    std::fs::write(about_file, serde_json::to_vec(about).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
 }
 
 #[cfg(target_arch = "wasm32")]
-fn download(_url: &str) -> Result<String, String> {
+fn download(_url: &str, _cache: Option<&Path>) -> Result<String, String> {
     Err("modules from the web aren't supported in the web build yet".into())
 }

@@ -460,6 +460,11 @@ pub struct UiState {
     /// run. Not saved: the app sets it at launch.
     #[serde(skip)]
     pub scriptographer_storage: Option<std::path::PathBuf>,
+    /// The folder of the copies of what Scriptographer scripts import from the web; none in runs
+    /// without preferences, whose scripts download them each time. Not saved: the app sets it at
+    /// launch.
+    #[serde(skip)]
+    pub scriptographer_cache: Option<std::path::PathBuf>,
     /// Where the user put Scriptographer scripts' palettes, by script and palette title
     /// ([`crate::scripts::palettes`]): a palette opens there again.
     pub scriptographer_palettes: std::collections::BTreeMap<String, [f32; 2]>,
@@ -910,6 +915,7 @@ impl Default for UiState {
             scriptographer_folders: Vec::new(),
             scriptographer_palettes: Default::default(),
             scriptographer_storage: None,
+            scriptographer_cache: None,
             recording: None,
             shortcut_overrides: Default::default(),
             shortcut_set: default_shortcut_set(),

@@ -1061,9 +1061,10 @@ fn main() -> std::process::ExitCode {
                 if prefs_enabled() {
                     let libraries = prefs_path().and_then(|p| Some(p.parent()?.join("Libraries").to_string_lossy().to_string()));
                     app.session.libraries.set_dir(libraries);
-                    // Scriptographer scripts' `localStorage`, likewise, and the Examples; the first
-                    // run also makes "My Scripts" in the user's documents.
+                    // Scriptographer scripts' `localStorage`, likewise, what they import from the web,
+                    // and the Examples; the first run also makes "My Scripts" in the user's documents.
                     app.ui.scriptographer_storage = prefs_path().and_then(|p| Some(p.parent()?.join("Scriptographer Storage")));
+                    app.ui.scriptographer_cache = prefs_path().and_then(|p| Some(p.parent()?.join("Scriptographer Cache")));
                     if let Some(examples) = prefs_path().and_then(|p| Some(p.parent()?.join("Scriptographer Examples"))) {
                         let my_scripts = documents_dir().map(|d| d.join("Scriptographer"));
                         vectorcraft_ui_egui::set_up_script_folders(&mut app, &examples, my_scripts.as_deref());

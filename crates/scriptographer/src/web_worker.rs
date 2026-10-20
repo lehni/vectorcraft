@@ -89,10 +89,10 @@ fn construct<E: Engine>(call: &mut dyn Call<E::Handle>, this: &Value<E::Handle>,
             name = call.to_string(&name_given)?;
         }
     }
-    let (file, directory, language) = {
+    let (file, directory, language, cache) = {
         let host = call.host()?;
         let host = host.borrow();
-        (host.file.as_ref().map(|f| f.to_string_lossy().into_owned()), host.directory.clone(), host.language.clone())
+        (host.file.as_ref().map(|f| f.to_string_lossy().into_owned()), host.directory.clone(), host.language.clone(), host.cache.clone())
     };
     // A script that isn't there fires an error at the worker, as a page's does.
     let key = crate::modules::locate(&path, file.as_deref(), directory).map_err(|e| e.to_string());
@@ -102,7 +102,7 @@ fn construct<E: Engine>(call: &mut dyn Call<E::Handle>, this: &Value<E::Handle>,
     let stop = interrupt.clone();
     std::thread::Builder::new()
         .name("scriptographer worker".into())
-        .spawn(move || run::<E>(key, &name, language, &inbox, &outbox, &stop))
+        .spawn(move || run::<E>(key, &name, Setup { language, cache, ..Setup::default() }, &inbox, &outbox, &stop))
         .map_err(|e| Error::Script(format!("Worker: no thread for it: {e}")))?;
     let number = {
         let host = call.host()?;
@@ -123,7 +123,7 @@ fn construct<E: Engine>(call: &mut dyn Call<E::Handle>, this: &Value<E::Handle>,
 fn run<E: Engine>(
     key: Result<String, String>,
     name: &str,
-    language: Option<String>,
+    setup: Setup,
     inbox: &Receiver<Data>,
     outbox: &Sender<FromWorker>,
     interrupt: &Arc<Mutex<Option<Interrupt>>>,
@@ -134,10 +134,10 @@ fn run<E: Engine>(
     };
     let started = (|| -> Result<(Runtime<E>, String), String> {
         let key = key?;
-        let source = crate::modules::source(&key)?;
+        let source = crate::modules::source(&key, setup.cache.as_deref())?;
         let mut runtime = Runtime::<E>::new().map_err(|e| e.to_string())?;
         let file = url::Url::parse(&key).is_err().then(|| key.clone());
-        runtime.set_script(&Setup { file, language, ..Setup::default() }).map_err(|e| e.to_string())?;
+        runtime.set_script(&Setup { file, ..setup }).map_err(|e| e.to_string())?;
         if let (Some(stop), Ok(mut slot)) = (runtime.interrupt(), interrupt.lock()) {
             *slot = Some(stop);
         }
@@ -243,17 +243,18 @@ fn close<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, _args: &[Value<H>])
 
 /// The worker's `importScripts(...paths)`: runs each script, in order, as a classic script.
 fn import_scripts<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let (file, directory, global) = {
+    let (file, directory, global, cache) = {
         let host = call.host()?;
         let host = host.borrow();
         let global = host.parent.as_ref().map(|p| p.global.clone()).ok_or_else(|| Error::Script("importScripts: not in a worker".into()))?;
-        (host.file.as_ref().map(|f| f.to_string_lossy().into_owned()), host.directory.clone(), global)
+        (host.file.as_ref().map(|f| f.to_string_lossy().into_owned()), host.directory.clone(), global, host.cache.clone())
     };
     let eval = object(call, &global, "eval")?;
     for path in args {
         let path = call.to_string(path)?;
         let key = crate::modules::locate(&path, file.as_deref(), directory.clone()).map_err(|e| Error::Dom("NetworkError", e.to_string()))?;
-        let source = crate::modules::source(&key).map_err(|e| Error::Dom("NetworkError", format!("importScripts '{path}': {e}")))?;
+        let source =
+            crate::modules::source(&key, cache.as_deref()).map_err(|e| Error::Dom("NetworkError", format!("importScripts '{path}': {e}")))?;
         // Called as itself, `eval` runs in the global scope, as a classic script does.
         call.call(&eval, &Value::Undefined, &[Value::String(source)])?;
     }
