@@ -36,7 +36,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
         super::papercraft::bottom_bar(ui, |ui| {
             // Scriptographer's console cleared with its refresh arrows.
-            if widgets::icon_button(ui, "refresh-cw", tl!("Clear Console"), false, 24.0).clicked() {
+            if widgets::icon_button(ui, "refresh-cw", tl!("Clear Console"), false, super::papercraft::BUTTON).clicked() {
                 app.scripts.clear_log();
             }
         });

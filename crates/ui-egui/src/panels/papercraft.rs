@@ -28,6 +28,9 @@ const INDENT: f32 = 14.0;
 /// Whether the panel menu has Reload: hidden for now, as the folders are listed again by themselves
 /// when the app comes to the front.
 const SHOW_RELOAD: bool = false;
+/// The bottom bars' buttons, and the bars: as high as the buttons and the line above them.
+pub(super) const BUTTON: f32 = 24.0;
+const BAR: f32 = BUTTON + 1.0;
 /// The space between the bottom bar's groups of buttons.
 const GAP: f32 = 8.0;
 
@@ -56,34 +59,34 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
             // New scripts and folders go in the selected folder, or the selected script's.
             let into = selected.as_ref().and_then(|p| if p.is_dir() { Some(p.clone()) } else { p.parent().map(PathBuf::from) });
             let into = into.map_or(json!({}), |f| json!({ "folder": f.to_string_lossy() }));
-            if widgets::icon_button_enabled(ui, "play", tl!("Execute Script"), false, script.is_some(), 24.0).clicked() {
+            if widgets::icon_button_enabled(ui, "play", tl!("Execute Script"), false, script.is_some(), BUTTON).clicked() {
                 run = script.clone();
             }
-            if widgets::icon_button(ui, "square", tl!("Stop Running Scripts"), false, 24.0).clicked() {
+            if widgets::icon_button(ui, "square", tl!("Stop Running Scripts"), false, BUTTON).clicked() {
                 command(app, "ui.stopScripts", json!({}));
             }
             ui.add_space(GAP);
-            if widgets::icon_button_enabled(ui, "file-pen", tl!("Edit Script…"), false, script.is_some(), 24.0).clicked()
+            if widgets::icon_button_enabled(ui, "file-pen", tl!("Edit Script…"), false, script.is_some(), BUTTON).clicked()
                 && let Some(path) = &script
             {
                 command(app, "ui.editScript", json!({ "path": path.to_string_lossy() }));
             }
             let shown = app.services.reveal.is_some() && selected.is_some();
-            if widgets::icon_button_enabled(ui, "folder-open", tl!("Show in Folder"), false, shown, 24.0).clicked()
+            if widgets::icon_button_enabled(ui, "folder-open", tl!("Show in Folder"), false, shown, BUTTON).clicked()
                 && let Some(path) = &selected
             {
                 command(app, "ui.revealScript", json!({ "path": path.to_string_lossy() }));
             }
             ui.add_space(GAP);
-            if widgets::icon_button(ui, "file-plus", tl!("Create a New Script…"), false, 24.0).clicked() {
+            if widgets::icon_button(ui, "file-plus", tl!("Create a New Script…"), false, BUTTON).clicked() {
                 command(app, "ui.newScript", into.clone());
             }
-            if widgets::icon_button(ui, "folder-plus", tl!("Create New Folder…"), false, 24.0).clicked() {
+            if widgets::icon_button(ui, "folder-plus", tl!("Create New Folder…"), false, BUTTON).clicked() {
                 command(app, "ui.newScriptFolder", into);
             }
             // The console's button on the right.
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if widgets::icon_button(ui, "terminal", tl!("Show / Hide Console"), false, 24.0).clicked() {
+                if widgets::icon_button(ui, "terminal", tl!("Show / Hide Console"), false, BUTTON).clicked() {
                     command(app, "window.panel", json!({ "panel": crate::panels::papercraft_console::ID, "toggle": true }));
                 }
             });
@@ -130,13 +133,13 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     }
 }
 
-/// A panel's bottom bar, as the app's panels have it: a line on top, the buttons `add` adds in a
-/// row 30 points high.
+/// A panel's bottom bar: a line on top, and under it the buttons `add` adds, the bar no higher
+/// than they are.
 pub(super) fn bottom_bar(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
     let t = Tokens::get(ui.ctx());
-    let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::hover());
+    let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), BAR), Sense::hover());
     ui.painter().line_segment([bar.left_top(), bar.right_top()], egui::Stroke::new(1.0, t.divider));
-    let mut row = ui.new_child(egui::UiBuilder::new().max_rect(bar).layout(egui::Layout::left_to_right(egui::Align::Center)));
+    let mut row = ui.new_child(egui::UiBuilder::new().max_rect(bar).layout(egui::Layout::left_to_right(egui::Align::Max)));
     add(&mut row);
 }
 
