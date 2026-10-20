@@ -858,3 +858,79 @@ fn a_tool_scripts_preview_goes_at_the_next_drag() {
     }
     assert_eq!(children(&app), 2, "the rectangle and the last line");
 }
+
+/// A click into the PaperCraft panel's tree gives it the arrow keys, Return and ⌘E, as
+/// Scriptographer's: they walk the tree, open folders and run scripts instead of nudging the
+/// selection; Escape gives them back.
+#[test]
+fn the_panel_walks_its_tree_with_the_keys() {
+    use crate::panels::papercraft::ID;
+    use egui::{Key, Modifiers};
+    let (mut app, id) = app();
+    app.run("select.set", json!({ "ids": [id] })).unwrap();
+    let folder = TempFolder::new("keys");
+    for name in ["a.js", "b.js"] {
+        std::fs::write(folder.0.join(name), format!("print('{name}')")).unwrap();
+    }
+    app.ui.papercraft_folders = vec![folder.script_folder("Scripts")];
+    app.run("window.panel", json!({ "panel": ID })).unwrap();
+    let ctx = egui::Context::default();
+    let state = |key: &str| egui::Id::new(("panel-state", key));
+    ctx.data_mut(|d| {
+        d.insert_temp(state("papercraft-open"), std::collections::BTreeSet::from([folder.0.clone()]));
+        d.insert_temp(state("papercraft-selected"), Some(folder.0.join("a.js")));
+    });
+    app.key_panel = Some(ID);
+    let key = |app: &mut VectorcraftApp, key: Key, modifiers: Modifiers| {
+        let events = vec![egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers }];
+        let mut out = ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| crate::shortcuts::handle(app, ui.ctx()));
+        out.textures_delta.clear();
+        ctx.data(|d| d.get_temp::<Option<std::path::PathBuf>>(state("papercraft-selected"))).flatten()
+    };
+    let before = left(&app, id);
+    assert_eq!(key(&mut app, Key::ArrowDown, Modifiers::NONE), Some(folder.0.join("b.js")));
+    assert_eq!(left(&app, id), before, "the arrows don't nudge the selection meanwhile");
+    assert_eq!(key(&mut app, Key::ArrowLeft, Modifiers::NONE), Some(folder.0.clone()), "a script's folder");
+    key(&mut app, Key::ArrowLeft, Modifiers::NONE);
+    assert!(ctx.data(|d| d.get_temp::<std::collections::BTreeSet<std::path::PathBuf>>(state("papercraft-open"))).unwrap().is_empty(), "closed");
+    key(&mut app, Key::Enter, Modifiers::NONE);
+    key(&mut app, Key::ArrowDown, Modifiers::NONE);
+    assert_eq!(key(&mut app, Key::E, Modifiers::COMMAND), Some(folder.0.join("a.js")), "Return opened it again");
+    assert!(app.scripts.log().iter().any(|l| l.text == "a.js"), "⌘E ran it");
+    key(&mut app, Key::Escape, Modifiers::NONE);
+    assert_eq!(app.key_panel, None);
+    key(&mut app, Key::ArrowRight, Modifiers::NONE);
+    assert_eq!(left(&app, id), before + 1.0, "the arrows nudge again");
+}
+
+/// A click on a row of the PaperCraft panel gives it the keys; a click elsewhere gives them back.
+#[test]
+fn a_click_into_the_panel_gives_it_the_keys() {
+    let (mut app, _) = app();
+    let folder = TempFolder::new("focus");
+    app.ui.papercraft_folders = vec![folder.script_folder("Scripts")];
+    let ctx = egui::Context::default();
+    crate::theme::install_fonts(&ctx);
+    let frame = |app: &mut VectorcraftApp, events: Vec<egui::Event>| {
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, 400.0));
+        let mut out =
+            ctx.run_ui(egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ui| crate::panels::papercraft::show(app, ui));
+        out.textures_delta.clear();
+        crate::tests_removeanchors::shapes_text(&out.shapes.iter().map(|c| c.shape.clone()).collect::<Vec<_>>())
+    };
+    let texts = frame(&mut app, vec![]);
+    let row = crate::tests_removeanchors::at(&texts, "Scripts");
+    let click = |at| {
+        let press = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        [vec![egui::Event::PointerMoved(at), press(true)], vec![press(false)]]
+    };
+    for events in click(row) {
+        frame(&mut app, events);
+    }
+    assert_eq!(app.key_panel, Some(crate::panels::papercraft::ID));
+    // The bottom bar, outside the tree.
+    for events in click(egui::pos2(150.0, 395.0)) {
+        frame(&mut app, events);
+    }
+    assert_eq!(app.key_panel, None);
+}

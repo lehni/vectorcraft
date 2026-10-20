@@ -542,6 +542,9 @@ pub struct VectorcraftApp {
     pub recovery: recovery::Timer,
     /// The system's times of this frame's pointer events, where the platform knows them.
     pub pointer_times: canvas::PointerTimes,
+    /// The panel that has the keys it uses, since a click into it, ahead of the canvas and the
+    /// shortcuts; any other key works as always ([`panels::papercraft::keys`]).
+    pub(crate) key_panel: Option<&'static str>,
     /// Modifiers the keyboard holds (from the host's input), given back after synthetic input.
     host_modifiers: egui::Modifiers,
     /// Synthetic input set the modifiers egui holds (see [`Self::raw_input_hook`]).
@@ -676,6 +679,7 @@ impl VectorcraftApp {
             placing: Default::default(),
             recovery: Default::default(),
             pointer_times: Default::default(),
+            key_panel: None,
             host_modifiers: Default::default(),
             synthetic_modifiers: false,
             ime_marked: None,

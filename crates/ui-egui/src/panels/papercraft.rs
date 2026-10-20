@@ -7,6 +7,8 @@
 //! folder, and on the right,
 //! show or hide the console. The panel menu manages the folders, and opens the Paper.js reference
 //! and About PaperCraft; the app lists the folders again by itself when it comes to the front.
+//! A click into the tree gives it the arrow keys, Return and ⌘E, as Scriptographer's ([`keys`]);
+//! its selection shows in the accent tint while it has them.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -93,7 +95,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
                 }
             });
         });
-        ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+        let tree = ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
             egui::ScrollArea::vertical().id_salt("papercraft-tree").auto_shrink([false, false]).show(ui, |ui| {
                 let entries = app.scripts.tree(&folders, false);
                 let mut rows = Vec::new();
@@ -101,11 +103,15 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
                 for (depth, entry) in rows {
                     let state = Row {
                         selected: selected.as_deref() == Some(&entry.path),
+                        focused: app.key_panel == Some(ID),
                         open: open.contains(&entry.path),
                         running: running.contains(&entry.path),
                         active: active.as_deref() == Some(&entry.path),
                     };
                     let action = row(ui, depth, entry, state);
+                    if action.is_some() {
+                        app.key_panel = Some(ID);
+                    }
                     match action {
                         Some(Action::Select) => selected = Some(entry.path.clone()),
                         Some(Action::Toggle) => {
@@ -119,6 +125,12 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
                 }
             });
         });
+        // A press anywhere else gives the keys back.
+        let rect = tree.response.rect;
+        let pressed_elsewhere = ui.input(|i| i.pointer.any_pressed() && i.pointer.press_origin().is_some_and(|p| !rect.contains(p)));
+        if pressed_elsewhere && app.key_panel == Some(ID) {
+            app.key_panel = None;
+        }
     });
     // A script or folder just made is selected, its folders open.
     if let Some(created) = app.scripts.take_created() {
@@ -162,6 +174,73 @@ pub fn menu(app: &mut VectorcraftApp, ui: &mut Ui) {
     }
 }
 
+/// The panel's keys while it has them, since a click into its tree, as Scriptographer's: ↑ and ↓
+/// select the row above or below, ← and → close and open the selected folder, Return opens the
+/// selected script in its editor (a folder: opens or closes it) and ⌘E runs it, its own while the
+/// panel has the keys. Escape, or the panel closing, gives them back.
+pub(crate) fn keys(app: &mut VectorcraftApp, ctx: &egui::Context) {
+    use egui::{Key, Modifiers};
+    if crate::menus::checked(app, "window.panel", &json!({ "panel": ID })) != Some(true)
+        || ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape))
+    {
+        app.key_panel = None;
+        return;
+    }
+    let folders = app.ui.papercraft_folders.clone();
+    let mut selected: Option<PathBuf> = pstate(ctx, SELECTED);
+    let mut open: BTreeSet<PathBuf> = pstate(ctx, OPEN);
+    let rows: Vec<(PathBuf, bool)> = {
+        let mut rows = Vec::new();
+        flatten(app.scripts.tree(&folders, false), 0, &open, &mut rows);
+        rows.into_iter().map(|(_, entry)| (entry.path.clone(), matches!(entry.kind, EntryKind::Folder(_)))).collect()
+    };
+    let at = selected.as_ref().and_then(|s| rows.iter().position(|(p, _)| p == s));
+    let folder = at.and_then(|i| rows.get(i)).is_some_and(|(_, folder)| *folder);
+    let pressed = |key| ctx.input_mut(|i| i.consume_key(Modifiers::NONE, key));
+    if pressed(Key::ArrowDown) {
+        let next = at.map_or(0, |i| (i + 1).min(rows.len().saturating_sub(1)));
+        selected = rows.get(next).map(|(p, _)| p.clone()).or(selected);
+    } else if pressed(Key::ArrowUp) {
+        let previous = at.map_or(0, |i| i.saturating_sub(1));
+        selected = rows.get(previous).map(|(p, _)| p.clone()).or(selected);
+    } else if pressed(Key::ArrowRight) {
+        if folder && let Some(path) = &selected {
+            open.insert(path.clone());
+        }
+    } else if pressed(Key::ArrowLeft) {
+        // A folder closes; in an open folder's script, its folder is selected.
+        match &selected {
+            Some(path) if folder && open.contains(path) => {
+                open.remove(path);
+            }
+            Some(path) => {
+                if let Some(parent) = path.parent().filter(|p| rows.iter().any(|(r, _)| r == p)) {
+                    selected = Some(parent.to_path_buf());
+                }
+            }
+            None => {}
+        }
+    } else if pressed(Key::Enter) {
+        match selected.clone() {
+            Some(path) if folder => {
+                if !open.remove(&path) {
+                    open.insert(path);
+                }
+            }
+            Some(path) => {
+                command(app, "ui.editScript", json!({ "path": path.to_string_lossy() }));
+            }
+            None => {}
+        }
+    } else if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::E))
+        && let Some(path) = selected.clone().filter(|_| !folder)
+    {
+        command(app, "ui.runScript", json!({ "path": path.to_string_lossy() }));
+    }
+    set_pstate(ctx, SELECTED, selected);
+    set_pstate(ctx, OPEN, open);
+}
+
 /// Runs a command, its error in the status bar. Returns its result.
 fn command(app: &mut VectorcraftApp, id: &str, params: serde_json::Value) -> Option<serde_json::Value> {
     app.run(id, params).map_err(|e| app.status(e)).ok()
@@ -189,6 +268,9 @@ fn flatten<'a>(entries: &'a [Entry], depth: usize, open: &BTreeSet<PathBuf>, row
 /// How a row of the tree shows.
 struct Row {
     selected: bool,
+    /// The panel has the keys: its selection shows in the accent tint, else in grey, as in macOS
+    /// lists.
+    focused: bool,
     /// A folder whose contents show.
     open: bool,
     /// A script that runs, or a tool script that is loaded.
@@ -197,11 +279,11 @@ struct Row {
     active: bool,
 }
 
-fn row(ui: &mut Ui, depth: usize, entry: &Entry, Row { selected, open, running, active }: Row) -> Option<Action> {
+fn row(ui: &mut Ui, depth: usize, entry: &Entry, Row { selected, focused, open, running, active }: Row) -> Option<Action> {
     let t = Tokens::get(ui.ctx());
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW), Sense::click());
     if selected {
-        ui.painter().rect_filled(rect, 0.0, t.row_selected);
+        ui.painter().rect_filled(rect, 0.0, if focused { t.row_selected } else { t.hover });
     } else if resp.hovered() {
         ui.painter().rect_filled(rect, 0.0, t.hover);
     }
