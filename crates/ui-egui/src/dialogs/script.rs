@@ -4,6 +4,10 @@
 //!
 //! Fields: `script` (the script's id), `question` (as the script asked it: `type`, `title`,
 //! `message`, `components`) and `values` (a prompt's values by name, as the user edits them).
+//!
+//! On the web, a script's file dialog is first one of the app's ([`FILE_KIND`]): browsers show
+//! their file pickers only in a click, which its Choose… is. Fields: `script`, `name` (the
+//! script's file name) and `question`.
 
 use serde_json::{Map, Value, json};
 
@@ -13,6 +17,12 @@ use crate::state::Dialog;
 use crate::widgets;
 
 pub const KIND: &str = "scriptDialog";
+pub const FILE_KIND: &str = "scriptFileDialog";
+
+/// Whether a dialog of `kind` is one a script waits on.
+pub(crate) fn is_script_dialog(kind: &str) -> bool {
+    kind == KIND || kind == FILE_KIND
+}
 
 /// The font of the labels and fields.
 const FONT: f32 = 12.5;
@@ -38,6 +48,43 @@ pub(super) const SPEC: DialogSpec = DialogSpec {
     max_width: Some(460.0),
     ..DialogSpec::FORM
 };
+
+pub(super) const FILE_SPEC: DialogSpec = DialogSpec {
+    heading: |d| d.fields["name"].as_str().unwrap_or_default().to_owned(),
+    body: |_, ui, d| {
+        ui.label(match d.fields["question"]["type"].as_str() {
+            Some("saveFile") => tl!("The script asks where to save a file."),
+            Some("chooseDirectory") => tl!("The script asks for a folder."),
+            _ => tl!("The script asks for a file to open."),
+        });
+        false
+    },
+    confirm: |app, d| {
+        app.ui.dialog = None;
+        #[cfg(target_arch = "wasm32")]
+        {
+            let script = d.fields.get("script").and_then(Value::as_u64).unwrap_or_default();
+            let done = crate::scripts::picking(app, script);
+            match app.services.script_pick.as_mut() {
+                Some(pick) => pick(&d.fields["question"], done),
+                None => done(None),
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = d;
+        Ok(Value::Null)
+    },
+    ok: Some("Choose…"),
+    max_width: Some(460.0),
+    ..DialogSpec::FORM
+};
+
+/// The app's dialog before the browser's file picker, for `question`, which the script with id
+/// `script`, `name`, waits on (the web).
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn open_file(app: &mut VectorcraftApp, script: u64, name: &str, question: &Value) {
+    app.ui.dialog = Some(Dialog::new(FILE_KIND, json!({ "script": script, "name": name, "question": question })));
+}
 
 /// The dialog for `question`, which the script with id `script` waits on.
 pub(crate) fn open(app: &mut VectorcraftApp, script: u64, question: &Value) {

@@ -92,6 +92,16 @@ impl<E: Engine> Runtime<E> {
         })
     }
 
+    /// Whether `scope`'s project changed since its changes were last taken ([`Runtime::take_patch`]):
+    /// on the web, a script's Promise continuations run after the call into it has returned.
+    #[cfg(target_arch = "wasm32")]
+    pub fn has_changes(&mut self, scope: &Scope<E::Handle>) -> Result<bool, Error> {
+        self.engine.with_call(|call| {
+            let project = object(call, &scope.0, "project")?;
+            method(call, &project, "hasChanges", &[]).map(|changed| crate::truthy(&changed))
+        })
+    }
+
     /// Brings `scope`'s project up to `doc` and `selection`, as they are after edits made outside
     /// the script: the items of the objects that changed reload from the document the next time
     /// the script touches them. Objects that didn't change keep their items, and so does

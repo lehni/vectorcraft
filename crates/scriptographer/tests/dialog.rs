@@ -104,7 +104,7 @@ fn pickers_give_handles<E: Engine>(name: &str) {
             try { await directory[method](name) } catch (e) { console.log(e.name) }\n\
         try { await directory.removeEntry('sub') } catch (e) { console.log(e.name) }\n\
         await directory.removeEntry('sub', { recursive: true })\n\
-        console.log(await LocalFile.from(saved).text(), LocalFile.from(directory).isDirectory)\n\
+        console.log(await (await LocalFile.from(saved)).text(), (await LocalFile.from(directory)).isDirectory, LocalFile.from(saved) instanceof Promise)\n\
         try { new FileSystemFileHandle() } catch (e) { console.log(e.name) }\n\
     } catch (e) { console.log('error', e.name, e.message) } })()";
     let answers = vec![json!(path("in.txt")), json!([path("in.txt"), path("out.txt")]), Value::Null, json!(path("")), json!(path("out.txt"))];
@@ -133,7 +133,7 @@ fn pickers_give_handles<E: Engine>(name: &str) {
             "TypeMismatchError",
             "TypeError",
             "InvalidModificationError",
-            "Jello! true",
+            "Jello! true true",
             "TypeError"
         ],
         "the stream writes on close"

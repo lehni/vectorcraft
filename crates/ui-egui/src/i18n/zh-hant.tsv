@@ -5217,3 +5217,6 @@ axis	Y Axis	Y 軸
 	Rectangular Grid Tool Options	矩形格線工具選項
 	Polar Grid Tool Options	極座標格點工具選項
 	Fill Line	填色線段
+	The script asks for a file to open.	指令碼要求開啟一個檔案。
+	The script asks where to save a file.	指令碼詢問檔案的儲存位置。
+	The script asks for a folder.	指令碼要求一個資料夾。

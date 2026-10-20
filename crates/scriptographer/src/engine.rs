@@ -100,4 +100,11 @@ pub trait Engine: Sized + 'static {
     fn interrupt(&mut self) -> Option<Interrupt> {
         None
     }
+
+    /// A value of the page's, as the app has it, for the engine's scripts: only the browser's
+    /// engine shares the page's values.
+    #[cfg(target_arch = "wasm32")]
+    fn page_value(_value: wasm_bindgen::JsValue) -> Option<Self::Handle> {
+        None
+    }
 }

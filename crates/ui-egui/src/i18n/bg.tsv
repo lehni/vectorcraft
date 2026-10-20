@@ -5512,3 +5512,6 @@ axis	Y Axis	Y ос
 	Rectangular Grid Tool Options	Опции на инструмента „Правоъгълна мрежа“
 	Polar Grid Tool Options	Опции на инструмента „Полярна мрежа“
 	Fill Line	Запълване на линия
+	The script asks for a file to open.	Скриптът иска файл за отваряне.
+	The script asks where to save a file.	Скриптът пита къде да запише файл.
+	The script asks for a folder.	Скриптът иска папка.

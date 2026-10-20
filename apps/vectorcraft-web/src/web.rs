@@ -419,6 +419,7 @@ fn services(inbox: Inbox, place_inbox: PlaceInbox, ctx: egui::Context, locks: Op
     let picked = place_inbox.clone();
     let place_ctx = ctx.clone();
     let screen_color = eye_dropper(ctx.clone());
+    let script_ctx = ctx.clone();
     Services {
         // File → Place…: the picked files go to the Place dialog.
         place_async: Some(Box::new(move || {
@@ -458,6 +459,20 @@ fn services(inbox: Inbox, place_inbox: PlaceInbox, ctx: egui::Context, locks: Op
         })),
         // Sample Color from Screen: the browser's EyeDropper, where it has one.
         screen_color,
+        script_pick: Some({
+            let ctx = script_ctx;
+            Box::new(move |question, done| {
+                // What was picked comes after the frame: the app wakes for it.
+                let ctx = ctx.clone();
+                script_pick(
+                    question,
+                    Box::new(move |picked| {
+                        done(picked);
+                        ctx.request_repaint();
+                    }),
+                );
+            })
+        }),
         // A download that couldn't be started fails the save or export it is for (#1693).
         download: Some(Box::new(|name: &str, bytes: &[u8]| download(name, bytes).inspect_err(|e| log::error!("download of {name} failed: {e}")))),
         inbox: Some(inbox),
@@ -465,6 +480,65 @@ fn services(inbox: Inbox, place_inbox: PlaceInbox, ctx: egui::Context, locks: Op
         // File → Print: the browser's print dialog.
         print: Some(Box::new(BrowserPrint)),
         ..Default::default()
+    }
+}
+
+/// The file picker for a script's file dialog, in the click on the app's Choose…: the browser's
+/// own where it has one (Chromium), which gives a handle the script writes through, else the
+/// `<input type="file">` one, whose file can only be read; saving without a picker downloads the
+/// file under the name the script suggests. `done` gets nothing when the user cancelled.
+fn script_pick(question: &serde_json::Value, done: Box<dyn FnOnce(Option<vectorcraft_ui_egui::Picked>)>) {
+    use vectorcraft_ui_egui::Picked;
+    let kind = question["type"].as_str().unwrap_or_default();
+    let name = question["name"].as_str().filter(|n| !n.is_empty()).unwrap_or("Untitled").to_owned();
+    let filters: Vec<(String, Vec<String>)> = question["filters"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|f| Some((f[0].as_str()?.to_owned(), f[1].as_array()?.iter().filter_map(|e| Some(e.as_str()?.to_owned())).collect())))
+        .collect();
+    let picker = if kind == "saveFile" { "showSaveFilePicker" } else { "showOpenFilePicker" };
+    let window: wasm_bindgen::JsValue = web_sys::window().map(Into::into).unwrap_or_default();
+    match js_sys::Reflect::get(&window, &picker.into()).ok().and_then(|f| f.dyn_into::<js_sys::Function>().ok()) {
+        Some(show) => {
+            // The types with extensions; one without shows every file, as the picker's own does.
+            let types: Vec<serde_json::Value> = filters
+                .iter()
+                .filter(|(_, extensions)| !extensions.is_empty())
+                .map(|(label, extensions)| {
+                    let dotted: Vec<String> = extensions.iter().map(|e| format!(".{e}")).collect();
+                    serde_json::json!({ "description": label, "accept": { "application/octet-stream": dotted } })
+                })
+                .collect();
+            let all = filters.is_empty() || filters.iter().any(|(_, extensions)| extensions.is_empty());
+            let mut options = serde_json::json!({ "types": types, "excludeAcceptAllOption": !all });
+            if kind == "saveFile" {
+                options["suggestedName"] = serde_json::json!(name);
+            }
+            let options = js_sys::JSON::parse(&options.to_string()).unwrap_or_default();
+            let Ok(promise) = show.call1(&window, &options).and_then(|p| p.dyn_into::<js_sys::Promise>()) else {
+                return done(None);
+            };
+            wasm_bindgen_futures::spawn_local(async move {
+                // Cancelled, the Promise rejects with an `AbortError`.
+                let picked = wasm_bindgen_futures::JsFuture::from(promise).await.ok();
+                // The open picker gives a list of handles, the save picker one.
+                let handle = match picked {
+                    Some(list) if js_sys::Array::is_array(&list) => js_sys::Array::from(&list).get(0),
+                    Some(handle) => handle,
+                    None => wasm_bindgen::JsValue::UNDEFINED,
+                };
+                done((!handle.is_undefined()).then_some(Picked::Handle(handle)));
+            });
+        }
+        None if kind == "saveFile" => done(Some(Picked::Download(name))),
+        None => {
+            let dialog = filters.iter().fold(rfd::AsyncFileDialog::new(), |d, (label, extensions)| d.add_filter(label.as_str(), extensions));
+            wasm_bindgen_futures::spawn_local(async move {
+                let file = dialog.pick_file().await;
+                done(file.map(|file| Picked::File(file.inner().clone().into())));
+            });
+        }
     }
 }
 

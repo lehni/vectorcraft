@@ -5194,3 +5194,6 @@ axis	Y Axis	Ось Y
 	Rectangular Grid Tool Options	Параметры инструмента «Прямоугольная сетка»
 	Polar Grid Tool Options	Параметры инструмента «Полярная сетка»
 	Fill Line	Заливка отрезка
+	The script asks for a file to open.	Сценарий запрашивает файл для открытия.
+	The script asks where to save a file.	Сценарий спрашивает, куда сохранить файл.
+	The script asks for a folder.	Сценарий запрашивает папку.

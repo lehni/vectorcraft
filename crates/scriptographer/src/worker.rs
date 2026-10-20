@@ -49,12 +49,21 @@ pub enum Work {
     Activate(bool),
     /// Calls the script's handler of that name, one of [`crate::HANDLERS`], when it has one.
     Handler(&'static str),
+    /// The user's answer to the oldest of the script's dialogs, on the web, where the script didn't
+    /// wait for it ([`crate::Runtime::answer`]).
+    #[cfg(target_arch = "wasm32")]
+    Answer(Json),
+    /// What the user picked in the oldest of the script's file dialogs, on the web
+    /// ([`crate::Runtime::picked`]).
+    #[cfg(target_arch = "wasm32")]
+    Picked(Option<crate::Picked>),
 }
 
 /// What a worker tells the app.
 pub enum Reply {
     /// The script shows a dialog (`Dialog.alert`, `confirm`, `prompt`) and waits for the user's
-    /// answer ([`Request::Answer`]); the question as [`crate::Runtime::set_ask`] has it.
+    /// answer ([`Request::Answer`]); the question as [`crate::Runtime::set_ask`] has it. On the
+    /// web, the script goes on, and the answer comes as [`Work::Answer`] or [`Work::Picked`].
     Ask(Json),
     /// What the script changed: a patch of `base`, the document it read (the app answers with
     /// [`Request::Applied`]), and the objects selected in its project before and after.
@@ -128,8 +137,14 @@ impl<E: Engine> Script<E> {
             Work::Palette(id, event) => self.runtime.palette_event(id, event),
             Work::Activate(active) => self.runtime.activate_tool(&self.scope, active),
             Work::Handler(name) => self.runtime.call_handler(name).map(|_| ()),
+            #[cfg(target_arch = "wasm32")]
+            Work::Answer(answer) => self.runtime.answer(&answer),
+            #[cfg(target_arch = "wasm32")]
+            Work::Picked(picked) => self.runtime.picked(picked),
         };
         let mut replies = Vec::new();
+        #[cfg(target_arch = "wasm32")]
+        replies.extend(self.runtime.take_question().map(Reply::Ask));
         let changes = self.changes(before).map(|changes| replies.extend(changes));
         replies.push(self.done(result.and(changes).err().map(|e| e.to_string())));
         replies
@@ -260,6 +275,15 @@ impl Worker {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+impl Worker {
+    /// Whether the script changed its project outside its work: never here, where its Promise
+    /// continuations run within its work (the web's run after it).
+    pub fn has_changes(&self) -> bool {
+        false
+    }
+}
+
 /// Stops the script: its thread ends once the script returns.
 #[cfg(not(target_arch = "wasm32"))]
 impl Drop for Worker {
@@ -292,5 +316,14 @@ impl Worker {
 
     pub fn recv(&self, _wait: Duration) -> Option<Reply> {
         self.replies.try_borrow_mut().ok()?.pop_front()
+    }
+
+    /// Whether the script changed its project outside its work, in a Promise continuation, which
+    /// the browser runs once the call into the script has returned: work then collects it.
+    pub fn has_changes(&self) -> bool {
+        self.script.try_borrow_mut().is_ok_and(|mut script| {
+            let Script { runtime, scope, .. } = &mut *script;
+            runtime.has_changes(scope).unwrap_or(false)
+        })
     }
 }

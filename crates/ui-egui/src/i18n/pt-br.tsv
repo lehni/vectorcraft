@@ -5499,3 +5499,6 @@ axis	Y Axis	Eixo Y
 	Rectangular Grid Tool Options	Opções da Ferramenta Grade Retangular
 	Polar Grid Tool Options	Opções da Ferramenta Grade Polar
 	Fill Line	Preencher linha
+	The script asks for a file to open.	O script pede um arquivo para abrir.
+	The script asks where to save a file.	O script pergunta onde salvar um arquivo.
+	The script asks for a folder.	O script pede uma pasta.

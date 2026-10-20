@@ -5434,3 +5434,6 @@ axis	Y Axis	Oś Y
 	Rectangular Grid Tool Options	Opcje narzędzia Siatka prostokątna
 	Polar Grid Tool Options	Opcje narzędzia Siatka biegunowa
 	Fill Line	Wypełnij odcinek
+	The script asks for a file to open.	Skrypt prosi o plik do otwarcia.
+	The script asks where to save a file.	Skrypt pyta, gdzie zapisać plik.
+	The script asks for a folder.	Skrypt prosi o folder.

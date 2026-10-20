@@ -5178,3 +5178,6 @@ axis	Y Axis	Trục Y
 	Rectangular Grid Tool Options	Tùy chọn công cụ Lưới chữ nhật
 	Polar Grid Tool Options	Tùy chọn công cụ Lưới cực
 	Fill Line	Tô đoạn thẳng
+	The script asks for a file to open.	Script yêu cầu một tệp để mở.
+	The script asks where to save a file.	Script hỏi nơi lưu một tệp.
+	The script asks for a folder.	Script yêu cầu một thư mục.

@@ -45,6 +45,10 @@ impl Engine for Browser {
         Ok(from_js(eval.call1(&self.global, &source.into()).map_err(js_error)?))
     }
 
+    fn page_value(value: JsValue) -> Option<JsValue> {
+        Some(value)
+    }
+
     fn global(&mut self) -> Result<JsValue, Error> {
         Ok(self.global.clone().into())
     }

@@ -16,8 +16,12 @@
 //! The scripts folders (`UiState::scriptographer_folders`) are what the Scriptographer panel lists. A
 //! script's view is the first artboard, so `view.bounds` is its size.
 
+#[cfg(target_arch = "wasm32")]
+use std::cell::RefCell;
 use std::collections::{BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
+#[cfg(target_arch = "wasm32")]
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -70,7 +74,15 @@ pub struct Scripts {
     /// Whether the Scriptographer Tool is the active tool: the canvas then sends its pointer events to
     /// the tool script.
     tool_active: bool,
+    /// What the user picked in the browser for a script's file dialog, by script, as the picker
+    /// answers, later (the web: [`pick`]).
+    #[cfg(target_arch = "wasm32")]
+    picked: Rc<RefCell<Vec<(u64, Picked)>>>,
 }
+
+/// What the browser's picker gave a script's file dialog: nothing when the user cancelled.
+#[cfg(target_arch = "wasm32")]
+type Picked = Option<vectorcraft_scriptographer::Picked>;
 
 /// A line of script output.
 pub struct LogLine {
@@ -168,6 +180,9 @@ enum Kind {
     Palette,
     Activate,
     Handler,
+    /// An answer to a dialog, on the web.
+    #[cfg(target_arch = "wasm32")]
+    Answer,
 }
 
 impl Scripts {
@@ -385,7 +400,7 @@ pub(crate) fn stop(app: &mut VectorcraftApp) -> Result<Value, String> {
     app.scripts.console = None;
     app.scripts.tool = None;
     app.scripts.tool_active = false;
-    if app.ui.dialog.as_ref().is_some_and(|d| d.kind == crate::dialogs::script::KIND) {
+    if app.ui.dialog.as_ref().is_some_and(|d| crate::dialogs::script::is_script_dialog(&d.kind)) {
         app.ui.dialog = None;
     }
     Ok(json!({ "stopped": stopped }))
@@ -453,6 +468,12 @@ fn execute(app: &mut VectorcraftApp, script: &mut Running, wait: Duration) -> Re
 /// Drives the running scripts, once per frame: their queued work, timers and `onFrame` handlers
 /// run, and what they changed goes back to the document.
 pub(crate) fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, now: f64) {
+    #[cfg(target_arch = "wasm32")]
+    for (id, picked) in std::mem::take(&mut *app.scripts.picked.borrow_mut()) {
+        if let Some(script) = app.scripts.running.iter_mut().chain(&mut app.scripts.console).find(|s| s.id == id) {
+            script.queued.push_back(Work::Picked(picked));
+        }
+    }
     let focused = ctx.input(|i| i.focused);
     if focused != app.scripts.focused {
         app.scripts.focused = focused;
@@ -531,7 +552,8 @@ fn pump(app: &mut VectorcraftApp, script: &mut Running, mut frame: Option<f64>, 
             let work = match script.queued.pop_front() {
                 Some(work) => work,
                 None => match frame.take() {
-                    Some(now) if script.timers => Work::Frame(now),
+                    // On the web, its Promise continuations change its project after its work.
+                    Some(now) if script.timers || script.worker.has_changes() => Work::Frame(now),
                     _ => return Ok(script.timers || script.tool || script.open),
                 },
             };
@@ -576,6 +598,8 @@ fn send(app: &mut VectorcraftApp, script: &mut Running, work: Work) -> Result<()
         Work::Palette(..) => Kind::Palette,
         Work::Activate(_) => Kind::Activate,
         Work::Handler(_) => Kind::Handler,
+        #[cfg(target_arch = "wasm32")]
+        Work::Answer(_) | Work::Picked(_) => Kind::Answer,
         Work::Mouse(events) => {
             if events.iter().any(|(event, ..)| *event == MouseEvent::Down) {
                 // A drag starts its own undo step.
@@ -610,6 +634,8 @@ fn settle(app: &mut VectorcraftApp, script: &mut Running, wait: Duration) -> Opt
             }
             Reply::Ask(question) => {
                 script.asking = Some(Asking { question, shown: false });
+                // The script waits for the answer; on the web it went on, and its work ends.
+                #[cfg(not(target_arch = "wasm32"))]
                 return None;
             }
             Reply::Done { output, error, running, tool, keys, palettes, open, keep_alive } => {
@@ -780,8 +806,7 @@ fn clipboard(app: &mut VectorcraftApp, ctx: &egui::Context) {
             }
         };
         if let Some(script) = app.scripts.running.iter_mut().chain(&mut app.scripts.console).find(|s| s.id == id) {
-            script.worker.send(Request::Answer(answer));
-            script.asking = None;
+            reply(script, answer);
         }
     }
 }
@@ -789,18 +814,19 @@ fn clipboard(app: &mut VectorcraftApp, ctx: &egui::Context) {
 /// Shows the dialogs scripts wait on, one at a time while no other dialog is open, and answers a
 /// dialog that closed without OK as Cancel would. The file dialogs are the app's file pickers.
 fn dialogs(app: &mut VectorcraftApp) {
-    let open = app.ui.dialog.as_ref().filter(|d| d.kind == crate::dialogs::script::KIND).and_then(|d| d.fields.get("script")?.as_u64());
+    let open = app.ui.dialog.as_ref().filter(|d| crate::dialogs::script::is_script_dialog(&d.kind)).and_then(|d| d.fields.get("script")?.as_u64());
     let picking = app.picks.is_waiting();
     let mut show = None;
     for script in app.scripts.running.iter_mut().chain(&mut app.scripts.console) {
         let Some(asking) = &mut script.asking else {
             continue;
         };
-        // Only one file picker opens at a time, so an open one is this script's.
-        let still_open = if is_pick(&asking.question) { picking } else { open == Some(script.id) };
+        // Only one file picker opens at a time, so an open one is this script's. On the web a file
+        // dialog is first the app's, whose Choose… shows the browser's ([`pick`]).
+        let still_open = if is_pick(&asking.question) && cfg!(not(target_arch = "wasm32")) { picking } else { open == Some(script.id) };
         if asking.shown && !still_open {
-            script.worker.send(Request::Answer(crate::dialogs::script::cancelled(&asking.question)));
-            script.asking = None;
+            let cancelled = crate::dialogs::script::cancelled(&asking.question);
+            reply(script, cancelled);
         } else if !asking.shown && show.is_none() && app.ui.dialog.is_none() && !picking {
             asking.shown = true;
             show = Some((script.id, asking.question.clone()));
@@ -818,9 +844,30 @@ fn is_pick(question: &Value) -> bool {
     matches!(question["type"].as_str(), Some("openFile" | "openFiles" | "saveFile" | "chooseDirectory"))
 }
 
+/// On the web: the app's dialog whose Choose… shows the browser's picker, as browsers show one only
+/// in a click ([`crate::dialogs::script::open_file`]). What the user picks there reaches the script
+/// as its next work ([`frame`]); Cancel answers the dialog as cancelled ([`dialogs`]).
+#[cfg(target_arch = "wasm32")]
+fn pick(app: &mut VectorcraftApp, id: u64, question: &Value) {
+    let name = app.scripts.running.iter().chain(&app.scripts.console).find(|s| s.id == id).map(|s| s.name.clone()).unwrap_or_default();
+    crate::dialogs::script::open_file(app, id, &name, question);
+}
+
+/// What the browser's picker gave for the script `id`'s file dialog: the script is no longer
+/// waiting on the app's dialog, and gets it as its next work ([`frame`]).
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn picking(app: &mut VectorcraftApp, id: u64) -> Box<dyn FnOnce(Picked)> {
+    if let Some(script) = app.scripts.running.iter_mut().chain(&mut app.scripts.console).find(|s| s.id == id) {
+        script.asking = None;
+    }
+    let picked = app.scripts.picked.clone();
+    Box::new(move |file| picked.borrow_mut().push((id, file)))
+}
+
 /// Shows the file picker the script `id` asks for in `question`, starting from its `path`, with its
 /// file types. The path picked answers it (the paths, for several files, whose dialog has no file
 /// types); a picker closed without one answers it as cancelled ([`dialogs`]).
+#[cfg(not(target_arch = "wasm32"))]
 fn pick(app: &mut VectorcraftApp, id: u64, question: &Value) {
     let kind = question["type"].as_str().unwrap_or_default().to_owned();
     let path = question["path"].as_str().map(PathBuf::from);
@@ -858,9 +905,18 @@ fn pick(app: &mut VectorcraftApp, id: u64, question: &Value) {
 /// The user's answer to the dialog the script `id` waits on.
 pub(crate) fn answer(app: &mut VectorcraftApp, id: u64, answer: Value) {
     if let Some(script) = app.scripts.running.iter_mut().chain(&mut app.scripts.console).find(|s| s.id == id && s.asking.is_some()) {
-        script.worker.send(Request::Answer(answer));
-        script.asking = None;
+        reply(script, answer);
     }
+}
+
+/// Gives `script` the answer to the dialog it asked: on desktop, where it waits for it; on the
+/// web, where it went on, as its next work, with the document as it is then.
+fn reply(script: &mut Running, answer: Value) {
+    #[cfg(not(target_arch = "wasm32"))]
+    script.worker.send(Request::Answer(answer));
+    #[cfg(target_arch = "wasm32")]
+    script.queued.push_back(Work::Answer(answer));
+    script.asking = None;
 }
 
 /// A script's file name, for messages.

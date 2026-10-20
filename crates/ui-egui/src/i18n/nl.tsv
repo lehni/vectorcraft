@@ -5572,3 +5572,6 @@ axis	Y Axis	Y-as
 	Rectangular Grid Tool Options	Opties rechthoekig-rastergereedschap
 	Polar Grid Tool Options	Opties polair-rastergereedschap
 	Fill Line	Lijn vullen
+	The script asks for a file to open.	Het script vraagt om een bestand om te openen.
+	The script asks where to save a file.	Het script vraagt waar het een bestand moet bewaren.
+	The script asks for a folder.	Het script vraagt om een map.

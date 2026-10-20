@@ -218,6 +218,14 @@ impl FilePick {
 }
 
 pub type PickOpen = Box<dyn FnMut(&FilePick) -> Option<String>>;
+/// What the browser's file picker gave a script ([`ScriptPick`]).
+#[cfg(target_arch = "wasm32")]
+pub use vectorcraft_scriptographer::Picked;
+/// Shows the browser's file picker for a script's file dialog (`question`, as `Dialog` asks it:
+/// `type`, `name`, `filters`), in the click it's called in; `done` gets what the user picked, later
+/// (the web).
+#[cfg(target_arch = "wasm32")]
+pub type ScriptPick = Box<dyn FnMut(&Value, Box<dyn FnOnce(Option<vectorcraft_scriptographer::Picked>)>)>;
 pub type PickSave = Box<dyn FnMut(&FilePick) -> Option<String>>;
 pub type ReadFn = Box<dyn Fn(&str) -> Result<Vec<u8>, String>>;
 pub type WriteFn = Box<dyn FnMut(&str, &[u8]) -> Result<(), String>>;
@@ -252,6 +260,9 @@ pub struct Services {
     pub pick_open: Option<PickOpen>,
     /// Show a save dialog (suggested name, folder, file types); returns a path.
     pub pick_save: Option<PickSave>,
+    /// The browser's file pickers for scripts' file dialogs (the web).
+    #[cfg(target_arch = "wasm32")]
+    pub script_pick: Option<ScriptPick>,
     pub read: Option<ReadFn>,
     pub write: Option<WriteFn>,
     /// Is there a file or folder at a path (desktop)? The app asks before replacing a file that a

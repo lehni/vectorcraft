@@ -5568,3 +5568,6 @@ axis	Y Axis	Y tengely
 	Rectangular Grid Tool Options	Téglalaprács beállításai
 	Polar Grid Tool Options	Polárrács beállításai
 	Fill Line	Szakasz kitöltése
+	The script asks for a file to open.	A szkript egy megnyitandó fájlt kér.
+	The script asks where to save a file.	A szkript azt kérdezi, hová mentsen egy fájlt.
+	The script asks for a folder.	A szkript egy mappát kér.

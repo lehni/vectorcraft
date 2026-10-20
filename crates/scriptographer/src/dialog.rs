@@ -5,6 +5,11 @@
 //! ([`Runtime::set_ask`]) and waits for the answer, which the user gives in a dialog the app shows:
 //! scripts block on them as they did in Scriptographer.
 //!
+//! On the web, where scripts can't wait, `alert` and `confirm` are the browser's own, and `prompt`,
+//! `chooseColor` and the file dialogs give Promises: their questions wait in a queue the app takes
+//! one at a time ([`Runtime::take_question`]), and its answer settles them ([`Runtime::answer`],
+//! [`Runtime::picked`]).
+//!
 //! The host gets the question as JSON: `{type: 'alert' | 'confirm', title, message}`, or
 //! `{type: 'prompt', title, components: [{name, type, label, value, …}]}` with each component's
 //! definition as the script wrote it, its type filled in where the script left it out, and its
@@ -31,9 +36,11 @@ pub(crate) struct Globals<H> {
     json: H,
     object: H,
     color: H,
-    /// The global object, whose pickers the file dialogs show.
-    #[cfg(not(target_arch = "wasm32"))]
+    /// The global object, whose pickers the file dialogs show (on the web, its `alert` and
+    /// `confirm`).
     global: H,
+    #[cfg(target_arch = "wasm32")]
+    promise: H,
     /// What the file dialogs make of the pickers' answers: a `LocalFile`, or `null`.
     #[cfg(not(target_arch = "wasm32"))]
     picked: H,
@@ -53,15 +60,11 @@ pub(crate) fn install<E: Engine>(runtime: &mut Runtime<E>, global: &E::Handle) -
     let alert = runtime.engine.function("alert", alert)?;
     let confirm = runtime.engine.function("confirm", confirm)?;
     let prompt = runtime.engine.function("prompt", prompt)?;
-    #[cfg(not(target_arch = "wasm32"))]
     let files = [
         ("openFile", runtime.engine.function("openFile", |call, _, args| file(call, "openFile", args.first()))?),
         ("saveFile", runtime.engine.function("saveFile", |call, _, args| file(call, "saveFile", args.first()))?),
         ("chooseDirectory", runtime.engine.function("chooseDirectory", |call, _, args| file(call, "chooseDirectory", args.first()))?),
     ];
-    // The web's file dialogs come with its `LocalFile`.
-    #[cfg(target_arch = "wasm32")]
-    let files: [(&str, E::Handle); 0] = [];
     let choose_color = runtime.engine.function("chooseColor", choose_color)?;
     #[cfg(not(target_arch = "wasm32"))]
     let (picked, cancelled) = (runtime.engine.function("picked", picked)?, runtime.engine.function("cancelled", cancelled)?);
@@ -80,8 +83,9 @@ pub(crate) fn install<E: Engine>(runtime: &mut Runtime<E>, global: &E::Handle) -
             json: object(call, global, "JSON")?,
             object: object(call, global, "Object")?,
             color: object(call, &paper, "Color")?,
-            #[cfg(not(target_arch = "wasm32"))]
             global: global.clone(),
+            #[cfg(target_arch = "wasm32")]
+            promise: object(call, global, "Promise")?,
             #[cfg(not(target_arch = "wasm32"))]
             picked,
             #[cfg(not(target_arch = "wasm32"))]
@@ -111,16 +115,43 @@ fn texts<H>(call: &mut dyn Call<H>, args: &[Value<H>]) -> Result<(String, String
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn alert<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let (title, message) = texts(call, args)?;
     ask(call, json!({ "type": "alert", "title": title, "message": message }))?;
     Ok(Value::Undefined)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn confirm<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let (title, message) = texts(call, args)?;
     let answer = ask(call, json!({ "type": "confirm", "title": title, "message": message }))?;
     Ok(Value::Bool(answer == Json::Bool(true)))
+}
+
+/// The browser's `alert()`, which shows no title of the script's: a title the script gave heads
+/// the message.
+#[cfg(target_arch = "wasm32")]
+fn alert<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let text = browser_text(call, args)?;
+    let window = globals(call)?.global;
+    method(call, &window, "alert", &[Value::String(text)])?;
+    Ok(Value::Undefined)
+}
+
+/// The browser's `confirm()`.
+#[cfg(target_arch = "wasm32")]
+fn confirm<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let text = browser_text(call, args)?;
+    let window = globals(call)?.global;
+    let answer = method(call, &window, "confirm", &[Value::String(text)])?;
+    Ok(Value::Bool(crate::truthy(&answer)))
+}
+
+#[cfg(target_arch = "wasm32")]
+fn browser_text<H>(call: &mut dyn Call<H>, args: &[Value<H>]) -> Result<String, Error> {
+    let (title, message) = texts(call, args)?;
+    Ok(if title == TITLE { message } else { format!("{title}\n\n{message}") })
 }
 
 /// `Dialog.openFile(options)`, `saveFile(options)` and `chooseDirectory(options)`: a Promise of
@@ -179,6 +210,111 @@ fn file<H: Clone>(call: &mut dyn Call<H>, kind: &str, options: Option<&Value<H>>
     method(call, &promise, "then", &[Value::Js(globals.picked), Value::Js(globals.cancelled)])
 }
 
+/// The file dialogs on the web: a question for the app, `{type, name, filters}` with the name to
+/// suggest for saving, which [`Runtime::picked`] answers with the `LocalFile`, or `null`.
+/// `chooseDirectory` rejects with a `NotSupportedError` for now.
+#[cfg(target_arch = "wasm32")]
+fn file<H: Clone>(call: &mut dyn Call<H>, kind: &str, options: Option<&Value<H>>) -> Result<Value<H>, Error> {
+    // A `LocalFile` on the web is a file, not yet a directory.
+    if kind == "chooseDirectory" {
+        let promise = globals(call)?.promise;
+        let reason = crate::exception::value(call, &Error::Dom("NotSupportedError", "Dialog.chooseDirectory() isn't on the web yet".into()))?;
+        return method(call, &promise, "reject", &[reason]);
+    }
+    let (types, path) = match options {
+        Some(Value::Js(options)) => (call.get(options, "types")?, call.get(options, "path")?),
+        _ => (Value::Undefined, Value::Undefined),
+    };
+    let filters = match types {
+        Value::Js(types) if kind != "chooseDirectory" => file_types(call, &types)?,
+        _ => Vec::new(),
+    };
+    // The web has no paths: only a file's name, to suggest.
+    let name = match path {
+        Value::Undefined | Value::Null => Json::Null,
+        path => {
+            let path = call.to_string(&path)?;
+            Json::String(path.rsplit(['/', '\\']).next().unwrap_or_default().to_owned())
+        }
+    };
+    ask_later(call, json!({ "type": kind, "name": name, "filters": filters }), Finish::File)
+}
+
+/// A question the app answers later (the web): it, whether the app has it, the script's Promise
+/// for the answer, and what makes the answer the script's value.
+#[cfg(target_arch = "wasm32")]
+pub(crate) struct Asked<H> {
+    question: Json,
+    given: bool,
+    resolve: H,
+    finish: Finish<H>,
+}
+
+/// What makes an answer the script's value: a prompt's values (put into `values` when given),
+/// `chooseColor`'s colour, a file dialog's `LocalFile`.
+#[cfg(target_arch = "wasm32")]
+pub(crate) enum Finish<H> {
+    Prompt { list: Vec<Json>, values: Option<H> },
+    Color { list: Vec<Json> },
+    File,
+}
+
+/// Puts `question` in the queue for the app; a Promise of the answer, as `finish` makes it.
+#[cfg(target_arch = "wasm32")]
+fn ask_later<H: Clone>(call: &mut dyn Call<H>, question: Json, finish: Finish<H>) -> Result<Value<H>, Error> {
+    let globals = globals(call)?;
+    let resolvers = handle(method(call, &globals.promise, "withResolvers", &[])?, "Promise.withResolvers()")?;
+    let resolve = handle(call.get(&resolvers, "resolve")?, "resolve")?;
+    call.host()?.borrow_mut().asked.push_back(Asked { question, given: false, resolve, finish });
+    call.get(&resolvers, "promise")
+}
+
+#[cfg(target_arch = "wasm32")]
+impl<E: Engine> Runtime<E> {
+    /// The question of the script's next dialog, once the app answered the one before: they show
+    /// one at a time, in the order the script asked them.
+    pub fn take_question(&mut self) -> Option<Json> {
+        let mut host = self.host.borrow_mut();
+        let next = host.asked.front_mut().filter(|asked| !asked.given)?;
+        next.given = true;
+        Some(next.question.clone())
+    }
+
+    /// The user's answer to the oldest question: a prompt's values by name, or `null` when they
+    /// cancelled any dialog.
+    pub fn answer(&mut self, answer: &Json) -> Result<(), Error> {
+        let Some(Asked { resolve, finish, .. }) = self.host.borrow_mut().asked.pop_front() else {
+            return Ok(());
+        };
+        self.engine.with_call(|call| {
+            let value = match finish {
+                Finish::Prompt { list, values } => prompt_values(call, &list, values, answer)?,
+                Finish::Color { list } => match prompt_values(call, &list, None, answer)? {
+                    Value::Js(values) => call.get(&values, "color")?,
+                    other => other,
+                },
+                Finish::File => Value::Null,
+            };
+            call.call(&resolve, &Value::Undefined, &[value]).map(|_| ())
+        })
+    }
+
+    /// What the user picked in the oldest question's file dialog: its `LocalFile`, or `null` for
+    /// nothing.
+    pub fn picked(&mut self, picked: Option<crate::web_file::Picked>) -> Result<(), Error> {
+        let Some(Asked { resolve, .. }) = self.host.borrow_mut().asked.pop_front() else {
+            return Ok(());
+        };
+        self.engine.with_call(|call| {
+            let value = match picked {
+                Some(picked) => crate::web_file::local_file::<E>(call, picked)?,
+                None => Value::Null,
+            };
+            call.call(&resolve, &Value::Undefined, &[value]).map(|_| ())
+        })
+    }
+}
+
 /// The `LocalFile` of the handle a picker gave, or of the first of the handles.
 #[cfg(not(target_arch = "wasm32"))]
 fn picked<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
@@ -208,7 +344,6 @@ fn cancelled<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H
 /// labels and their extensions in the script's order (`{ Text: ['txt', 'text'], SVG: 'svg',
 /// 'All Files': '*' }`), or Scriptographer's pairs of a label and its patterns (`['Text (*.txt)',
 /// '*.txt;*.text', 'All Files', '*.*']`). A type without extensions (`'*'`) shows every file.
-#[cfg(not(target_arch = "wasm32"))]
 fn file_types<H: Clone>(call: &mut dyn Call<H>, filters: &H) -> Result<Vec<Json>, Error> {
     let globals = globals(call)?;
     let pairs: Vec<(String, Json)> = match to_json(call, &globals, &Value::Js(filters.clone()))? {
@@ -257,6 +392,12 @@ fn choose_color<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Valu
     }
     let components = call.new_object()?;
     call.set(&components, "color", &Value::Js(component))?;
+    #[cfg(target_arch = "wasm32")]
+    {
+        let (question, list) = prompt_question(call, TITLE.into(), &components, None)?;
+        ask_later(call, question, Finish::Color { list })
+    }
+    #[cfg(not(target_arch = "wasm32"))]
     match ask_prompt(call, TITLE.into(), &components, None)? {
         Value::Js(values) => call.get(&values, "color"),
         other => Ok(other),
@@ -277,14 +418,35 @@ fn prompt<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>])
         Some(Value::Js(values)) => Some(values.clone()),
         _ => None,
     };
+    #[cfg(target_arch = "wasm32")]
+    {
+        let (question, list) = prompt_question(call, title, components, values.as_ref())?;
+        ask_later(call, question, Finish::Prompt { list, values })
+    }
+    #[cfg(not(target_arch = "wasm32"))]
     ask_prompt(call, title, components, values)
 }
 
 /// Asks the prompt titled `title` with `components`, its values from `values` when given.
+#[cfg(not(target_arch = "wasm32"))]
 fn ask_prompt<H: Clone>(call: &mut dyn Call<H>, title: String, components: &H, values: Option<H>) -> Result<Value<H>, Error> {
+    let (question, list) = prompt_question(call, title, components, values.as_ref())?;
+    let answer = ask(call, question)?;
+    prompt_values(call, &list, values, &answer)
+}
+
+/// The question of the prompt titled `title` with `components`, and the components as the host
+/// gets them.
+fn prompt_question<H: Clone>(call: &mut dyn Call<H>, title: String, components: &H, values: Option<&H>) -> Result<(Json, Vec<Json>), Error> {
     let globals = globals(call)?;
-    let list = describe(call, &globals, components, values.as_ref())?;
-    let answer = ask(call, json!({ "type": "prompt", "title": title, "components": list }))?;
+    let list = describe(call, &globals, components, values)?;
+    Ok((json!({ "type": "prompt", "title": title, "components": list }), list))
+}
+
+/// The values of the user's `answer` to a prompt of the components `list`, put into `values` when
+/// given, or `null` when they cancelled.
+fn prompt_values<H: Clone>(call: &mut dyn Call<H>, list: &[Json], values: Option<H>, answer: &Json) -> Result<Value<H>, Error> {
+    let globals = globals(call)?;
     let Json::Object(answer) = answer else {
         return Ok(Value::Null);
     };
@@ -292,7 +454,7 @@ fn ask_prompt<H: Clone>(call: &mut dyn Call<H>, title: String, components: &H, v
         Some(values) => values,
         None => call.new_object()?,
     };
-    for component in &list {
+    for component in list {
         let name = component["name"].as_str().unwrap_or_default();
         if let Some(value) = answer.get(name) {
             let value = from_component(call, &globals, component, value)?;

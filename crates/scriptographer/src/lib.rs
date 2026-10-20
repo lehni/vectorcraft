@@ -37,6 +37,10 @@ mod storage;
 mod urls;
 #[cfg(not(target_arch = "wasm32"))]
 mod web;
+#[cfg(target_arch = "wasm32")]
+mod web_file;
+#[cfg(target_arch = "wasm32")]
+pub use web_file::Picked;
 #[cfg(not(target_arch = "wasm32"))]
 mod web_worker;
 #[cfg(not(target_arch = "wasm32"))]
@@ -128,6 +132,12 @@ pub struct Host<H> {
     canvases: Option<canvas::Canvases<H>>,
     /// Answers the script's dialogs ([`Runtime::set_ask`]).
     ask: Option<dialog::Ask>,
+    /// The questions of the script's dialogs the app answers later (the web).
+    #[cfg(target_arch = "wasm32")]
+    asked: std::collections::VecDeque<dialog::Asked<H>>,
+    /// What `LocalFile`s on the web share.
+    #[cfg(target_arch = "wasm32")]
+    web_files: Option<web_file::Files<H>>,
     /// What `Dialog` uses of the script's realm.
     dialog_globals: Option<dialog::Globals<H>>,
     /// The palettes the script made, open.
@@ -224,6 +234,10 @@ impl<H> Default for Host<H> {
             rectangle: None,
             canvases: None,
             ask: None,
+            #[cfg(target_arch = "wasm32")]
+            asked: Default::default(),
+            #[cfg(target_arch = "wasm32")]
+            web_files: None,
             dialog_globals: None,
             palettes: Vec::new(),
             palette_reset: None,
@@ -333,6 +347,8 @@ impl<E: Engine> Runtime<E> {
         local_file::install(&mut runtime, &global)?;
         #[cfg(not(target_arch = "wasm32"))]
         file_system::install(&mut runtime, &global)?;
+        #[cfg(target_arch = "wasm32")]
+        web_file::install(&mut runtime, &global)?;
         #[cfg(not(target_arch = "wasm32"))]
         urls::install(&mut runtime, &global)?;
         #[cfg(not(target_arch = "wasm32"))]

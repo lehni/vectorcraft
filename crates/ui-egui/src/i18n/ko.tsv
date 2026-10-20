@@ -5161,3 +5161,6 @@ axis	Y Axis	Y축
 	Rectangular Grid Tool Options	사각형 격자 도구 옵션
 	Polar Grid Tool Options	극좌표 격자 도구 옵션
 	Fill Line	선 채우기
+	The script asks for a file to open.	스크립트가 열 파일을 요청합니다.
+	The script asks where to save a file.	스크립트가 파일을 저장할 위치를 묻습니다.
+	The script asks for a folder.	스크립트가 폴더를 요청합니다.

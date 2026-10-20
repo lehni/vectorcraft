@@ -5164,3 +5164,6 @@ axis	Y Axis	Y-Achse
 	Rectangular Grid Tool Options	Optionen für das Rechteckiges-Raster-Werkzeug
 	Polar Grid Tool Options	Optionen für das Radiales-Raster-Werkzeug
 	Fill Line	Linie füllen
+	The script asks for a file to open.	Das Skript fragt nach einer Datei zum Öffnen.
+	The script asks where to save a file.	Das Skript fragt, wo es eine Datei sichern soll.
+	The script asks for a folder.	Das Skript fragt nach einem Ordner.

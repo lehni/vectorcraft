@@ -5581,3 +5581,6 @@ axis	Y Axis	Axe Y
 	Rectangular Grid Tool Options	Options de l’outil Grille rectangulaire
 	Polar Grid Tool Options	Options de l’outil Grille à coordonnées polaires
 	Fill Line	Remplir le trait
+	The script asks for a file to open.	Le script demande un fichier à ouvrir.
+	The script asks where to save a file.	Le script demande où enregistrer un fichier.
+	The script asks for a folder.	Le script demande un dossier.

@@ -5538,3 +5538,6 @@ axis	Y Axis	Y-axel
 	Rectangular Grid Tool Options	Alternativ för verktyget för rektangulärt rutnät
 	Polar Grid Tool Options	Alternativ för verktyget för polärt rutnät
 	Fill Line	Fyll linje
+	The script asks for a file to open.	Skriptet ber om en fil att öppna.
+	The script asks where to save a file.	Skriptet frågar var en fil ska sparas.
+	The script asks for a folder.	Skriptet ber om en mapp.

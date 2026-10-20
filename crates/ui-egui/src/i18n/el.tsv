@@ -5534,3 +5534,6 @@ axis	Y Axis	Άξονας Y
 	Rectangular Grid Tool Options	Επιλογές εργαλείου ορθογώνιου πλέγματος
 	Polar Grid Tool Options	Επιλογές εργαλείου πολικού πλέγματος
 	Fill Line	Γέμισμα γραμμής
+	The script asks for a file to open.	Η δέσμη ενεργειών ζητά ένα αρχείο για άνοιγμα.
+	The script asks where to save a file.	Η δέσμη ενεργειών ρωτά πού να αποθηκεύσει ένα αρχείο.
+	The script asks for a folder.	Η δέσμη ενεργειών ζητά έναν φάκελο.

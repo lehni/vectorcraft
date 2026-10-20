@@ -5421,3 +5421,6 @@ axis	Y Axis	Y 轴
 	Rectangular Grid Tool Options	矩形网格工具选项
 	Polar Grid Tool Options	极坐标网格工具选项
 	Fill Line	填充线段
+	The script asks for a file to open.	脚本请求打开一个文件。
+	The script asks where to save a file.	脚本询问文件的保存位置。
+	The script asks for a folder.	脚本请求一个文件夹。

@@ -5613,3 +5613,6 @@ axis	Y Axis	Y-akseli
 	Rectangular Grid Tool Options	Suorakulmaisen ruudukon työkalun asetukset
 	Polar Grid Tool Options	Napakoordinaattiruudukon työkalun asetukset
 	Fill Line	Täytä viiva
+	The script asks for a file to open.	Komentosarja pyytää avattavaa tiedostoa.
+	The script asks where to save a file.	Komentosarja kysyy, minne tiedosto tallennetaan.
+	The script asks for a folder.	Komentosarja pyytää kansiota.

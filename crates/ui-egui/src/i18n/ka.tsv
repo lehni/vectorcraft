@@ -5498,3 +5498,6 @@ axis	Y Axis	Y ღერძი
 	Rectangular Grid Tool Options	მართკუთხა ბადის ხელსაწყოს პარამეტრები
 	Polar Grid Tool Options	პოლარული ბადის ხელსაწყოს პარამეტრები
 	Fill Line	ხაზის შევსება
+	The script asks for a file to open.	სკრიპტი ითხოვს გასახსნელ ფაილს.
+	The script asks where to save a file.	სკრიპტი გეკითხებათ, სად შეინახოს ფაილი.
+	The script asks for a folder.	სკრიპტი ითხოვს საქაღალდეს.

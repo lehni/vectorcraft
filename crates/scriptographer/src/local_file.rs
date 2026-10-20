@@ -2,9 +2,9 @@
 //! `fetch()`, `FormData` and `createImageBitmap()`), which shows the file as it is now, and can
 //! change it. `new LocalFile(...parts)` joins its parts (paths or `LocalFile`s, the last its name;
 //! a relative path is from the script's folder): `new LocalFile(script.directory, 'data',
-//! 'notes.txt')`; `LocalFile.from(handle)` is the file or directory of a `FileSystemHandle`.
-//! `Dialog.openFile()` and the others give them too, and `script.file` and `script.directory` are
-//! ones.
+//! 'notes.txt')`; `LocalFile.from(handle)` is a Promise of the file or directory of a
+//! `FileSystemHandle`. `Dialog.openFile()` and the others give them too, and `script.file` and
+//! `script.directory` are ones.
 //!
 //! What it is: `name`, `size`, `type` (from its extension), `lastModified`, `path`, `parent`,
 //! `extension`, `isDirectory`, `writable`. What it holds, as a `Blob` does (whose readers read it
@@ -53,7 +53,11 @@ const TYPES: [(&str, &str); 18] = [
 /// Sets `LocalFile` on `global`, extending `File`.
 pub(crate) fn install<E: Engine>(runtime: &mut Runtime<E>, global: &E::Handle) -> Result<(), Error> {
     let constructor = runtime.engine.constructor("LocalFile", construct)?;
-    let from = runtime.engine.function("from", |call, _, args| from_handle(call, args.first().unwrap_or(&Value::Undefined)))?;
+    // A Promise, as on the web, where a handle gives its file only so.
+    let from = runtime.engine.function("from", |call, _, args| {
+        let file = from_handle(call, args.first().unwrap_or(&Value::Undefined));
+        settled(call, file)
+    })?;
     let methods = methods().into_iter().map(|(name, f)| Ok((name, runtime.engine.function(name, f)?))).collect::<Result<Vec<_>, Error>>()?;
     let getters = getters().into_iter().map(|(name, f)| Ok((name, runtime.engine.function(name, f)?))).collect::<Result<Vec<_>, Error>>()?;
     let files = runtime.engine.with_call(|call| {
