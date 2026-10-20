@@ -134,14 +134,10 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
     let bitmap_close = engine.function("close", bitmap::close)?;
     let bitmap_constructor = engine.constructor("ImageBitmap", |_, _, _| Err(Error::Type("Illegal constructor".into())))?;
     let create_bitmap = engine.function("createImageBitmap", bitmap::create)?;
-    let get_fill = engine.function("fillStyle", |call, this, _| drawing::get_checked(call, this, "_fillStyle"))?;
-    let set_fill = engine.function("fillStyle", |call, this, args| drawing::set_style(call, this, "_fillStyle", args.first()))?;
-    let get_stroke = engine.function("strokeStyle", |call, this, _| drawing::get_checked(call, this, "_strokeStyle"))?;
-    let set_stroke = engine.function("strokeStyle", |call, this, args| drawing::set_style(call, this, "_strokeStyle", args.first()))?;
-    let get_shadow = engine.function("shadowColor", |call, this, _| drawing::get_checked(call, this, "_shadowColor"))?;
-    let set_shadow = engine.function("shadowColor", |call, this, args| drawing::set_color(call, this, "_shadowColor", args.first()))?;
-    let get_filter = engine.function("filter", |call, this, _| drawing::get_checked(call, this, "_filter"))?;
-    let set_filter = engine.function("filter", |call, this, args| drawing::set_filter(call, this, "_filter", args.first()))?;
+    let mut properties = Vec::with_capacity(drawing::PROPERTIES.len());
+    for (property, (get, set)) in drawing::PROPERTIES.iter().zip(drawing::accessors()) {
+        properties.push((property.name, engine.function(property.name, get)?, engine.function(property.name, set)?));
+    }
     let constructor = engine.constructor("OffscreenCanvas", offscreen_canvas)?;
     let image_data = engine.constructor("ImageData", construct_image_data)?;
     let add_color_stop = engine.function("addColorStop", drawing::add_color_stop)?;
@@ -154,10 +150,9 @@ pub(crate) fn install<E: Engine>(engine: &mut E, global: &E::Handle) -> Result<(
             call.set(&prototype, name, &Value::Js(function))?;
         }
         define_accessor(call, global, &prototype, "width", width, Some(set_width))?;
-        define_accessor(call, global, &prototype, "fillStyle", get_fill, Some(set_fill))?;
-        define_accessor(call, global, &prototype, "strokeStyle", get_stroke, Some(set_stroke))?;
-        define_accessor(call, global, &prototype, "shadowColor", get_shadow, Some(set_shadow))?;
-        define_accessor(call, global, &prototype, "filter", get_filter, Some(set_filter))?;
+        for (name, get, set) in properties {
+            define_accessor(call, global, &prototype, name, get, Some(set))?;
+        }
         define_accessor(call, global, &prototype, "height", height, Some(set_height))?;
         call.set(&constructor, "prototype", &Value::Js(prototype.clone()))?;
         call.set(global, "OffscreenCanvas", &Value::Js(constructor))?;
@@ -253,9 +248,7 @@ fn offscreen_canvas<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[
         method(call, &registry, "register", &[Value::Js(canvas.clone()), Value::Number(number as f64)])?;
     }
     call.set(&canvas, "canvas", &Value::Js(canvas.clone()))?;
-    for (key, default) in drawing::PROPERTIES {
-        call.set(&canvas, key, &default.value())?;
-    }
+    drawing::reset_properties(call, &canvas)?;
     Ok(Value::Js(canvas))
 }
 
@@ -331,12 +324,17 @@ pub(crate) fn new_gradient<H: Clone>(call: &mut dyn Call<H>) -> Result<H, Error>
 /// in browsers.
 fn resize<H>(call: &mut dyn Call<H>, this: &Value<H>, width: Option<&Value<H>>, height: Option<&Value<H>>) -> Result<Value<H>, Error> {
     let (width, height) = (width.map(|w| side(Some(w))).transpose()?, height.map(|h| side(Some(h))).transpose()?);
-    with_surface(call, this, |surface| {
+    let resized = with_surface(call, this, |surface| {
         let (width, height) = (width.unwrap_or(surface.pixmap.width()), height.unwrap_or(surface.pixmap.height()));
-        if f64::from(width) * f64::from(height) <= AREA {
+        let fits = f64::from(width) * f64::from(height) <= AREA;
+        if fits {
             surface.resize(width, height);
         }
+        fits
     })?;
+    if let (true, Value::Js(context)) = (resized, this) {
+        drawing::reset_properties(call, context)?;
+    }
     Ok(Value::Undefined)
 }
 
@@ -518,6 +516,11 @@ fn convert_to_blob<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[V
     method(call, &promise, "resolve", &[blob])
 }
 
+/// Whether `css` is a CSS `font` shorthand a context takes.
+pub(crate) fn is_font(css: &str) -> bool {
+    Font::parse(css).is_some()
+}
+
 /// A context's font until a script sets one, as in browsers.
 pub(crate) const DEFAULT_FONT: &str = "10px sans-serif";
 
@@ -532,7 +535,7 @@ fn measure_text<H>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -
         Some(text) => call.to_string(text)?,
         None => String::new(),
     };
-    let font = match call.get(context, "font")? {
+    let font = match call.get(context, "_font")? {
         Value::String(font) => font,
         _ => DEFAULT_FONT.to_owned(),
     };

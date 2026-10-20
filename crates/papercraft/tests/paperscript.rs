@@ -714,6 +714,37 @@ fn host_functions_throw_the_browsers_exceptions<E: Engine>() {
     );
 }
 
+fn canvas_properties_ignore_what_they_dont_take<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "const canvas = new OffscreenCanvas(2, 2)\n\
+             const ctx = canvas.getContext('2d')\n\
+             ctx.lineWidth = 0; ctx.lineWidth = -1; ctx.lineWidth = Infinity; ctx.lineCap = 'flat'; ctx.globalAlpha = 2\n\
+             ctx.globalCompositeOperation = 'Xor'; ctx.textAlign = 'middle'; ctx.letterSpacing = '3 px'; ctx.font = 'big'\n\
+             console.log(ctx.lineWidth, ctx.lineCap, ctx.globalAlpha, ctx.globalCompositeOperation, ctx.textAlign, ctx.letterSpacing, ctx.font)\n\
+             ctx.lineWidth = '1e1'; ctx.lineCap = 'round'; ctx.wordSpacing = '2em'; ctx.imageSmoothingEnabled = 0; ctx.fontKerning = 'none'\n\
+             console.log(ctx.lineWidth, ctx.lineCap, ctx.wordSpacing, ctx.imageSmoothingEnabled, ctx.fontKerning)\n\
+             ctx.save(); ctx.lineWidth = 3; ctx.restore()\n\
+             console.log(ctx.lineWidth)\n\
+             canvas.width = 2\n\
+             console.log(ctx.lineWidth, ctx.lineCap, ctx.wordSpacing, ctx.fontKerning)",
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.take_output(),
+        [
+            "1 butt 1 source-over start 0px 10px sans-serif",
+            "10 round 2em false none",
+            "10",
+            // Setting the size resets the context, as in browsers.
+            "1 butt 0px auto",
+        ]
+    );
+}
+
 fn runtimes_live_side_by_side<E: Engine>() {
     // As the app runs them: a second script starts while the first keeps running, and the first
     // stops first.
@@ -869,6 +900,11 @@ macro_rules! engine_tests {
             #[test]
             fn host_functions_throw_the_browsers_exceptions() {
                 super::host_functions_throw_the_browsers_exceptions::<$engine>();
+            }
+
+            #[test]
+            fn canvas_properties_ignore_what_they_dont_take() {
+                super::canvas_properties_ignore_what_they_dont_take::<$engine>();
             }
 
             #[test]

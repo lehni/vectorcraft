@@ -21,32 +21,139 @@ use vello_cpu::kurbo::{Affine, Arc as ArcSegment, BezPath, Cap, Join, PathEl, Po
 use vello_cpu::peniko::{self, BlendMode, Color, ColorStop, Compose, Extend, Fill, ImageQuality, ImageSampler, Mix};
 use vello_cpu::{Pixmap, RenderContext, RenderSettings, Resources};
 
-use crate::{Call, Error, Value};
+use crate::{Call, Error, HostFunction, Value};
 
-/// The context's properties `save()` keeps, with their values on a new canvas.
-pub(crate) const PROPERTIES: [(&str, Initial); 21] = [
-    ("fillStyle", Initial::Text("#000000")),
-    ("strokeStyle", Initial::Text("#000000")),
-    ("lineWidth", Initial::Number(1.0)),
-    ("lineCap", Initial::Text("butt")),
-    ("lineJoin", Initial::Text("miter")),
-    ("miterLimit", Initial::Number(10.0)),
-    ("lineDashOffset", Initial::Number(0.0)),
-    ("globalAlpha", Initial::Number(1.0)),
-    ("globalCompositeOperation", Initial::Text("source-over")),
-    ("font", Initial::Text(crate::canvas::DEFAULT_FONT)),
-    ("textAlign", Initial::Text("start")),
-    ("textBaseline", Initial::Text("alphabetic")),
-    ("direction", Initial::Text("inherit")),
-    ("imageSmoothingEnabled", Initial::Bool(true)),
-    ("imageSmoothingQuality", Initial::Text("low")),
-    ("shadowBlur", Initial::Number(0.0)),
-    ("shadowColor", Initial::Text("rgba(0, 0, 0, 0)")),
-    ("shadowOffsetX", Initial::Number(0.0)),
-    ("shadowOffsetY", Initial::Number(0.0)),
-    ("filter", Initial::Text("none")),
-    ("letterSpacing", Initial::Text("0px")),
+/// A context property: its name, the key its value is kept under, its value on a new canvas, and
+/// the values it takes; others are ignored, as browsers ignore them. `save()` keeps them.
+pub(crate) struct Property {
+    pub name: &'static str,
+    pub key: &'static str,
+    pub initial: Initial,
+    check: Check,
+}
+
+/// CSS Compositing's composite and blend modes, but `plus-darker`, which vello_cpu doesn't have.
+const COMPOSITE_OPERATIONS: &[&str] = &[
+    "clear",
+    "plus-lighter",
+    "normal",
+    "source-over",
+    "source-in",
+    "source-out",
+    "source-atop",
+    "destination-over",
+    "destination-in",
+    "destination-out",
+    "destination-atop",
+    "lighter",
+    "copy",
+    "xor",
+    "multiply",
+    "screen",
+    "overlay",
+    "darken",
+    "lighten",
+    "color-dodge",
+    "color-burn",
+    "hard-light",
+    "soft-light",
+    "difference",
+    "exclusion",
+    "hue",
+    "saturation",
+    "color",
+    "luminosity",
 ];
+
+const fn property(name: &'static str, key: &'static str, initial: Initial, check: Check) -> Property {
+    Property { name, key, initial, check }
+}
+
+pub(crate) const PROPERTIES: [Property; 26] = [
+    property("fillStyle", "_fillStyle", Initial::Text("#000000"), Check::Style),
+    property("strokeStyle", "_strokeStyle", Initial::Text("#000000"), Check::Style),
+    property("lineWidth", "_lineWidth", Initial::Number(1.0), Check::Positive),
+    property("lineCap", "_lineCap", Initial::Text("butt"), Check::Keyword(&["butt", "round", "square"])),
+    property("lineJoin", "_lineJoin", Initial::Text("miter"), Check::Keyword(&["round", "bevel", "miter"])),
+    property("miterLimit", "_miterLimit", Initial::Number(10.0), Check::Positive),
+    property("lineDashOffset", "_lineDashOffset", Initial::Number(0.0), Check::Finite),
+    property("globalAlpha", "_globalAlpha", Initial::Number(1.0), Check::Fraction),
+    property("globalCompositeOperation", "_globalCompositeOperation", Initial::Text("source-over"), Check::Keyword(COMPOSITE_OPERATIONS)),
+    property("font", "_font", Initial::Text(crate::canvas::DEFAULT_FONT), Check::Font),
+    property("textAlign", "_textAlign", Initial::Text("start"), Check::Keyword(&["start", "end", "left", "right", "center"])),
+    property(
+        "textBaseline",
+        "_textBaseline",
+        Initial::Text("alphabetic"),
+        Check::Keyword(&["top", "hanging", "middle", "alphabetic", "ideographic", "bottom"]),
+    ),
+    property("direction", "_direction", Initial::Text("inherit"), Check::Keyword(&["ltr", "rtl", "inherit"])),
+    property("imageSmoothingEnabled", "_imageSmoothingEnabled", Initial::Bool(true), Check::Bool),
+    property("imageSmoothingQuality", "_imageSmoothingQuality", Initial::Text("low"), Check::Keyword(&["low", "medium", "high"])),
+    property("shadowBlur", "_shadowBlur", Initial::Number(0.0), Check::NonNegative),
+    property("shadowColor", "_shadowColor", Initial::Text("rgba(0, 0, 0, 0)"), Check::Color),
+    property("shadowOffsetX", "_shadowOffsetX", Initial::Number(0.0), Check::Finite),
+    property("shadowOffsetY", "_shadowOffsetY", Initial::Number(0.0), Check::Finite),
+    property("filter", "_filter", Initial::Text("none"), Check::Filter),
+    property("letterSpacing", "_letterSpacing", Initial::Text("0px"), Check::Length),
+    property("wordSpacing", "_wordSpacing", Initial::Text("0px"), Check::Length),
+    property("fontKerning", "_fontKerning", Initial::Text("auto"), Check::Keyword(&["auto", "normal", "none"])),
+    property(
+        "fontStretch",
+        "_fontStretch",
+        Initial::Text("normal"),
+        Check::Keyword(&[
+            "ultra-condensed",
+            "extra-condensed",
+            "condensed",
+            "semi-condensed",
+            "normal",
+            "semi-expanded",
+            "expanded",
+            "extra-expanded",
+            "ultra-expanded",
+        ]),
+    ),
+    property(
+        "fontVariantCaps",
+        "_fontVariantCaps",
+        Initial::Text("normal"),
+        Check::Keyword(&["normal", "small-caps", "all-small-caps", "petite-caps", "all-petite-caps", "unicase", "titling-caps"]),
+    ),
+    property(
+        "textRendering",
+        "_textRendering",
+        Initial::Text("auto"),
+        Check::Keyword(&["auto", "optimizeSpeed", "optimizeLegibility", "geometricPrecision"]),
+    ),
+];
+
+/// The values a property takes.
+#[derive(Clone, Copy)]
+enum Check {
+    /// A finite number above 0.
+    Positive,
+    /// A finite number.
+    Finite,
+    /// A finite number, 0 or more.
+    NonNegative,
+    /// A finite number from 0 to 1.
+    Fraction,
+    /// Anything, as a boolean.
+    Bool,
+    /// One of these keywords.
+    Keyword(&'static [&'static str]),
+    /// A CSS `font` shorthand.
+    Font,
+    /// A CSS length.
+    Length,
+    /// A CSS colour.
+    Color,
+    /// A CSS colour, a `CanvasGradient` or a `CanvasPattern`.
+    Style,
+    /// A CSS `filter`.
+    Filter,
+}
 
 #[derive(Clone, Copy)]
 pub(crate) enum Initial {
@@ -63,6 +170,122 @@ impl Initial {
             Initial::Bool(b) => Value::Bool(b),
         }
     }
+}
+
+/// The getter of `PROPERTIES[I]`.
+fn get<H: Clone, const I: usize>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
+    match PROPERTIES.get(I) {
+        Some(p) => stored(call, this, p.key),
+        None => Ok(Value::Undefined),
+    }
+}
+
+/// The setter of `PROPERTIES[I]`: keeps the value as the property has it, when it takes it.
+fn set<H: Clone, const I: usize>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let (Some(p), Value::Js(context)) = (PROPERTIES.get(I), this) else {
+        return Ok(Value::Undefined);
+    };
+    let value = args.first().cloned().unwrap_or(Value::Undefined);
+    if let Some(kept) = checked(call, p.check, value)? {
+        call.set(context, p.key, &kept)?;
+    }
+    Ok(Value::Undefined)
+}
+
+/// The getter and setter of every property, in the order of [`PROPERTIES`].
+pub(crate) fn accessors<H: Clone>() -> [(HostFunction<H>, HostFunction<H>); PROPERTIES.len()] {
+    macro_rules! accessors {
+        ($($i:literal)*) => { [$((get::<H, $i> as HostFunction<H>, set::<H, $i> as HostFunction<H>)),*] };
+    }
+    accessors!(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25)
+}
+
+/// `value` as a property that takes `check` keeps it, or `None` when it doesn't take it.
+fn checked<H: Clone>(call: &mut dyn Call<H>, check: Check, value: Value<H>) -> Result<Option<Value<H>>, Error> {
+    let number = |call: &mut dyn Call<H>, value: &Value<H>| -> Result<f64, Error> {
+        Ok(match value {
+            Value::Number(n) => *n,
+            Value::Bool(b) => f64::from(u8::from(*b)),
+            Value::Null => 0.0,
+            Value::Undefined => f64::NAN,
+            // As `Number(value)`: blank text is 0.
+            _ => {
+                let text = call.to_string(value)?;
+                let text = text.trim();
+                if text.is_empty() { 0.0 } else { text.parse().unwrap_or(f64::NAN) }
+            }
+        })
+    };
+    Ok(match check {
+        Check::Positive => Some(number(call, &value)?).filter(|n| n.is_finite() && *n > 0.0).map(Value::Number),
+        Check::Finite => Some(number(call, &value)?).filter(|n| n.is_finite()).map(Value::Number),
+        Check::NonNegative => Some(number(call, &value)?).filter(|n| n.is_finite() && *n >= 0.0).map(Value::Number),
+        Check::Fraction => Some(number(call, &value)?).filter(|n| (0.0..=1.0).contains(n)).map(Value::Number),
+        Check::Bool => Some(Value::Bool(match &value {
+            Value::Undefined | Value::Null => false,
+            Value::Bool(b) => *b,
+            Value::Number(n) => *n != 0.0 && !n.is_nan(),
+            Value::String(text) => !text.is_empty(),
+            Value::Js(_) => true,
+        })),
+        Check::Keyword(keywords) => {
+            let text = call.to_string(&value)?;
+            keywords.contains(&text.as_str()).then_some(Value::String(text))
+        }
+        Check::Font => {
+            let text = call.to_string(&value)?;
+            crate::canvas::is_font(&text).then_some(Value::String(text))
+        }
+        Check::Length => {
+            let text = call.to_string(&value)?;
+            css_length(&text).is_some().then_some(Value::String(text))
+        }
+        Check::Color => match &value {
+            Value::String(css) => color_value(css),
+            _ => None,
+        },
+        Check::Style => match &value {
+            Value::Js(object)
+                if matches!(call.get(object, "_gradient")?, Value::String(_)) || matches!(call.get(object, "_image")?, Value::Js(_)) =>
+            {
+                Some(value.clone())
+            }
+            Value::String(css) => color_value(css),
+            _ => None,
+        },
+        Check::Filter => {
+            let text = call.to_string(&value)?;
+            parse_filter(&text).is_some().then_some(Value::String(text))
+        }
+    })
+}
+
+/// A CSS length in pixels, `em` and `rem` taken as 10 pixels, the default font's size.
+fn css_length(text: &str) -> Option<f64> {
+    let text = text.trim();
+    if text == "0" {
+        return Some(0.0);
+    }
+    let units = [
+        ("px", 1.0),
+        ("em", 10.0),
+        ("rem", 10.0),
+        ("pt", 4.0 / 3.0),
+        ("pc", 16.0),
+        ("in", 96.0),
+        ("cm", 96.0 / 2.54),
+        ("mm", 96.0 / 25.4),
+        ("q", 96.0 / 101.6),
+    ];
+    units.iter().find_map(|(unit, scale)| text.strip_suffix(unit)?.parse::<f64>().ok().filter(|n| n.is_finite()).map(|n| n * scale))
+}
+
+/// Sets the properties of `context` to their values on a new canvas, as `reset()` and resizing do.
+pub(crate) fn reset_properties<H>(call: &mut dyn Call<H>, context: &H) -> Result<(), Error> {
+    for p in &PROPERTIES {
+        call.set(context, p.key, &p.initial.value())?;
+    }
+    Ok(())
 }
 
 /// A canvas's pixels and drawing state.
@@ -189,8 +412,8 @@ fn finite<const N: usize, H>(args: &[Value<H>], from: usize) -> Option<[f64; N]>
     out.iter().all(|n| n.is_finite()).then_some(out)
 }
 
-/// A property of the context `this` is.
-fn property<H>(call: &mut dyn Call<H>, this: &Value<H>, key: &str) -> Result<Value<H>, Error> {
+/// The value the context `this` is keeps under `key`.
+fn stored<H>(call: &mut dyn Call<H>, this: &Value<H>, key: &str) -> Result<Value<H>, Error> {
     match this {
         Value::Js(context) => call.get(context, key),
         _ => Err(Error::Script("not a canvas".into())),
@@ -198,67 +421,20 @@ fn property<H>(call: &mut dyn Call<H>, this: &Value<H>, key: &str) -> Result<Val
 }
 
 fn text_property<H>(call: &mut dyn Call<H>, this: &Value<H>, key: &str) -> Result<String, Error> {
-    match property(call, this, key)? {
+    match stored(call, this, key)? {
         Value::String(text) => Ok(text),
         other => call.to_string(&other),
     }
 }
 
 fn number_property<H>(call: &mut dyn Call<H>, this: &Value<H>, key: &str, default: f64) -> Result<f64, Error> {
-    Ok(match property(call, this, key)? {
+    Ok(match stored(call, this, key)? {
         Value::Number(n) if n.is_finite() => n,
         _ => default,
     })
 }
 
 // Styles.
-
-/// A property the canvas checks the values of (`fillStyle`, `filter`, …), as it keeps it in `key`.
-pub(crate) fn get_checked<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, key: &str) -> Result<Value<H>, Error> {
-    property(call, this, key)
-}
-
-/// Setting `fillStyle` or `strokeStyle` (kept in `key`): a CSS colour, a `CanvasGradient` or a
-/// `CanvasPattern`; anything else is ignored, as in browsers.
-pub(crate) fn set_style<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, key: &str, value: Option<&Value<H>>) -> Result<Value<H>, Error> {
-    let Value::Js(context) = this else {
-        return Err(Error::Script("not a canvas".into()));
-    };
-    let kept = match value {
-        Some(Value::Js(object))
-            if matches!(call.get(object, "_gradient")?, Value::String(_)) || matches!(call.get(object, "_image")?, Value::Js(_)) =>
-        {
-            Some(Value::Js(object.clone()))
-        }
-        Some(Value::String(css)) => color_value(css),
-        _ => None,
-    };
-    if let Some(kept) = kept {
-        call.set(context, key, &kept)?;
-    }
-    Ok(Value::Undefined)
-}
-
-/// Setting `shadowColor` (kept in `key`): a CSS colour; anything else is ignored, as in browsers.
-pub(crate) fn set_color<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, key: &str, value: Option<&Value<H>>) -> Result<Value<H>, Error> {
-    if let (Value::Js(context), Some(Value::String(css))) = (this, value)
-        && let Some(kept) = color_value(css)
-    {
-        call.set(context, key, &kept)?;
-    }
-    Ok(Value::Undefined)
-}
-
-/// Setting `filter` (kept in `key`): a CSS filter, as given; anything else is ignored, as in
-/// browsers.
-pub(crate) fn set_filter<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, key: &str, value: Option<&Value<H>>) -> Result<Value<H>, Error> {
-    if let (Value::Js(context), Some(Value::String(css))) = (this, value)
-        && parse_filter(css).is_some()
-    {
-        call.set(context, key, &Value::String(css.clone()))?;
-    }
-    Ok(Value::Undefined)
-}
 
 /// A CSS colour as the canvas keeps it.
 fn color_value<H>(css: &str) -> Option<Value<H>> {
@@ -645,8 +821,8 @@ pub(crate) fn get_transform<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, _
 
 pub(crate) fn save<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
     let mut properties = Vec::with_capacity(PROPERTIES.len());
-    for (key, _) in PROPERTIES {
-        properties.push(property(call, this, key)?);
+    for p in &PROPERTIES {
+        properties.push(stored(call, this, p.key)?);
     }
     surface(call, this, |s| {
         let saved = Saved { transform: s.transform, clips: s.clips.clone(), dash: s.dash.clone(), properties };
@@ -664,8 +840,8 @@ pub(crate) fn restore<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, _args: 
         Some(saved.properties)
     })?;
     if let (Some(properties), Value::Js(context)) = (saved, this) {
-        for ((key, _), value) in PROPERTIES.iter().zip(properties) {
-            call.set(context, key, &value)?;
+        for (p, value) in PROPERTIES.iter().zip(properties) {
+            call.set(context, p.key, &value)?;
         }
     }
     Ok(Value::Undefined)
@@ -678,9 +854,7 @@ pub(crate) fn reset<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[
         s.resize(width, height);
     })?;
     if let Value::Js(context) = this {
-        for (key, default) in PROPERTIES {
-            call.set(context, key, &default.value())?;
-        }
+        reset_properties(call, context)?;
     }
     Ok(Value::Undefined)
 }
@@ -726,7 +900,7 @@ enum Style {
 
 /// The style in property `key`, `None` when it paints nothing.
 fn style<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, key: &str) -> Result<Option<Style>, Error> {
-    match property(call, this, key)? {
+    match stored(call, this, key)? {
         Value::String(css) => Ok(css_color(&css).map(Style::Color)),
         Value::Js(object) => {
             if let Value::String(kind) = call.get(&object, "_gradient")? {
@@ -930,8 +1104,8 @@ fn length(word: &str) -> Option<f64> {
 /// How drawing lands on the canvas now: `globalAlpha` and `globalCompositeOperation` as vello_cpu
 /// has them, `filter` and the shadow.
 fn compositing<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>) -> Result<Compositing, Error> {
-    let alpha = number_property(call, this, "globalAlpha", 1.0)?.clamp(0.0, 1.0) as f32;
-    let operation = text_property(call, this, "globalCompositeOperation")?;
+    let alpha = number_property(call, this, "_globalAlpha", 1.0)?.clamp(0.0, 1.0) as f32;
+    let operation = text_property(call, this, "_globalCompositeOperation")?;
     let (mix, compose) = match operation.as_str() {
         "source-in" => (Mix::Normal, Compose::SrcIn),
         "source-out" => (Mix::Normal, Compose::SrcOut),
@@ -941,6 +1115,8 @@ fn compositing<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>) -> Result<Comp
         "destination-out" => (Mix::Normal, Compose::DestOut),
         "destination-atop" => (Mix::Normal, Compose::DestAtop),
         "lighter" => (Mix::Normal, Compose::Plus),
+        "plus-lighter" => (Mix::Normal, Compose::PlusLighter),
+        "clear" => (Mix::Normal, Compose::Clear),
         "copy" => (Mix::Normal, Compose::Copy),
         "xor" => (Mix::Normal, Compose::Xor),
         "multiply" => (Mix::Multiply, Compose::SrcOver),
@@ -960,12 +1136,12 @@ fn compositing<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>) -> Result<Comp
         "luminosity" => (Mix::Luminosity, Compose::SrcOver),
         _ => (Mix::Normal, Compose::SrcOver),
     };
-    let mut effects = parse_filter(&text_property(call, this, "filter")?).unwrap_or_default();
-    if let Some(color) = css_color(&text_property(call, this, "shadowColor")?) {
-        let dx = number_property(call, this, "shadowOffsetX", 0.0)?;
-        let dy = number_property(call, this, "shadowOffsetY", 0.0)?;
+    let mut effects = parse_filter(&text_property(call, this, "_filter")?).unwrap_or_default();
+    if let Some(color) = css_color(&text_property(call, this, "_shadowColor")?) {
+        let dx = number_property(call, this, "_shadowOffsetX", 0.0)?;
+        let dy = number_property(call, this, "_shadowOffsetY", 0.0)?;
         // As for CSS shadows, the blur's standard deviation is half the `shadowBlur`.
-        let blur = number_property(call, this, "shadowBlur", 0.0)?.max(0.0) / 2.0;
+        let blur = number_property(call, this, "_shadowBlur", 0.0)?.max(0.0) / 2.0;
         effects.push(Effect::Shadow { dx, dy, blur, color });
     }
     Ok(Compositing { alpha, blend: BlendMode::new(mix, compose), effects })
@@ -1002,7 +1178,7 @@ fn fill_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, key: &str, path:
         return Ok(());
     };
     let compositing = compositing(call, this)?;
-    let smooth = !matches!(property(call, this, "imageSmoothingEnabled")?, Value::Bool(false));
+    let smooth = !matches!(stored(call, this, "_imageSmoothingEnabled")?, Value::Bool(false));
     surface(call, this, |s| {
         let transform = s.transform;
         s.draw(&compositing, |scene| {
@@ -1016,22 +1192,22 @@ fn fill_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, key: &str, path:
 
 /// The stroke the context's line properties describe, in user space.
 fn line<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, dash: &[f64]) -> Result<Option<Stroke>, Error> {
-    let width = number_property(call, this, "lineWidth", 1.0)?;
+    let width = number_property(call, this, "_lineWidth", 1.0)?;
     if width <= 0.0 {
         return Ok(None);
     }
-    let cap = match text_property(call, this, "lineCap")?.as_str() {
+    let cap = match text_property(call, this, "_lineCap")?.as_str() {
         "round" => Cap::Round,
         "square" => Cap::Square,
         _ => Cap::Butt,
     };
-    let join = match text_property(call, this, "lineJoin")?.as_str() {
+    let join = match text_property(call, this, "_lineJoin")?.as_str() {
         "round" => Join::Round,
         "bevel" => Join::Bevel,
         _ => Join::Miter,
     };
-    let miter = number_property(call, this, "miterLimit", 10.0)?.max(0.0);
-    let offset = number_property(call, this, "lineDashOffset", 0.0)?;
+    let miter = number_property(call, this, "_miterLimit", 10.0)?.max(0.0);
+    let offset = number_property(call, this, "_lineDashOffset", 0.0)?;
     let mut stroke = Stroke::new(width).with_caps(cap).with_join(join).with_miter_limit(miter);
     if !dash.is_empty() && dash.iter().any(|d| *d > 0.0) {
         stroke = stroke.with_dashes(offset, dash.iter().copied());
@@ -1041,7 +1217,7 @@ fn line<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, dash: &[f64]) -> Resu
 
 /// Strokes `path` (in pixels) with `strokeStyle`, its line in the current user space.
 fn stroke_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, path: BezPath) -> Result<(), Error> {
-    let Some(style) = style(call, this, "strokeStyle")? else {
+    let Some(style) = style(call, this, "_strokeStyle")? else {
         return Ok(());
     };
     let dash = surface(call, this, |s| s.dash.clone())?;
@@ -1049,7 +1225,7 @@ fn stroke_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, path: BezPath)
         return Ok(());
     };
     let compositing = compositing(call, this)?;
-    let smooth = !matches!(property(call, this, "imageSmoothingEnabled")?, Value::Bool(false));
+    let smooth = !matches!(stored(call, this, "_imageSmoothingEnabled")?, Value::Bool(false));
     surface(call, this, |s| {
         let transform = s.transform;
         // A transform that flattens everything strokes nothing.
@@ -1081,7 +1257,7 @@ fn path_argument<'a, H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &'
 /// `fill(path, fillRule)`.
 pub(crate) fn fill<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let (path, args) = path_argument(call, this, args)?;
-    fill_path(call, this, "fillStyle", path, fill_rule(args))?;
+    fill_path(call, this, "_fillStyle", path, fill_rule(args))?;
     Ok(Value::Undefined)
 }
 
@@ -1139,7 +1315,7 @@ fn rect_path<H>(s: &Surface<H>, x: f64, y: f64, w: f64, h: f64) -> BezPath {
 pub(crate) fn fill_rect<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     if let Some([x, y, w, h]) = finite(args, 0) {
         let path = surface(call, this, |s| rect_path(s, x, y, w, h))?;
-        fill_path(call, this, "fillStyle", path, Fill::NonZero)?;
+        fill_path(call, this, "_fillStyle", path, Fill::NonZero)?;
     }
     Ok(Value::Undefined)
 }
@@ -1182,9 +1358,9 @@ fn text_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>
     let Some([x, y]) = finite(args, 1) else {
         return Ok(None);
     };
-    let font = text_property(call, this, "font")?;
-    let align = text_property(call, this, "textAlign")?;
-    let baseline = text_property(call, this, "textBaseline")?;
+    let font = text_property(call, this, "_font")?;
+    let align = text_property(call, this, "_textAlign")?;
+    let baseline = text_property(call, this, "_textBaseline")?;
     let (outline, measured) = crate::canvas::outline(&text, &font);
     let dx = match align.as_str() {
         "center" => -measured.width / 2.0,
@@ -1208,7 +1384,7 @@ fn text_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>
 
 pub(crate) fn fill_text<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     if let Some(path) = text_path(call, this, args)? {
-        fill_path(call, this, "fillStyle", path, Fill::NonZero)?;
+        fill_path(call, this, "_fillStyle", path, Fill::NonZero)?;
     }
     Ok(Value::Undefined)
 }
@@ -1248,7 +1424,7 @@ pub(crate) fn draw_image<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args
         return Ok(Value::Undefined);
     }
     let compositing = compositing(call, this)?;
-    let smooth = !matches!(property(call, this, "imageSmoothingEnabled")?, Value::Bool(false));
+    let smooth = !matches!(stored(call, this, "_imageSmoothingEnabled")?, Value::Bool(false));
     // The source rectangle, clipped to the image, maps onto the destination rectangle.
     let scale = Vec2::new(destination.width() / source.width(), destination.height() / source.height());
     let visible = source.intersect(Rect::new(0.0, 0.0, iw, ih));

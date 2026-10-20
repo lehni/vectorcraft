@@ -10,7 +10,6 @@ canvas-context/2d.canvas.context.type.exists.worker.js: The 2D context interface
 canvas-context/2d.canvas.context.type.extend.worker.js: Interface methods can be added
 canvas-context/2d.canvas.context.type.prototype.worker.js: window.CanvasRenderingContext2D.prototype are not [[Writable]] and not [[Configurable]], and its methods are [[Configurable]].
 canvas-context/2d.canvas.context.type.replace.worker.js: Interface methods can be overridden
-canvas-host/2d.canvas.host.initial.reset.2dstate.worker.js: Resetting the canvas state resets strokeStyle
 canvas-host/2d.canvas.host.initial.reset.pattern.worker.js: Resetting the canvas state does not invalidate any existing patterns
 canvas-host/2d.canvas.host.readonly.worker.js: Canvas objects are readonly
 canvas-host/2d.canvas.host.size.attributes.idl.worker.js: Getting/setting width/height IDL attributes
@@ -34,18 +33,6 @@ canvas-host/2d.canvas.host.size.large.worker.js: Untitled
 canvas-host/2d.canvas.host.type.name.worker.js: OffscreenCanvas type and toString
 color-type/2d.color.type.u8p3.to.u8srgb.to.u8p3.worker.js: test srgb unorm8 canvas storing 8-bit display-p3 data accurately
 color-type/2d.color.type.u8srgb.to.u8p3.to.u8srgb.worker.js: test display-p3 unorm8 canvas not storing 8-bit srgb data accurately
-compositing/2d.composite.canvas.clear.worker.js: Untitled
-compositing/2d.composite.globalAlpha.invalid.worker.js: Untitled
-compositing/2d.composite.globalAlpha.range.worker.js: Untitled
-compositing/2d.composite.image.clear.worker.js: Untitled
-compositing/2d.composite.operation.casesensitive.worker.js: Untitled
-compositing/2d.composite.operation.darker.worker.js: Untitled
-compositing/2d.composite.operation.highlight.worker.js: Untitled
-compositing/2d.composite.operation.nullsuffix.worker.js: Untitled
-compositing/2d.composite.operation.over.worker.js: Untitled
-compositing/2d.composite.operation.unrecognised.worker.js: Untitled
-compositing/2d.composite.solid.clear.worker.js: Untitled
-compositing/2d.composite.transparent.clear.worker.js: Untitled
 conformance-requirements/2d.conformance.requirements.missingargs.worker.js: Missing arguments cause TypeError
 drawing-images-to-the-canvas/2d.drawImage.broken.worker.js: Untitled
 drawing-images-to-the-canvas/2d.drawImage.negativedest.worker.js: Negative destination width/height represents the correct rectangle
@@ -119,13 +106,7 @@ layers/2d.layer.valid-calls.beginLayer-endLayer.worker.js: No exception raised o
 layers/2d.layer.valid-calls.beginLayer-save.worker.js: No exception raised on beginLayer() + save().
 layers/2d.layer.valid-calls.beginLayer.worker.js: No exception raised on lone beginLayer() calls.
 layers/2d.layer.valid-calls.save-beginLayer.worker.js: No exception raised on save() + beginLayer().
-line-styles/2d.line.cap.invalid.worker.js: Setting lineCap to invalid values is ignored
 line-styles/2d.line.cross.worker.js: Untitled
-line-styles/2d.line.join.invalid.worker.js: Setting lineJoin to invalid values is ignored
-line-styles/2d.line.miter.invalid.worker.js: Setting miterLimit to invalid values is ignored
-line-styles/2d.line.miter.valid.worker.js: Setting miterLimit to valid values works
-line-styles/2d.line.width.invalid.worker.js: Setting lineWidth to invalid values is ignored
-line-styles/2d.line.width.valid.worker.js: Setting lineWidth to valid values works
 path-objects/2d.path.isPointInPath.basic.worker.js: Verify the winding rule in isPointInPath works for for rect path.
 path-objects/2d.path.isPointInPath.edge.worker.js: isPointInPath() counts points on the path as being inside
 path-objects/2d.path.isPointInPath.unclosed.worker.js: isPointInPath() works on unclosed subpaths
@@ -177,23 +158,13 @@ pixel-manipulation/2d.imageData.put.basic.rgba.float16.worker.js: putImageData()
 pixel-manipulation/2d.imageData.put.nonfinite.worker.js: putImageData() throws TypeError if arguments are not finite
 pixel-manipulation/2d.imageData.put.null.worker.js: putImageData() with null imagedata throws TypeError
 pixel-manipulation/2d.imageData.put.wrongtype.worker.js: putImageData() does not accept non-ImageData objects
-reset/2d.reset.state.font_kerning.worker.js: check that the state is reset
-reset/2d.reset.state.font_stretch.worker.js: check that the state is reset
-reset/2d.reset.state.font_variant_caps.worker.js: check that the state is reset
-reset/2d.reset.state.text_rendering.worker.js: check that the state is reset
 reset/2d.reset.state.transformation_matrix.worker.js: check that the state is reset
-reset/2d.reset.state.word_spacing.worker.js: check that the state is reset
-shadows/2d.shadow.attributes.shadowBlur.invalid.worker.js: Untitled
-shadows/2d.shadow.attributes.shadowOffset.invalid.worker.js: Untitled
 shadows/2d.shadow.composite.1.worker.js: Shadows are drawn using globalCompositeOperation
 shadows/2d.shadow.composite.2.worker.js: Shadows are drawn using globalCompositeOperation
 shadows/2d.shadow.enable.blur.worker.js: Shadows are drawn if shadowBlur is set
 shadows/2d.shadow.enable.x.worker.js: Shadows are drawn if shadowOffsetX is set
 shadows/2d.shadow.enable.y.worker.js: Shadows are drawn if shadowOffsetY is set
 shadows/2d.shadow.outside.worker.js: Shadows of shapes outside the visible area can be offset onto the visible area
-text/2d.text.align.invalid.worker.js: Untitled
-text/2d.text.baseline.invalid.worker.js: Untitled
-text/2d.text.direction.invalid.worker.js: Untitled
 text/2d.text.draw.align.center.worker.js: textAlign center is the center of the em squares (not the bounding box)
 text/2d.text.draw.align.end.ltr.worker.js: textAlign end with ltr is the right edge
 text/2d.text.draw.align.end.rtl.worker.js: textAlign end with rtl is the left edge
@@ -223,17 +194,11 @@ text/2d.text.draw.space.collapse.space.worker.js: Space characters are converted
 text/2d.text.draw.space.collapse.start.worker.js: Space characters at the start of a line are NOT collapsed
 text/2d.text.drawing.style.absolute.spacing.worker.js: Testing letter spacing and word spacing with absolute length
 text/2d.text.drawing.style.font-relative.spacing.worker.js: Testing letter spacing and word spacing with font-relative length
-text/2d.text.drawing.style.fontKerning.with.uppercase.worker.js: Testing basic functionalities of fontKerning for canvas
 text/2d.text.drawing.style.fontKerning.worker.js: Testing basic functionalities of fontKerning for canvas
-text/2d.text.drawing.style.fontStretch.settings.worker.js: Testing value setting of fontStretch in Canvas
-text/2d.text.drawing.style.fontVariant.settings.worker.js: Testing basic functionalities of fontVariant for canvas
-text/2d.text.drawing.style.invalid.spacing.worker.js: Testing letter spacing and word spacing with invalid units
 text/2d.text.drawing.style.letterSpacing.change.font.worker.js: Set letter spacing and word spacing to font dependent value and verify it works after font change.
 text/2d.text.drawing.style.letterSpacing.measure.worker.js: Testing letter spacing with different length units
 text/2d.text.drawing.style.measure.direction.worker.js: Measurement should follow text direction
 text/2d.text.drawing.style.measure.textAlign.worker.js: Measurement should be related to textAlignment
-text/2d.text.drawing.style.nonfinite.spacing.worker.js: Testing letter spacing and word spacing with nonfinite inputs
-text/2d.text.drawing.style.textRendering.settings.worker.js: Testing basic functionalities of textRendering in Canvas
 text/2d.text.drawing.style.wordSpacing.change.font.worker.js: Set word spacing and word spacing to font dependent value and verify it works after font change.
 text/2d.text.drawing.style.wordSpacing.measure.worker.js: Testing word spacing with different length units
 text/2d.text.font.parse.basic.worker.js: Untitled
@@ -241,7 +206,6 @@ text/2d.text.font.parse.complex.worker.js: Untitled
 text/2d.text.font.parse.complex2.worker.js: Untitled
 text/2d.text.font.parse.family.worker.js: Untitled
 text/2d.text.font.parse.invalid.worker.js: Untitled
-text/2d.text.font.parse.system.worker.js: System fonts must be computed to explicit values
 text/2d.text.font.relative_size.worker.js: Untitled
 text/2d.text.font.weight.worker.js: Untitled
 text/2d.text.fontVariantCaps2.worker.js: Testing small caps setting in fontVariant
