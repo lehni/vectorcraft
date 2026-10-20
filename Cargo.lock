@@ -5602,6 +5602,7 @@ name = "vectorcraft-papercraft"
 version = "0.16.0"
 dependencies = [
  "boa_engine",
+ "getrandom 0.3.4",
  "js-sys",
  "serde_json",
  "svgtypes 0.16.1",

@@ -17,6 +17,8 @@ mod engines;
 mod file;
 pub mod host;
 mod palette;
+#[cfg(not(target_arch = "wasm32"))]
+mod web;
 pub mod worker;
 mod writeback;
 
@@ -105,6 +107,9 @@ pub struct Host<H> {
     /// `window` and `document` outside a browser.
     #[cfg(not(target_arch = "wasm32"))]
     dom: dom::Dom<H>,
+    /// The browser's everyday APIs outside a browser.
+    #[cfg(not(target_arch = "wasm32"))]
+    web: Option<web::Web<H>>,
     next_palette_id: u64,
     /// `script.preferences` as last taken, as JSON.
     preferences: String,
@@ -140,6 +145,8 @@ impl<H> Default for Host<H> {
             directory: None,
             #[cfg(not(target_arch = "wasm32"))]
             dom: dom::Dom::None,
+            #[cfg(not(target_arch = "wasm32"))]
+            web: None,
             next_palette_id: 0,
             preferences: String::new(),
             handlers: Vec::new(),
@@ -173,6 +180,8 @@ impl<E: Engine> Runtime<E> {
         // After Paper.js, which would take a DOM for a browser's.
         #[cfg(not(target_arch = "wasm32"))]
         dom::install(&mut runtime, &global)?;
+        #[cfg(not(target_arch = "wasm32"))]
+        web::install(&mut runtime, &global)?;
         Ok(runtime)
     }
 

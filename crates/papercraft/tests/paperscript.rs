@@ -182,6 +182,25 @@ fn promises_resolve<E: Engine>() {
     assert_eq!(runtime.take_output(), ["first", "then 2"], "after the script, before the host goes on");
 }
 
+fn scripts_have_the_browsers_everyday_apis<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "const bytes = new TextEncoder().encode('hé')\n\
+             console.log(bytes.length, new TextDecoder().decode(bytes), new TextDecoder('utf-8').decode(bytes.buffer))\n\
+             const random = crypto.getRandomValues(new Uint32Array(4))\n\
+             console.log(random.length, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(crypto.randomUUID()))\n\
+             const t = performance.now()\n\
+             console.log(t >= 0 && performance.now() >= t)\n\
+             queueMicrotask(() => console.log('microtask'))\n\
+             console.log('script')",
+        )
+        .unwrap();
+    assert_eq!(runtime.take_output(), ["3 hé hé", "4 true", "true", "script", "microtask"]);
+}
+
 fn css_colors_resolve_without_a_canvas<E: Engine>() {
     let mut runtime = Runtime::<E>::new().unwrap();
     let scope = runtime.create_scope(800.0, 600.0).unwrap();
@@ -260,6 +279,11 @@ macro_rules! engine_tests {
             #[test]
             fn promises_resolve() {
                 super::promises_resolve::<$engine>();
+            }
+
+            #[test]
+            fn scripts_have_the_browsers_everyday_apis() {
+                super::scripts_have_the_browsers_everyday_apis::<$engine>();
             }
 
             #[test]

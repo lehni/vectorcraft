@@ -32,6 +32,8 @@ vectorcraft-engine = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 v8 = { workspace = true, optional = true }
+# `crypto.getRandomValues()` and `randomUUID()` (src/web.rs; browsers have their own).
+getrandom = "0.3"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # In browsers, Boa gets the clock and `Math.random()` from JavaScript.
