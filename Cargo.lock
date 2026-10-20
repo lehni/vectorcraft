@@ -576,8 +576,7 @@ dependencies = [
 [[package]]
 name = "boa_ast"
 version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9221b0a090572b4a118b46c5874c0781fe4bc9546b85f0a615b8bfb609ca4ed7"
+source = "git+https://github.com/lehni/boa?rev=11304bd4baeb5c7c5293bfc3f0d350ade16e4a7a#11304bd4baeb5c7c5293bfc3f0d350ade16e4a7a"
 dependencies = [
  "bitflags 2.13.2",
  "boa_interner",
@@ -592,8 +591,7 @@ dependencies = [
 [[package]]
 name = "boa_engine"
 version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d6aaf7fdc4299df68adb67e1a5440a51d34630a1f5271b9698fd74bc97b60d9"
+source = "git+https://github.com/lehni/boa?rev=11304bd4baeb5c7c5293bfc3f0d350ade16e4a7a#11304bd4baeb5c7c5293bfc3f0d350ade16e4a7a"
 dependencies = [
  "aligned-vec",
  "arrayvec",
@@ -645,8 +643,7 @@ dependencies = [
 [[package]]
 name = "boa_gc"
 version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af82119558ab1002d1978c8459b53a3ebb506177d29a3aca37c07c1777b1d966"
+source = "git+https://github.com/lehni/boa?rev=11304bd4baeb5c7c5293bfc3f0d350ade16e4a7a#11304bd4baeb5c7c5293bfc3f0d350ade16e4a7a"
 dependencies = [
  "arrayvec",
  "boa_macros",
@@ -658,8 +655,7 @@ dependencies = [
 [[package]]
 name = "boa_interner"
 version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "317c631e791f5cb7d0017e43c0a758b0eaffd40c34c4c360e2a6be7752b78cd1"
+source = "git+https://github.com/lehni/boa?rev=11304bd4baeb5c7c5293bfc3f0d350ade16e4a7a#11304bd4baeb5c7c5293bfc3f0d350ade16e4a7a"
 dependencies = [
  "boa_gc",
  "boa_macros",
@@ -674,8 +670,7 @@ dependencies = [
 [[package]]
 name = "boa_macros"
 version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b882fd440dc0f4b7441367cf89567bb077920356750c9a76a16c002d8ec2fa5c"
+source = "git+https://github.com/lehni/boa?rev=11304bd4baeb5c7c5293bfc3f0d350ade16e4a7a#11304bd4baeb5c7c5293bfc3f0d350ade16e4a7a"
 dependencies = [
  "cfg-if",
  "cow-utils",
@@ -688,8 +683,7 @@ dependencies = [
 [[package]]
 name = "boa_parser"
 version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "641e81b3c8cbb7a2140547fb3ea534e9edf210b4e8c920b5fa864a919e11fbcf"
+source = "git+https://github.com/lehni/boa?rev=11304bd4baeb5c7c5293bfc3f0d350ade16e4a7a#11304bd4baeb5c7c5293bfc3f0d350ade16e4a7a"
 dependencies = [
  "bitflags 2.13.2",
  "boa_ast",
@@ -706,8 +700,7 @@ dependencies = [
 [[package]]
 name = "boa_string"
 version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30bf86c2bcff5bf2547acbfc516c5d3108ca527cb131511d749bf6fbef762c0e"
+source = "git+https://github.com/lehni/boa?rev=11304bd4baeb5c7c5293bfc3f0d350ade16e4a7a#11304bd4baeb5c7c5293bfc3f0d350ade16e4a7a"
 dependencies = [
  "fast-float2",
  "itoa",
@@ -4529,8 +4522,7 @@ dependencies = [
 [[package]]
 name = "small_btree"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ba60d2df92ba73864714808ca68c059734853e6ab722b40e1cf543ebb3a057a"
+source = "git+https://github.com/lehni/boa?rev=11304bd4baeb5c7c5293bfc3f0d350ade16e4a7a#11304bd4baeb5c7c5293bfc3f0d350ade16e4a7a"
 dependencies = [
  "arrayvec",
 ]
@@ -4781,8 +4773,7 @@ dependencies = [
 [[package]]
 name = "tag_ptr"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0e973b34477b7823833469eb0f5a3a60370fef7a453e02d751b59180d0a5a05"
+source = "git+https://github.com/lehni/boa?rev=11304bd4baeb5c7c5293bfc3f0d350ade16e4a7a#11304bd4baeb5c7c5293bfc3f0d350ade16e4a7a"
 
 [[package]]
 name = "tap"
@@ -4797,7 +4788,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.5",
  "windows-sys 0.61.2",

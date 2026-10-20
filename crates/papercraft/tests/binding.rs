@@ -318,7 +318,7 @@ fn items_moved_into_a_new_group<E: Engine>() {
 }
 
 macro_rules! engine_tests {
-    ($module:ident, $engine:ty $(, live_sync: $live_sync:meta)?) => {
+    ($module:ident, $engine:ty) => {
         mod $module {
             #[test]
             fn reads_the_document() {
@@ -351,7 +351,6 @@ macro_rules! engine_tests {
             }
 
             #[test]
-            $(#[$live_sync])?
             fn edits_made_while_a_script_runs_stay() {
                 super::edits_made_while_a_script_runs_stay::<$engine>();
             }
@@ -394,10 +393,8 @@ macro_rules! engine_tests {
     };
 }
 
-// In Boa, a move right after the item reloaded leaves its segments where they were although the
-// change is logged; with other reads in between it works. Not understood yet.
 #[cfg(feature = "boa")]
-engine_tests!(boa, vectorcraft_papercraft::Boa, live_sync: ignore = "Boa calls a prototype getter again after it defined an own property, reloading an item over its changes (boa-dev/boa#5600)");
+engine_tests!(boa, vectorcraft_papercraft::Boa);
 #[cfg(all(feature = "v8", not(target_arch = "wasm32")))]
 engine_tests!(v8, vectorcraft_papercraft::V8);
 
