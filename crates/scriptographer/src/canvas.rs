@@ -117,11 +117,7 @@ pub(crate) fn natives<E: Engine>(engine: &mut E) -> Result<Vec<(&'static str, E:
         ("create", create),
         ("width", |call, this, _| Ok(Value::Number(f64::from(with_pixmap(call, this, |p| p.width())?)))),
         ("height", |call, this, _| Ok(Value::Number(f64::from(with_pixmap(call, this, |p| p.height())?)))),
-        // `undefined` for the side that stays.
-        ("resize", |call, this, args| {
-            let given = |n: usize| args.get(n).filter(|side| !matches!(side, Value::Undefined));
-            resize(call, this, given(0), given(1))
-        }),
+        ("resize", resize),
         ("toPNG", to_png),
         ("get", drawing::get_property),
         ("set", drawing::set_property),
@@ -179,11 +175,17 @@ fn pixels(n: f64) -> Result<u16, Error> {
 /// `create(width, height)`: the slot of a new canvas, transparent black, with a context's
 /// defaults.
 fn create<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let (width, height) = (side(args.first())?, side(args.get(1))?);
-    if f64::from(width) * f64::from(height) > AREA {
-        return Err(Error::Script(format!("a canvas can't have {width} × {height} pixels")));
-    }
+    let (width, height) = fitting(call, args)?;
     with_canvases(call, |canvases| Value::Number(store(&mut canvases.surfaces, Surface::new(width, height)) as f64))
+}
+
+/// The pixels a canvas of `args[0]` × `args[1]` has: none when it's larger than a canvas may be,
+/// as a browser's that couldn't be made has none.
+fn fitting<H>(call: &mut dyn Call<H>, args: &[Value<H>]) -> Result<(u16, u16), Error> {
+    let width = call.to_number(args.first().unwrap_or(&Value::Undefined))?;
+    let height = call.to_number(args.get(1).unwrap_or(&Value::Undefined))?;
+    let fits = [width, height].iter().all(|side| (0.0..=SIDE).contains(side)) && width * height <= AREA;
+    Ok(if fits { (width as u16, height as u16) } else { (0, 0) })
 }
 
 /// `release(kind, slot)`: frees the slot of a `'surface'`, `'path'` or `'paint'` the script
@@ -255,14 +257,9 @@ pub(crate) fn image_pixels<H>(call: &mut dyn Call<H>, image: &Value<H>) -> Resul
 
 /// Setting `canvas.width` or `height`: the canvas is cleared to that size and its state reset, as
 /// in browsers.
-fn resize<H>(call: &mut dyn Call<H>, this: &Value<H>, width: Option<&Value<H>>, height: Option<&Value<H>>) -> Result<Value<H>, Error> {
-    let (width, height) = (width.map(|w| side(Some(w))).transpose()?, height.map(|h| side(Some(h))).transpose()?);
-    with_surface(call, this, |surface| {
-        let (width, height) = (width.unwrap_or(surface.pixmap.width()), height.unwrap_or(surface.pixmap.height()));
-        if f64::from(width) * f64::from(height) <= AREA {
-            surface.resize(width, height);
-        }
-    })?;
+fn resize<H>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let (width, height) = fitting(call, args)?;
+    with_surface(call, this, |surface| surface.resize(width, height))?;
     Ok(Value::Undefined)
 }
 

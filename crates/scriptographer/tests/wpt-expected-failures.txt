@@ -153,37 +153,8 @@ css/geometry/structured-serialization.html: DOMRectReadOnly clone: basic
 css/geometry/structured-serialization.html: DOMRectReadOnly clone: custom property
 css/geometry/structured-serialization.html: DOMRectReadOnly clone: non-initial values
 css/geometry/structured-serialization.html: DOMRectReadOnly clone: throwing getters
-html/canvas/offscreen/2d.conformance.requirements.missingargs.worker.js: Missing arguments cause TypeError
-html/canvas/offscreen/canvas-context/2d.canvas.context.arguments.missing.worker.js: Untitled
-html/canvas/offscreen/canvas-context/2d.canvas.context.casesensitive.worker.js: Context name "2D" is unrecognised; matching is case sensitive
-html/canvas/offscreen/canvas-context/2d.canvas.context.emptystring.worker.js: getContext with empty string returns null
-html/canvas/offscreen/canvas-context/2d.canvas.context.invalid.args.worker.js: Calling getContext with invalid arguments.
-html/canvas/offscreen/canvas-context/2d.canvas.context.prototype.worker.js: checks OffscreenCanvasRenderingContext2D prototype
-html/canvas/offscreen/canvas-context/2d.canvas.context.type.exists.worker.js: The 2D context interface is a property of 'self'
-html/canvas/offscreen/canvas-context/2d.canvas.context.type.extend.worker.js: Interface methods can be added
-html/canvas/offscreen/canvas-context/2d.canvas.context.type.prototype.worker.js: window.CanvasRenderingContext2D.prototype are not [[Writable]] and not [[Configurable]], and its methods are [[Configurable]].
-html/canvas/offscreen/canvas-context/2d.canvas.context.type.replace.worker.js: Interface methods can be overridden
-html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.idl.worker.js: Getting/setting width/height IDL attributes
-html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.decimal.worker.js: Parsing of non-negative integers
-html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.em.worker.js: Parsing of non-negative integers
-html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.empty.worker.js: Parsing of non-negative integers
-html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.exp.worker.js: Parsing of non-negative integers
-html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.hex.worker.js: Parsing of non-negative integers
-html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.junk.worker.js: Parsing of non-negative integers
-html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.minus.worker.js: Parsing of non-negative integers
-html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.octal.worker.js: Parsing of non-negative integers
-html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.onlyspace.worker.js: Parsing of non-negative integers
-html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.percent.worker.js: Parsing of non-negative integers
-html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.plus.worker.js: Parsing of non-negative integers
-html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.space.worker.js: Parsing of non-negative integers
-html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.trailingjunk.worker.js: Parsing of non-negative integers
-html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.whitespace.worker.js: Parsing of non-negative integers
-html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.zero.worker.js: Parsing of non-negative integers
-html/canvas/offscreen/canvas-host/2d.canvas.host.size.invalid.attributes.idl.worker.js: Getting/setting width/height IDL attributes
-html/canvas/offscreen/canvas-host/2d.canvas.host.size.large.worker.js: Untitled
 html/canvas/offscreen/color-type/2d.color.type.u8p3.to.u8srgb.to.u8p3.worker.js: test srgb unorm8 canvas storing 8-bit display-p3 data accurately
 html/canvas/offscreen/color-type/2d.color.type.u8srgb.to.u8p3.to.u8srgb.worker.js: test display-p3 unorm8 canvas not storing 8-bit srgb data accurately
-html/canvas/offscreen/conformance-requirements/2d.conformance.requirements.missingargs.worker.js: Missing arguments cause TypeError
 html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.negativedest.worker.js: Negative destination width/height represents the correct rectangle
 html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.negativedir.worker.js: Negative dimensions do not affect the direction of the image
 html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.negativesource.worker.js: Negative source width/height represents the correct rectangle
@@ -291,7 +262,6 @@ html/canvas/offscreen/path-objects/2d.path.roundrect.radius.negative.worker.js: 
 html/canvas/offscreen/path-objects/2d.path.roundrect.radius.none.worker.js: Check that roundRect throws an RangeError if radii is an empty array.
 html/canvas/offscreen/path-objects/2d.path.roundrect.radius.toomany.worker.js: Check that roundRect throws an IndeSizeError if radii has more than four items.
 html/canvas/offscreen/path-objects/2d.path.roundrect.winding.worker.js: Untitled
-html/canvas/offscreen/pixel-manipulation/2d.imageData.create1.zero.worker.js: createImageData(null) throws TypeError
 html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.double.worker.js: createImageData(w, h) double is converted to long
 html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.negative.worker.js: createImageData(sw, sh) takes the absolute magnitude of the size arguments
 html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.nonfinite.worker.js: createImageData() throws TypeError if arguments are not finite

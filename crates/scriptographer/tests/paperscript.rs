@@ -532,6 +532,31 @@ fn scripts_measure_text<E: Engine>() {
     assert_eq!(runtime.take_output(), ["10px sans-serif", "true true true true", "true 0", "true"], "bold is wider than twice the size alone");
 }
 
+/// The canvas and its context as WebIDL has them: one 2D context, known names, sizes converted,
+/// required arguments.
+fn canvas_contexts_are_the_browsers<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "const thrown = f => { try { return f() } catch (e) { return e.name } }\n\
+             const canvas = new OffscreenCanvas(10, 10)\n\
+             const ctx = canvas.getContext('2d')\n\
+             console.log(ctx instanceof OffscreenCanvasRenderingContext2D, ctx.canvas === canvas, canvas.getContext('2d') === ctx, canvas.getContext('webgl'))\n\
+             console.log(thrown(() => canvas.getContext('2D')), thrown(() => canvas.getContext()), thrown(() => new OffscreenCanvasRenderingContext2D()))\n\
+             canvas.width = '0x96'\n\
+             canvas.height = 2147483647\n\
+             console.log(canvas.width, canvas.height, thrown(() => { canvas.width = -1 }), thrown(() => new OffscreenCanvas(1)))\n\
+             console.log(thrown(() => ctx.scale(1)), thrown(() => ctx.drawImage(canvas, 0)), thrown(() => ctx.setTransform(1)), ctx.setTransform())",
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.take_output(),
+        ["true true true null", "TypeError TypeError TypeError", "150 2147483647 TypeError TypeError", "TypeError TypeError TypeError undefined"]
+    );
+}
+
 fn canvases_have_pixels<E: Engine>() {
     let mut runtime = Runtime::<E>::new().unwrap();
     let scope = runtime.create_scope(800.0, 600.0).unwrap();
@@ -1391,6 +1416,11 @@ macro_rules! engine_tests {
             #[test]
             fn canvases_have_pixels() {
                 super::canvases_have_pixels::<$engine>();
+            }
+
+            #[test]
+            fn canvas_contexts_are_the_browsers() {
+                super::canvas_contexts_are_the_browsers::<$engine>();
             }
 
             #[test]

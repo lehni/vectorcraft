@@ -7,7 +7,7 @@
 //! fails when another one fails, or when a listed one passes, so the list stays the truth.
 //! `WPT_UPDATE=1` writes the list anew. The pass rate by folder prints with `--nocapture`.
 //!
-//! What fails, by cause (2026-10-21: 1415 of 1821 pass; the canvas 840 of 1093, geometry 575
+//! What fails, by cause (2026-10-21: 1445 of 1821 pass; the canvas 870 of 1093, geometry 575
 //! of 728), to come back to; most of it rarely matters to a script:
 //!
 //! - Text (canvas/text, about 70): WPT loads its test font with `FontFace`, which scripts don't
@@ -25,10 +25,7 @@
 //!   syntax (numbers mixed with percentages in `rgb()`, `hsl()` without its percent signs: its
 //!   own TODO); `color-mix()`, relative colours, system colours, and keeping colours that aren't
 //!   sRGB as `color(srgb …)`.
-//! - The canvas's object model (about 25): `getContext()` gives the canvas itself, not an
-//!   `OffscreenCanvasRenderingContext2D`, and checks no context name; `width`/`height` throw for
-//!   what WebIDL would convert (negative, fractional, text); a missing required argument doesn't
-//!   throw a `TypeError` (`ctx.scale()`); `isPointInPath()` with invalid arguments.
+//! - `isPointInPath()` with invalid arguments.
 //! - Rendering details (about 20): conic gradient rotation, zero-size gradients, a few shadows of
 //!   composited and blurred drawings, `isPointInPath()` on edges, `drawImage()` of a broken image
 //!   or a canvas of no size, `getImageData()` with non-finite arguments, a pattern's
