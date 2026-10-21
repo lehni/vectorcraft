@@ -181,6 +181,28 @@ fn scripts_link_and_unlink_frames<E: Engine>() {
     assert_eq!((text(&s, area).plain_text(), text(&s, other).plain_text()), (story, String::new()));
 }
 
+/// Text along two paths a script links becomes a thread of type on a path: the story runs along
+/// the first path and on along the second.
+fn scripts_link_text_on_paths<E: Engine>() {
+    let (mut s, ..) = document();
+    let story = "This text runs along two paths, one after the other.";
+    run::<E>(
+        &mut s,
+        &format!(
+            "var first = new PathText(new Path.Line([20, 300], [80, 300]))\n\
+             first.content = {story:?}\n\
+             first.link(new PathText(new Path.Line([20, 350], [380, 350])))"
+        ),
+    );
+    let threads = threads(&s);
+    let [thread] = threads.as_slice() else { panic!("one thread: {threads:?}") };
+    let shares: Vec<String> = thread.iter().map(|id| text(&s, *id).plain_text()).collect();
+    assert!(thread.iter().all(|id| matches!(text(&s, *id).kind, vectorcraft_doc::TextKind::OnPath { .. })));
+    assert_eq!(shares.len(), 2);
+    assert!(shares.iter().all(|t| !t.is_empty()), "the story runs on along the second path: {shares:?}");
+    assert_eq!(shares.concat(), story);
+}
+
 /// A new text item a script links into a thread becomes a frame of it.
 fn scripts_link_new_frames<E: Engine>() {
     let (mut s, _, _, area) = document();
@@ -353,6 +375,11 @@ macro_rules! engine_tests {
             #[test]
             fn scripts_link_and_unlink_frames() {
                 super::scripts_link_and_unlink_frames::<$engine>();
+            }
+
+            #[test]
+            fn scripts_link_text_on_paths() {
+                super::scripts_link_text_on_paths::<$engine>();
             }
 
             #[test]

@@ -468,13 +468,13 @@ fn empty_frame(src: &TextObject, style: vectorcraft_doc::CharStyle, kind: TextKi
 
 /// Makes each of `threads` exactly one thread, in its order, as `document.patch` does: the threads
 /// its frames were in lose them, and one left with fewer than two frames is no thread; a list of
-/// one frame takes it out of its thread. Every frame must be area type, in one list at most. The
+/// one frame takes it out of its thread. Every frame must be area type or type on a path, in one list at most. The
 /// stories of the threads this changes flow again ([`reflow`]).
 pub(crate) fn set_threads(d: &mut Document, threads: &[Vec<NodeId>]) -> std::result::Result<(), String> {
     let mut listed = std::collections::HashSet::new();
     for id in threads.iter().flatten() {
         if text_of(d, *id).is_none() {
-            return Err(format!("{} isn't area type: only area type can be threaded", id.0));
+            return Err(format!("{} can't be threaded: only area type and type on a path can", id.0));
         }
         if !listed.insert(*id) {
             return Err(format!("{} is in more than one thread", id.0));
