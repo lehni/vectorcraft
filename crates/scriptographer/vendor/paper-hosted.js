@@ -9,7 +9,7 @@
  *
  * All rights reserved.
  *
- * Date: Wed Oct 21 17:03:01 2026 +0200
+ * Date: Wed Oct 21 21:11:49 2026 +0200
  *
  ***
  *
@@ -624,6 +624,27 @@ statics: {
 			for (var i = index + amount, l = list.length; i < l; i++)
 				list[i]._index = i;
 			return removed;
+		}
+	},
+
+	addNamed: function(list, named, name, item) {
+		(named[name] = named[name] || []).push(item);
+		if (!(name in list))
+			list[name] = item;
+	},
+
+	removeNamed: function(list, named, name, item) {
+		var namedArray = named[name],
+			index = namedArray ? namedArray.indexOf(item) : -1;
+		if (index !== -1) {
+			if (list[name] == item)
+				delete list[name];
+			namedArray.splice(index, 1);
+			if (namedArray.length) {
+				list[name] = namedArray[0];
+			} else {
+				delete named[name];
+			}
 		}
 	},
 
@@ -3433,6 +3454,10 @@ new function() {
 	initialize: function Item() {
 	},
 
+	_getCurrentStyle: function(project) {
+		return project._currentStyle;
+	},
+
 	_initialize: function(props, point) {
 		var hasProps = props && Base.isPlainObject(props),
 			internal = hasProps && props.internal === true,
@@ -3449,7 +3474,7 @@ new function() {
 		if (point)
 			matrix.translate(point);
 		matrix._owner = this;
-		this._style = new Style(project._currentStyle, this, project);
+		this._style = new Style(this._getCurrentStyle(project), this, project);
 		if (internal || hasProps && props.insert == false
 			|| !settings.insertItems && !(hasProps && props.insert == true)) {
 			this._setProject(project);
@@ -3539,13 +3564,8 @@ new function() {
 			throw new Error(
 					'Names consisting only of numbers are not supported.');
 		var owner = this._getOwner();
-		if (name && owner) {
-			var children = owner._children,
-				namedChildren = owner._namedChildren;
-			(namedChildren[name] = namedChildren[name] || []).push(this);
-			if (!(name in children))
-				children[name] = this;
-		}
+		if (name && owner)
+			Base.addNamed(owner._children, owner._namedChildren, name, this);
 		this._name = name || undefined;
 		this._changed(256);
 	},
@@ -4751,23 +4771,9 @@ new function() {
 
 	_removeNamed: function() {
 		var owner = this._getOwner();
-		if (owner) {
-			var children = owner._children,
-				namedChildren = owner._namedChildren,
-				name = this._name,
-				namedArray = namedChildren[name],
-				index = namedArray ? namedArray.indexOf(this) : -1;
-			if (index !== -1) {
-				if (children[name] == this)
-					delete children[name];
-				namedArray.splice(index, 1);
-				if (namedArray.length) {
-					children[name] = namedArray[0];
-				} else {
-					delete namedChildren[name];
-				}
-			}
-		}
+		if (owner)
+			Base.removeNamed(owner._children, owner._namedChildren, this._name,
+					this);
 	},
 
 	_remove: function(notifySelf, notifyParent) {
@@ -5763,7 +5769,7 @@ var Shape = Item.extend({
 	}
 },
 new function() {
-	function getCornerCenter(that, point, expand) {
+	function getCornerCenter(that, point) {
 		var radius = that._radius;
 		if (!radius.isZero()) {
 			var halfSize = that._size.divide(2);
@@ -5771,20 +5777,11 @@ new function() {
 				var dir = new Point(q > 1 && q < 4 ? -1 : 1, q > 2 ? -1 : 1),
 					corner = dir.multiply(halfSize),
 					center = corner.subtract(dir.multiply(radius)),
-					rect = new Rectangle(
-							expand ? corner.add(dir.multiply(expand)) : corner,
-							center);
+					rect = new Rectangle(corner, center);
 				if (rect.contains(point))
 					return { point: center, quadrant: q };
 			}
 		}
-	}
-
-	function isOnEllipseStroke(point, radius, padding, quadrant) {
-		var vector = point.divide(radius);
-		return (!quadrant || vector.isInQuadrant(quadrant)) &&
-				vector.subtract(vector.normalize()).multiply(radius)
-					.divide(padding).length <= 1;
 	}
 
 	return {
@@ -5800,38 +5797,16 @@ new function() {
 			}
 		},
 
-		_hitTestSelf: function _hitTestSelf(point, options, viewMatrix,
-				strokeMatrix) {
-			var hit = false,
-				style = this._style,
-				hitStroke = options.stroke && style.hasStroke(),
-				hitFill = options.fill && !!style.getFillColor();
-			if (hitStroke || hitFill) {
-				var type = this._type,
-					radius = this._radius,
-					strokeRadius = hitStroke ? style.getStrokeWidth() / 2 : 0,
-					strokePadding = options._tolerancePadding.add(
-						Matrix._getCircleExtents(strokeRadius,
-							!style.getStrokeScaling() && strokeMatrix));
-				if (type === 'rectangle') {
-					var padding = strokePadding.multiply(2),
-						center = getCornerCenter(this, point, padding);
-					if (center) {
-						hit = isOnEllipseStroke(point.subtract(center.point),
-								radius, strokePadding, center.quadrant);
-					} else {
-						var rect = new Rectangle(this._size).setCenter(0, 0),
-							outer = rect.expand(padding),
-							inner = rect.expand(padding.negate());
-						hit = outer._containsPoint(point)
-								&& !inner._containsPoint(point);
-					}
-				} else {
-					hit = isOnEllipseStroke(point, radius, strokePadding);
-				}
-			}
-			return hit ? new HitResult(hitStroke ? 'stroke' : 'fill', this)
-					: _hitTestSelf.base.apply(this, arguments);
+		_hitTestSelf: function(point, options, viewMatrix, strokeMatrix) {
+			var hit = this._asPathItem()._hitTestSelf(point, Base.set({},
+					options, {
+						segments: false,
+						handles: false,
+						ends: false,
+						curves: false,
+						all: false
+					}), viewMatrix, strokeMatrix);
+			return hit && new HitResult(hit.type, this);
 		}
 	};
 }, {
@@ -6490,12 +6465,13 @@ var HitResult = Base.extend({
 
 var Segment = Base.extend({
 	_class: 'Segment',
+	_name: null,
 	beans: true,
 	_selection: 0,
 
 	initialize: function Segment(arg0, arg1, arg2, arg3, arg4, arg5) {
 		var count = arguments.length,
-			point, handleIn, handleOut, selection;
+			point, handleIn, handleOut, selection, name, data;
 		if (count > 0) {
 			if (arg0 == null || typeof arg0 === 'object') {
 				if (count === 1 && arg0 && 'point' in arg0) {
@@ -6503,6 +6479,10 @@ var Segment = Base.extend({
 					handleIn = arg0.handleIn;
 					handleOut = arg0.handleOut;
 					selection = arg0.selection;
+					name = arg0.name;
+					data = arg0 instanceof Segment
+							? arg0._data && Base.clone(arg0._data)
+							: arg0.data;
 				} else {
 					point = arg0;
 					handleIn = arg1;
@@ -6520,17 +6500,38 @@ var Segment = Base.extend({
 		new SegmentPoint(handleOut, this, '_handleOut');
 		if (selection)
 			this.setSelection(selection);
+		if (name)
+			this.setName(name);
+		if (data)
+			this._data = data;
 	},
 
 	_serialize: function(options, dictionary) {
 		var point = this._point,
 			selection = this._selection,
-			obj = selection || this.hasHandles()
+			name = this._name,
+			data = this._data,
+			hasData = data && !Base.equals(data, {});
+		if (name || hasData) {
+			var props = Base.serialize({
+				point: point,
+				handleIn: this._handleIn,
+				handleOut: this._handleOut,
+				selection: selection
+			}, options, true, dictionary);
+			if (name)
+				props.name = name;
+			if (hasData)
+				props.data = Base.serialize(data, options, false, dictionary);
+			return [props];
+		} else {
+			var obj = selection || this.hasHandles()
 					? [point, this._handleIn, this._handleOut]
 					: point;
-		if (selection)
-			obj.push(selection);
-		return Base.serialize(obj, options, true, dictionary);
+			if (selection)
+				obj.push(selection);
+			return Base.serialize(obj, options, true, dictionary);
+		}
 	},
 
 	_changed: function(point) {
@@ -6550,6 +6551,34 @@ var Segment = Base.extend({
 				curve._changed();
 		}
 		path._changed(41);
+	},
+
+	getName: function() {
+		return this._name;
+	},
+
+	setName: function(name) {
+		var path = this._path,
+			named = path && path._namedSegments;
+		if (this._name && named)
+			Base.removeNamed(path._segments, named, this._name, this);
+		if (name === (+name) + '')
+			throw new Error(
+					'Names consisting only of numbers are not supported.');
+		if (name && path)
+			Base.addNamed(path._segments, named || (path._namedSegments = {}),
+					name, this);
+		this._name = name || undefined;
+	},
+
+	getData: function() {
+		if (!this._data)
+			this._data = {};
+		return this._data;
+	},
+
+	setData: function(data) {
+		this._data = data;
 	},
 
 	getPoint: function() {
@@ -6734,7 +6763,14 @@ var Segment = Base.extend({
 	},
 
 	clone: function() {
-		return new Segment(this._point, this._handleIn, this._handleOut);
+		var segment = new Segment(this._point, this._handleIn, this._handleOut),
+			name = this._name,
+			data = this._data;
+		if (name)
+			segment._name = name;
+		if (data)
+			segment._data = Base.clone(data);
+		return segment;
 	},
 
 	equals: function(segment) {
@@ -9235,7 +9271,13 @@ var Path = PathItem.extend({
 
 	setSegments: function(segments) {
 		var fullySelected = this.isFullySelected(),
-			length = segments && segments.length;
+			length = segments && segments.length,
+			named = this._namedSegments;
+		if (named) {
+			for (var name in named)
+				delete this._segments[name];
+			this._namedSegments = null;
+		}
 		this._segments.length = 0;
 		this._segmentSelection = 0;
 		this._curves = undefined;
@@ -9381,6 +9423,8 @@ var Path = PathItem.extend({
 				segment = segs[i] = segment.clone();
 			segment._path = this;
 			segment._index = index + i;
+			if (segment._name)
+				segment.setName(segment._name);
 			if (segment._selection)
 				this._updateSelection(segment, 0, segment._selection);
 		}
@@ -9487,6 +9531,9 @@ var Path = PathItem.extend({
 			var segment = removed[i];
 			if (segment._selection)
 				this._updateSelection(segment, segment._selection, 0);
+			if (segment._name)
+				Base.removeNamed(segments, this._namedSegments, segment._name,
+						segment);
 			segment._index = segment._path = null;
 		}
 		for (var i = start, l = segments.length; i < l; i++)
@@ -12887,7 +12934,7 @@ var TextItem = Item.extend({
 		return !this._story._content;
 	},
 
-	_measure: function(start, end, byLetter) {
+	_measure: function(start, end, direction, byLetter) {
 		var view = this.getView(),
 			story = this._story,
 			content = story._content,
@@ -12913,8 +12960,8 @@ var TextItem = Item.extend({
 			}
 			var before = groupWidth;
 			group += text;
-			groupWidth = view.getTextWidth(piece.font, [group], piece.tracking)
-					* piece.scale.x;
+			groupWidth = view.getTextWidth(piece.font, [group], piece.tracking,
+					direction) * piece.scale.x;
 			return groupWidth - before;
 		}
 
@@ -13033,22 +13080,22 @@ var TextItem = Item.extend({
 	_place: function(line, paragraph, isLast, room) {
 		var justification = paragraph.getJustification(),
 			justifyLast = paragraph.getJustifyLast(),
+			direction = paragraph.getDirection(),
 			side = this._getSide(justification === 'justify' && isLast
 					&& justifyLast !== 'all' ? justifyLast : justification,
-					paragraph.getDirection()),
+					direction),
 			left = room[0],
 			right = room[1];
-		if (side === 'justify' || side === 'all') {
-			this._justify(line, right - left);
-			this._shift(line, left, 0);
-		} else {
-			this._shift(line, side === 'right' ? right - line.width
-					: side === 'center' ? (left + right - line.width) / 2
-					: left, 0);
-		}
+		if (side === 'justify' || side === 'all')
+			this._justify(line, right - left, direction);
+		if (direction === 'rtl')
+			this._mirror(line.pieces, line.width);
+		this._shift(line, side === 'right' ? right - line.width
+				: side === 'center' ? (left + right - line.width) / 2
+				: left, 0);
 	},
 
-	_justify: function(line, width) {
+	_justify: function(line, width, direction) {
 		var pieces = line.pieces,
 			content = this._story._content,
 			spaces = (content.slice(pieces.length ? pieces[0].start : 0,
@@ -13070,7 +13117,7 @@ var TextItem = Item.extend({
 						var part = parts[j];
 						if (part) {
 							var advance = this._measure(from,
-									from + part.length).width;
+									from + part.length, direction).width;
 							if (/^\s+$/.test(part)) {
 								moved += extra;
 							} else {
@@ -13090,6 +13137,13 @@ var TextItem = Item.extend({
 			}
 			line.pieces = result;
 			line.width = width;
+		}
+	},
+
+	_mirror: function(pieces, width) {
+		for (var i = 0, l = pieces.length; i < l; i++) {
+			var piece = pieces[i];
+			piece.x = width - piece.x - piece.width;
 		}
 	},
 
@@ -13117,13 +13171,21 @@ var TextItem = Item.extend({
 				ctx.beginPath();
 			ctx.rect(rect.x, rect.y, rect.width, rect.height);
 		} else if (this._story._content) {
-			var lines = this._getLayout(),
+			var story = this._story,
+				lines = this._getLayout(),
+				paragraph = null,
 				scale = !this._style.getStrokeScaling()
 						&& viewMatrix._getMeanScale();
 			ctx.textAlign = 'left';
 			for (var i = 0, l = lines.length; i < l; i++) {
 				var line = lines[i],
 					pieces = line.pieces;
+				if (!paragraph || line.start > paragraph.end) {
+					paragraph = story._getParagraph(line.start);
+					var direction = paragraph.style.getDirection() || 'ltr';
+					if (ctx.direction !== direction)
+						ctx.direction = direction;
+				}
 				for (var j = 0, m = pieces.length; j < m; j++) {
 					var piece = pieces[j],
 						style = piece.style,
@@ -13236,7 +13298,8 @@ var PointText = TextItem.extend({
 		for (var i = 0, l = paragraphs.length; i < l; i++) {
 			var range = paragraphs[i],
 				paragraph = story._getParagraph(range._start).style,
-				line = this._measure(range._start, range._end);
+				line = this._measure(range._start, range._end,
+						paragraph.getDirection());
 			if (i > 0) {
 				y += line.lineHeight + Math.max(spaceAfter,
 						paragraph.getSpaceBefore());
@@ -13334,7 +13397,9 @@ var PathText = TextItem.extend(new function() {
 			to = this._endOffset == null ? length
 					: Math.max(from, Math.min(this._endOffset, length)),
 			spacing = this._spacing,
-			measured = this._measure(start, story._content.length, true),
+			paragraph = story._getParagraph(start).style,
+			measured = this._measure(start, story._content.length,
+					paragraph.getDirection(), true),
 			letters = measured.pieces,
 			pieces = [],
 			width = 0;
@@ -13347,8 +13412,9 @@ var PathText = TextItem.extend(new function() {
 			width += piece.width + spacing;
 		}
 		width -= pieces.length ? spacing : 0;
-		var paragraph = story._getParagraph(start).style,
-			side = this._getSide(paragraph.getJustification(),
+		if (paragraph.getDirection() === 'rtl')
+			this._mirror(pieces, width);
+		var side = this._getSide(paragraph.getJustification(),
 				paragraph.getDirection()),
 			offset = side === 'right' ? to - width
 					: side === 'center' ? from + (to - from - width) / 2
@@ -13533,7 +13599,7 @@ var AreaText = TextItem.extend(new function() {
 			while (regions[region]) {
 				var bounds = regions[region],
 					next = that._measure(pos, Math.min(pos + 1,
-							paragraph.end)),
+							paragraph.end), style.getDirection()),
 					baseline = y === null
 						? bounds.top + offsets[region] + next.ascent
 						: y + next.lineHeight + space;
@@ -13850,6 +13916,7 @@ var AreaText = TextItem.extend(new function() {
 		var that = this,
 			content = this._story._content,
 			style = paragraph.style,
+			direction = style.getDirection(),
 			indented = this._indent(style, isFirst, room[0], room[1]),
 			words = /[^\s\u00ad]*\u00ad|\S+\s*|\s+/g,
 			text = content.slice(start, paragraph.end),
@@ -13858,11 +13925,11 @@ var AreaText = TextItem.extend(new function() {
 
 		var measure = function(end) {
 			var line = that._measure(start, start + content.slice(start, end)
-					.replace(/\s+$/, '').length);
+					.replace(/\s+$/, '').length, direction);
 			if (content[end - 1] === '\u00ad') {
 				var last = line.pieces[line.pieces.length - 1],
 					width = that.getView().getTextWidth(last.font, ['-'],
-						last.tracking) * last.scale.x;
+						last.tracking, direction) * last.scale.x;
 				line.pieces.push(Base.set({}, last, {
 					content: '-',
 					start: end,
@@ -15937,7 +16004,10 @@ var Style = Base.extend(new function() {
 
 	/**
 	 * The direction the paragraph's lines run in, which `'start'` and `'end'`
-	 * follow; `null` for left to right.
+	 * follow, and from which side their pieces are placed; `null` for left to
+	 * right. Lines that mix directions across styles aren't reordered by the
+	 * Unicode bidirectional algorithm: their pieces follow the paragraph's
+	 * direction, and canvas orders only the letters within each piece.
 	 *
 	 * @name Style#direction
 	 * @type String
@@ -16753,19 +16823,26 @@ var View = Base.extend(Emitter, /** @lends View# */{
 		return pixels;
 	},
 
-	getTextWidth: function(font, lines, letterSpacing) {
+	getTextWidth: function(font, lines, letterSpacing, direction) {
 		var ctx = this._context || CanvasProvider.getContext(1, 1),
 			width = 0;
 		if (ctx) {
 			var prevFont = ctx.font,
-				prevLetterSpacing = ctx.letterSpacing;
+				prevLetterSpacing = ctx.letterSpacing,
+				prevDirection = ctx.direction,
+				// Shaping can differ by direction, as with mirrored brackets:
+				textDirection = direction || 'ltr';
 			ctx.font = font;
 			ctx.letterSpacing = letterSpacing;
+			if (prevDirection !== textDirection)
+				ctx.direction = textDirection;
 			// Measure the real width of the text:
 			for (var i = 0, l = lines.length; i < l; i++)
 				width = Math.max(width, ctx.measureText(lines[i]).width);
 			ctx.font = prevFont;
 			ctx.letterSpacing = prevLetterSpacing;
+			if (prevDirection !== textDirection)
+				ctx.direction = prevDirection;
 			if (ctx !== this._context)
 				CanvasProvider.release(ctx);
 		}
@@ -20331,11 +20408,8 @@ new function() {
 			item._parent = parent;
 			item._index = i;
 			children.push(item);
-			if (name) {
-				(namedChildren[name] = namedChildren[name] || []).push(item);
-				if (!(name in children))
-					children[name] = item;
-			}
+			if (name)
+				Base.addNamed(children, namedChildren, name, item);
 		}
 		owner._children = children;
 		owner._namedChildren = namedChildren;
@@ -20495,6 +20569,11 @@ new function() {
 	});
 
 	TextItem.inject({
+		_getCurrentStyle: function _getCurrentStyle(project) {
+			return project._currentTextStyle
+					|| _getCurrentStyle.base.call(this, project);
+		},
+
 		_loadLinked: function(keys) {
 			var project = this._project,
 				that = this,
@@ -20574,6 +20653,18 @@ new function() {
 	});
 
 	Project.inject({
+		_currentTextStyle: null,
+
+		getCurrentTextStyle: function() {
+			return this._currentTextStyle;
+		},
+
+		setCurrentTextStyle: function(style) {
+			if (!this._currentTextStyle)
+				this._currentTextStyle = new Style(null, null, this);
+			this._currentTextStyle.set(style);
+		},
+
 		_changed: function _changed(flags, item) {
 			_changed.base.call(this, flags, item);
 			if (item && !isLoading)
