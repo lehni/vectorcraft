@@ -19,7 +19,7 @@ pub fn specs() -> Vec<CommandSpec> {
         "Patch Document",
         [],
         None,
-        "{label?: undo step name (default \"Edit\"), extend?: true adds to the newest undo step instead of recording one (for a caller whose last edit that step is), remove?: [ids], insert?: [{parent: id|null|{new: k} (null: the layer list; {new: k}: the k-th insert, an earlier one), index?: position among the parent's children (bottom first; default: on top), node: object JSON as document.node returns it (its ids are replaced with new ones)}], replace?: [object JSON with its id (a container sent without its children keeps them)], order?: [{parent: id|null|{new: k}, children: [id|{new: k}]}] (the parent's children become exactly these, bottom first; listed objects from elsewhere move here; {new: k} places the k-th insert), keep?: {objects: [ids], lists: [parent id|null]} (what changed since the caller's copy of the document, which the patch leaves out)} applied in that order, as one undo step; during an interaction (a drag) it applies beneath it, leaving out the objects the interaction changed too → {ids: [the new id of each insert], skipped?: [the objects left out]}",
+        "{label?: undo step name (default \"Edit\"), extend?: true adds to the newest undo step instead of recording one (for a caller whose last edit that step is), remove?: [ids], insert?: [{parent: id|null|{new: k} (null: the layer list; {new: k}: the k-th insert, an earlier one), index?: position among the parent's children (bottom first; default: on top), node: object JSON as document.node returns it (its ids are replaced with new ones)}], replace?: [object JSON with its id (a container sent without its children keeps them)], order?: [{parent: id|null|{new: k}, children: [id|{new: k}]}] (the parent's children become exactly these, bottom first; listed objects from elsewhere move here; {new: k} places the k-th insert), threads?: [[id|{new: k}]] (each list of area type frames becomes one thread, in that order, which the threads they were in lose; a list of one frame takes it out of its thread; the stories flow again), keep?: {objects: [ids], lists: [parent id|null]} (what changed since the caller's copy of the document, which the patch leaves out)} applied in that order, as one undo step; during an interaction (a drag) it applies beneath it, leaving out the objects the interaction changed too → {ids: [the new id of each insert], skipped?: [the objects left out]}",
         has_doc,
         patch
     )]
@@ -46,6 +46,7 @@ struct Ops {
     /// Each object, and whether it keeps its children.
     replaces: Vec<(Node, bool)>,
     orders: Vec<(Parent, Vec<Slot>)>,
+    threads: Vec<Vec<Slot>>,
 }
 
 fn patch(s: &mut Session, p: &Value) -> Result<Value> {
@@ -96,22 +97,31 @@ fn parse(p: &Value) -> Result<Ops> {
         .iter()
         .map(|entry| {
             let children = entry.get("children").and_then(Value::as_array).ok_or_else(|| bad(CMD, "each order entry needs a children array"))?;
-            let slots = children
-                .iter()
-                .map(|c| match c.get("new") {
-                    Some(k) => k
-                        .as_u64()
-                        .and_then(|k| usize::try_from(k).ok())
-                        .filter(|k| *k < inserts.len())
-                        .map(Slot::New)
-                        .ok_or_else(|| bad(CMD, "{new: k} must name an insert by its index")),
-                    None => node_id(c, "order").map(Slot::Old),
-                })
-                .collect::<Result<Vec<_>>>()?;
+            let slots = children.iter().map(|c| slot(c, inserts.len(), "order")).collect::<Result<Vec<_>>>()?;
             Ok((parent(entry, inserts.len())?, slots))
         })
         .collect::<Result<Vec<_>>>()?;
-    Ok(Ops { remove, inserts, replaces, orders })
+    let threads = list(p, "threads")?
+        .iter()
+        .map(|entry| {
+            let frames = entry.as_array().ok_or_else(|| bad(CMD, "each thread must be a list of frames"))?;
+            frames.iter().map(|f| slot(f, inserts.len(), "threads")).collect::<Result<Vec<_>>>()
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(Ops { remove, inserts, replaces, orders, threads })
+}
+
+/// An object of a list: an existing object's id, or `{new: k}`, the k-th of `inserts` inserts.
+fn slot(value: &Value, inserts: usize, what: &str) -> Result<Slot> {
+    match value.get("new") {
+        Some(k) => k
+            .as_u64()
+            .and_then(|k| usize::try_from(k).ok())
+            .filter(|k| *k < inserts)
+            .map(Slot::New)
+            .ok_or_else(|| bad(CMD, "{new: k} must name an insert by its index")),
+        None => node_id(value, what).map(Slot::Old),
+    }
 }
 
 /// Applies `ops` to `doc`. Returns the new ids of the inserts.
@@ -147,6 +157,14 @@ fn apply(doc: &mut Document, ops: &Ops) -> Result<Vec<u64>> {
     }
     for (parent, slots) in &orders {
         order(doc, *parent, slots)?;
+    }
+    if !ops.threads.is_empty() {
+        let threads = ops
+            .threads
+            .iter()
+            .map(|slots| slots.iter().map(|slot| resolve(Parent::from(slot), &fresh)?.ok_or_else(|| bad(CMD, "threads: no such object"))).collect())
+            .collect::<Result<Vec<Vec<NodeId>>>>()?;
+        super::threads::set_threads(doc, &threads).map_err(|e| bad(CMD, format!("threads: {e}")))?;
     }
     Ok(fresh.iter().map(|id| id.0).collect())
 }

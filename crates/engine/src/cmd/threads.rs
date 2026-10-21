@@ -466,6 +466,32 @@ fn empty_frame(src: &TextObject, style: vectorcraft_doc::CharStyle, kind: TextKi
     t
 }
 
+/// Makes each of `threads` exactly one thread, in its order, as `document.patch` does: the threads
+/// its frames were in lose them, and one left with fewer than two frames is no thread; a list of
+/// one frame takes it out of its thread. Every frame must be area type, in one list at most. The
+/// stories of the threads this changes flow again ([`reflow`]).
+pub(crate) fn set_threads(d: &mut Document, threads: &[Vec<NodeId>]) -> std::result::Result<(), String> {
+    let mut listed = std::collections::HashSet::new();
+    for id in threads.iter().flatten() {
+        if text_of(d, *id).is_none() {
+            return Err(format!("{} isn't area type, which only threads", id.0));
+        }
+        if !listed.insert(*id) {
+            return Err(format!("{} is in more than one thread", id.0));
+        }
+    }
+    let changed: Vec<NodeId> = d.text_threads.iter().filter(|t| t.iter().any(|id| listed.contains(id))).flatten().copied().collect();
+    for thread in &mut d.text_threads {
+        thread.retain(|id| !listed.contains(id));
+    }
+    d.text_threads.extend(threads.iter().filter(|t| t.len() >= 2).cloned());
+    d.text_threads.retain(|t| t.len() >= 2);
+    for id in changed.iter().chain(threads.iter().flatten()) {
+        touch(d, *id);
+    }
+    Ok(())
+}
+
 /// Give a node a fresh allocation so [`reflow`] sees its thread as changed.
 fn touch(d: &mut Document, id: NodeId) {
     if let Some(n) = d.node_mut(id) {

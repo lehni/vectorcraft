@@ -211,3 +211,72 @@ fn new_parents_take_new_and_existing_children() {
     let again = node(&mut s, a);
     assert!(s.execute("document.patch", &json!({"insert": [{"parent": {"new": 0}, "node": again}]})).is_err(), "only an earlier insert");
 }
+
+/// Area type frames `a` (with more text than it holds), `b` and `c` (empty), side by side, and the
+/// layer they're on.
+fn three_frames() -> (Session, u64, [u64; 3]) {
+    let mut s = Session::new();
+    s.execute("file.new", &json!({"width": 800, "height": 400})).unwrap();
+    let text = "Text in an area breaks into lines that fit it. ".repeat(12);
+    let mut frame = |x, text: &str| {
+        id(&s.execute("text.create", &json!({"x": x, "y": 10, "text": text, "size": 12, "area": {"width": 100, "height": 120}})).unwrap())
+    };
+    let ids = [frame(10, &text), frame(150, ""), frame(290, "")];
+    let layer = s.active().unwrap().doc.layers[0].id.0;
+    (s, layer, ids)
+}
+
+fn threads(s: &Session) -> Vec<Vec<u64>> {
+    s.active().unwrap().doc.text_threads.iter().map(|t| t.iter().map(|id| id.0).collect()).collect()
+}
+
+fn text(s: &Session, id: u64) -> String {
+    match &s.active().unwrap().doc.node(NodeId(id)).unwrap().kind {
+        vectorcraft_doc::NodeKind::Text(t) => t.plain_text(),
+        _ => panic!("{id} isn't text"),
+    }
+}
+
+/// `threads` makes each list of frames one thread, which the threads they were in lose; a list of
+/// one frame takes it out of its thread. The stories flow across the frames again, in one undo step.
+#[test]
+fn threads_link_frames_and_take_them_out() {
+    let (mut s, _, [a, b, c]) = three_frames();
+    let story = text(&s, a);
+    s.execute("document.patch", &json!({"threads": [[a, b]]})).unwrap();
+    assert_eq!(threads(&s), [[a, b]]);
+    assert!(!text(&s, b).is_empty(), "the story flows on into b");
+    assert_eq!(text(&s, a) + &text(&s, b), story);
+
+    // c takes a's place in front of b: a's thread loses it.
+    s.execute("document.patch", &json!({"threads": [[c, b]]})).unwrap();
+    assert_eq!(threads(&s), [[c, b]]);
+
+    s.execute("document.patch", &json!({"threads": [[b]]})).unwrap();
+    assert!(threads(&s).is_empty(), "a thread of one frame is none");
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(threads(&s), [[c, b]], "one undo step");
+}
+
+/// A frame inserted by the same patch can be threaded, as `{new: k}`.
+#[test]
+fn threads_take_new_frames() {
+    let (mut s, layer, [a, b, _]) = three_frames();
+    let copy = node(&mut s, b);
+    let result = s.execute("document.patch", &json!({"insert": [{"parent": layer, "node": copy}], "threads": [[a, {"new": 0}]]})).unwrap();
+    let new = result["ids"][0].as_u64().unwrap();
+    assert_eq!(threads(&s), [[a, new]]);
+    assert!(!text(&s, new).is_empty(), "the story flows into the new frame");
+}
+
+/// Only area type threads, and a frame is in one thread: a patch that says otherwise changes
+/// nothing.
+#[test]
+fn threads_take_area_type_once() {
+    let (mut s, _, [a, b, c]) = three_frames();
+    let point = id(&s.execute("text.create", &json!({"x": 10, "y": 300, "text": "Point"})).unwrap());
+    let before = document(&mut s);
+    assert!(s.execute("document.patch", &json!({"threads": [[a, point]]})).is_err());
+    assert!(s.execute("document.patch", &json!({"threads": [[a, b], [b, c]]})).is_err());
+    assert_eq!(document(&mut s), before);
+}
