@@ -57,9 +57,9 @@ pub(crate) fn store<T>(slots: &mut Vec<Option<T>>, item: T) -> usize {
 /// The natives `js/src/canvas.js` makes its classes of, each with the slot it's for as `this`:
 /// `create(width, height)`, a canvas's slot, `width()`, `height()`, `resize(width, height)`,
 /// `toPNG()`, the context's `properties` with `get(name)` and `set(name, value, slot)`, and its
-/// `methods`; `createGradient(kind, …)`, `addColorStop()` and `createPattern(image, repetition)`;
-/// `createPath(source)` and the `pathMethods` of a `Path2D`; `createImageBitmap(source, …)`; and
-/// `release(kind, slot)` for the slots the script dropped.
+/// `methods`; `createGradient(kind, …)`, `addColorStop()`, `createPattern(image, repetition)` and
+/// `setPatternTransform(a, b, c, d, e, f)`; `createPath(source)` and the `pathMethods` of a `Path2D`;
+/// `createImageBitmap(source, …)`; and `release(kind, slot)` for the slots the script dropped.
 pub(crate) fn natives<E: Engine>(engine: &mut E) -> Result<Vec<(&'static str, E::Handle)>, Error> {
     let methods: Vec<(&str, HostFunction<E::Handle>)> = vec![
         ("getImageData", get_image_data),
@@ -131,6 +131,7 @@ pub(crate) fn natives<E: Engine>(engine: &mut E) -> Result<Vec<(&'static str, E:
         }),
         ("addColorStop", drawing::add_color_stop),
         ("createPattern", drawing::create_pattern),
+        ("setPatternTransform", drawing::set_pattern_transform),
         ("createPath", path2d::construct),
         ("createImageBitmap", bitmap::create),
         ("release", release),

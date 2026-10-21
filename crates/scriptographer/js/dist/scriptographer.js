@@ -759,15 +759,41 @@
     get canvas() {
       return this.#canvas;
     }
-    // Transparent black, of a size or of another `ImageData`'s.
+    // Transparent black, of a size, either way round, or of another
+    // `ImageData`'s.
     createImageData(widthOrImage, height) {
       checkArguments(arguments, 1, "createImageData");
       if (widthOrImage instanceof ImageData) {
         return new ImageData(widthOrImage.width, widthOrImage.height);
       } else {
         checkArguments(arguments, 2, "createImageData");
-        return new ImageData(widthOrImage, height);
+        return new ImageData(
+          Math.abs(getLong(widthOrImage)),
+          Math.abs(getLong(height))
+        );
       }
+    }
+    getImageData(x, y, width, height) {
+      checkArguments(arguments, 4, "getImageData");
+      const args = [x, y, width, height].map(getLong);
+      if (args[2] === 0 || args[3] === 0) {
+        throw new DOMException(
+          "Invalid getImageData(): the width and height must not be 0.",
+          "IndexSizeError"
+        );
+      }
+      return canvas.methods.getImageData.call(this.#surface, ...args);
+    }
+    putImageData(image, ...args) {
+      checkOverloads(arguments, [3, 7], "putImageData");
+      if (!(image instanceof ImageData)) {
+        throw new TypeError("Invalid putImageData(): not an ImageData.");
+      }
+      return canvas.methods.putImageData.call(
+        this.#surface,
+        image,
+        ...args.slice(0, arguments.length === 3 ? 2 : 6).map(getLong)
+      );
     }
     createLinearGradient(x0, y0, x1, y1) {
       checkArguments(arguments, 4, "createLinearGradient");
@@ -794,16 +820,16 @@
     }
     // The path first, `null` for the current one:
     fill(...args) {
-      return callWithPath(this.#surface, "fill", args, 0);
+      return callWithPath(this.#surface, "fill", args, 0, true);
     }
     stroke(...args) {
       return callWithPath(this.#surface, "stroke", args, 0);
     }
     clip(...args) {
-      return callWithPath(this.#surface, "clip", args, 0);
+      return callWithPath(this.#surface, "clip", args, 0, true);
     }
     isPointInPath(...args) {
-      return callWithPath(this.#surface, "isPointInPath", args, 2);
+      return callWithPath(this.#surface, "isPointInPath", args, 2, true);
     }
     isPointInStroke(...args) {
       return callWithPath(this.#surface, "isPointInStroke", args, 2);
@@ -815,8 +841,6 @@
     }
   };
   var contextMethods = {
-    getImageData: 4,
-    putImageData: [3, 7],
     measureText: 1,
     beginPath: 0,
     closePath: 0,
@@ -846,11 +870,31 @@
     setLineDash: 1,
     getLineDash: 0
   };
+  var numberMethods = /* @__PURE__ */ new Set([
+    "moveTo",
+    "lineTo",
+    "bezierCurveTo",
+    "quadraticCurveTo",
+    "arc",
+    "arcTo",
+    "ellipse",
+    "rect",
+    "fillRect",
+    "strokeRect",
+    "clearRect",
+    "translate",
+    "rotate",
+    "scale",
+    "transform"
+  ]);
   for (const [name, counts] of Object.entries(contextMethods)) {
     inject(OffscreenCanvasRenderingContext2D.prototype, {
       [name](...args) {
         checkOverloads(args, counts, name);
-        return canvas.methods[name].call(getContextSurface(this), ...args);
+        return canvas.methods[name].call(
+          getContextSurface(this),
+          ...getArguments(name, args, counts)
+        );
       }
     });
   }
@@ -910,6 +954,9 @@
     get colorSpace() {
       return "srgb";
     }
+    get pixelFormat() {
+      return "rgba-unorm8";
+    }
   };
   var Path2D = class _Path2D {
     static {
@@ -950,7 +997,10 @@
     inject(Path2D.prototype, {
       [name](...args) {
         checkOverloads(args, counts, name);
-        return canvas.pathMethods[name].call(getPath(this), ...args);
+        return canvas.pathMethods[name].call(
+          getPath(this),
+          ...getArguments(name, args, counts)
+        );
       }
     });
   }
@@ -1005,7 +1055,7 @@
     }
     addColorStop(offset, color) {
       checkArguments(arguments, 2, "addColorStop");
-      canvas.addColorStop.call(this.#paint, offset, color);
+      canvas.addColorStop.call(this.#paint, getFinite(offset), color);
     }
   };
   var CanvasPattern = class {
@@ -1020,6 +1070,10 @@
     }
     static {
       getPatternPaint = /* @__PURE__ */ __name((pattern) => pattern.#paint, "getPatternPaint");
+    }
+    setTransform(transform = {}) {
+      const { a, b, c, d, e, f } = DOMMatrix.fromMatrix(transform);
+      canvas.setPatternTransform.call(this.#paint, a, b, c, d, e, f);
     }
   };
   setToStringTag(
@@ -1038,6 +1092,12 @@
   __name(createImageBitmap, "createImageBitmap");
   function getSurface(image) {
     if (image instanceof OffscreenCanvas) {
+      if (image.width === 0 || image.height === 0) {
+        throw new DOMException(
+          "Invalid image: a canvas of no size.",
+          "InvalidStateError"
+        );
+      }
       return getCanvasSurface(image);
     } else if (image instanceof ImageBitmap) {
       return getBitmapSurface(image);
@@ -1054,12 +1114,30 @@
     return new CanvasGradient(internal, canvas.createGradient(kind, ...args));
   }
   __name(createGradient, "createGradient");
-  function callWithPath(surface, name, args, count) {
+  function callWithPath(surface, name, args, count, hasFillRule) {
     const path = args[0] instanceof Path2D ? getPath(args.shift()) : null;
     checkArguments(args, count, name);
+    if (hasFillRule) {
+      if (!path && args.length > count + 1) {
+        throw new TypeError(`Invalid ${name}(): ${args.length} arguments.`);
+      }
+      args[count] = getFillRule(args[count]);
+    }
     return canvas.methods[name].call(surface, path, ...args);
   }
   __name(callWithPath, "callWithPath");
+  function getArguments(name, args, count) {
+    return numberMethods.has(name) ? args.map((arg, index) => index < count ? Number(arg) : arg) : args;
+  }
+  __name(getArguments, "getArguments");
+  function getFillRule(value = "nonzero") {
+    const rule = String(value);
+    if (rule !== "nonzero" && rule !== "evenodd") {
+      throw new TypeError(`Invalid fill rule: '${rule}'.`);
+    }
+    return rule;
+  }
+  __name(getFillRule, "getFillRule");
   function checkOverloads(args, counts, name) {
     if (typeof counts === "number") {
       checkArguments(args, counts, name);
@@ -1106,9 +1184,29 @@
     return [+x, +y, +w, +h, ...ul, ...ur, ...lr, ...ll];
   }
   __name(getRoundRect, "getRoundRect");
+  function getFinite(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) {
+      throw new TypeError(`Invalid number: '${value}'.`);
+    }
+    return number;
+  }
+  __name(getFinite, "getFinite");
+  function getLong(value) {
+    return getInteger(value, -(2 ** 31), 2 ** 31 - 1);
+  }
+  __name(getLong, "getLong");
+  function getInteger(value, min, max) {
+    const number = Math.trunc(Number(value));
+    if (!(number >= min && number <= max)) {
+      throw new TypeError(`Invalid integer: '${value}'.`);
+    }
+    return number;
+  }
+  __name(getInteger, "getInteger");
   function getSide(value) {
-    const side = Math.trunc(Number(value));
-    if (!(side > 0)) {
+    const side = getInteger(value, 0, 2 ** 32 - 1);
+    if (side === 0) {
       throw new DOMException(
         `Invalid ImageData size: '${value}'.`,
         "IndexSizeError"
@@ -2560,7 +2658,7 @@ ${value}\r
   // src/geometry.js
   var geometry_exports = {};
   __export(geometry_exports, {
-    DOMMatrix: () => DOMMatrix,
+    DOMMatrix: () => DOMMatrix2,
     DOMMatrixReadOnly: () => DOMMatrixReadOnly,
     DOMPoint: () => DOMPoint,
     DOMPointReadOnly: () => DOMPointReadOnly,
@@ -2621,13 +2719,13 @@ ${value}\r
       const args = split(rest.slice(match[0].length, end)).map(
         (arg) => parseValue(arg, text)
       );
-      list.push({ name, args: getArguments(args, types2, text) });
+      list.push({ name, args: getArguments2(args, types2, text) });
       rest = rest.slice(end + 1).trimStart();
     } while (rest);
     return list;
   }
   __name(parseTransformList, "parseTransformList");
-  function getArguments(args, types2, text) {
+  function getArguments2(args, types2, text) {
     const needed = types2.filter((type) => !type.endsWith("?")).length;
     if (args.length < needed || args.length > types2.length) {
       throw syntaxError(text);
@@ -2644,7 +2742,7 @@ ${value}\r
       }
     });
   }
-  __name(getArguments, "getArguments");
+  __name(getArguments2, "getArguments");
   function parseValue(source, text) {
     const tokens = tokenize(source.trim(), text);
     let at = 0;
@@ -2976,7 +3074,7 @@ ${value}\r
       return operate(this, get2D([1, 0, 0, -1, 0, 0]));
     }
     inverse() {
-      return setMatrix(new DOMMatrix(), invert(getMatrix(this)));
+      return setMatrix(new DOMMatrix2(), invert(getMatrix(this)));
     }
     transformPoint(point) {
       const { x, y, z, w } = getPointInit(point);
@@ -3020,7 +3118,7 @@ ${value}\r
       return fromArray(this, array);
     }
   };
-  var DOMMatrix = class extends DOMMatrixReadOnly {
+  var DOMMatrix2 = class extends DOMMatrixReadOnly {
     static {
       __name(this, "DOMMatrix");
     }
@@ -3075,7 +3173,7 @@ ${value}\r
   );
   defineAttributes(
     DOMMatrixReadOnly,
-    DOMMatrix,
+    DOMMatrix2,
     [
       ...aliases.map(([name, , index]) => [name, index]),
       ...names.map((name, index) => [name, index])
@@ -3095,7 +3193,7 @@ ${value}\r
     DOMRect,
     DOMQuad,
     DOMMatrixReadOnly,
-    DOMMatrix
+    DOMMatrix2
   );
   function defineAttributes(ReadOnly, Writable, entries, getValues2, changed) {
     for (const [name, index] of entries) {
@@ -3129,7 +3227,7 @@ ${value}\r
   }
   __name(change, "change");
   function operate(matrix, other) {
-    return setMatrix(new DOMMatrix(), multiply(getMatrix(matrix), other));
+    return setMatrix(new DOMMatrix2(), multiply(getMatrix(matrix), other));
   }
   __name(operate, "operate");
   function multiply([a, is2DA], [b, is2DB]) {
@@ -3951,7 +4049,7 @@ ${value}\r
     inject(globalThis, { ...canvas_exports });
   }
   if (!globalThis.DOMMatrix) {
-    inject(globalThis, { ...geometry_exports, WebKitCSSMatrix: DOMMatrix });
+    inject(globalThis, { ...geometry_exports, WebKitCSSMatrix: DOMMatrix2 });
   }
   setupDialog(globalThis.Dialog ??= {});
   inject(globalThis, { Palette });

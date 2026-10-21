@@ -6,32 +6,34 @@
 //! `importScripts()` or `<script>`s) run as one, after testharness.js, as a shell runs them. The tests that fail are listed in `tests/wpt-expected-failures.txt`: this test
 //! fails when another one fails, or when a listed one passes, so the list stays the truth.
 //! `WPT_UPDATE=1` writes the list anew. The pass rate by folder prints with `--nocapture`.
+//! `WPT_FILTER=text` runs only the files whose path contains `text` and prints each test's result
+//! and message, without checking the list.
 //!
-//! What fails, by cause (2026-10-21: 1593 of 1821 pass; the canvas 910 of 1093, geometry 683
+//! What fails, by cause (2026-10-21: 1641 of 1821 pass; the canvas 958 of 1093, geometry 683
 //! of 728), to come back to; most of it rarely matters to a script:
 //!
-//! - Text (canvas/text, about 60): WPT loads its test font with `FontFace`, which scripts don't
+//! - Text (canvas/text, about 80): WPT loads its test font with `FontFace`, which scripts don't
 //!   have (it would add a font to the process's font database, for one runtime); the
 //!   `TextMetrics` methods (`getActualBoundingBox()`, `getTextClusters()`,
 //!   `getIndexFromOffset()`, `getSelectionRects()`, tentative); `direction: 'rtl'` in measuring;
 //!   `fontKerning`, `fontStretch`, `fontVariantCaps` and `textRendering` are kept but don't
 //!   change the text yet; `maxWidth` of NaN.
+//! - `beginLayer()`/`endLayer()` and `CanvasFilter` (about 30): tentative APIs only Chrome has;
+//!   `filter`'s colour functions (`grayscale()`, `url()` …), which vello_cpu doesn't have.
+//! - Colours (about 12): the color crate accepts some invalid legacy syntax (numbers mixed with
+//!   percentages in `rgb()`, `hsl()` without its percent signs: its own TODO); `color-mix()`,
+//!   relative colours, system colours, and keeping colours that aren't sRGB as `color(srgb …)`.
+//! - Structured serialization of the geometry classes (css/geometry, 31): the tests send them
+//!   through a `MessageChannel`, which scripts don't have.
 //! - A worker's matrices (css/geometry, 12): a script has a window, so `new DOMMatrix(text)`
 //!   reads CSS's transform functions, `setMatrixValue()` is there and a matrix writes itself as
-//!   CSS, as a window's do, which the worker tests expect not to. `structured-serialization` needs
-//!   `structuredClone()`/`postMessage` of geometry objects.
-//! - Colours the canvas should reject (about 20): the color crate accepts some invalid legacy
-//!   syntax (numbers mixed with percentages in `rgb()`, `hsl()` without its percent signs: its
-//!   own TODO); `color-mix()`, relative colours, system colours, and keeping colours that aren't
-//!   sRGB as `color(srgb …)`.
-//! - `isPointInPath()` with invalid arguments.
-//! - Rendering details (about 20): conic gradient rotation, zero-size gradients, a few shadows of
-//!   composited and blurred drawings, `isPointInPath()` on edges, `drawImage()` of a broken image
-//!   or a canvas of no size, `getImageData()` with non-finite arguments, a pattern's
-//!   `setTransform()`, `createRadialGradient()` with negative radii.
-//! - `beginLayer()`/`endLayer()` and `CanvasFilter` (about 25): tentative APIs only Chrome has.
+//!   CSS, as a window's do, which the worker tests expect not to.
 //! - Wide gamut (about 8): canvases are sRGB and 8 bits a channel; no `colorSpace: 'display-p3'`
 //!   or float16 `ImageData`.
+//! - Exceptions a value's `toString()` throws reach the script as an `Error`, not of their own
+//!   class: the engines carry what scripts throw as text.
+//! - Two limits: `isPointInPath()` on a path scaled by `Number.MAX_VALUE` (paths are kept in
+//!   pixels, where it is infinite), and kurbo's inner join of a line far wider than its segments.
 //! - Geometry details: `WebKitCSSMatrix` is enumerable; workers' `importScripts()`; tests that
 //!   need a page (`toDataURL()`, `getClientRects()`).
 
@@ -85,6 +87,10 @@ fn web_platform_tests() {
     for (suite, pages) in SUITES {
         collect(&corpus.join(suite), pages, &mut files);
     }
+    let filter = std::env::var("WPT_FILTER").ok();
+    if let Some(filter) = &filter {
+        files.retain(|file| file.to_string_lossy().contains(filter.as_str()));
+    }
     files.sort();
 
     let mut results = BTreeMap::new();
@@ -112,6 +118,12 @@ fn web_platform_tests() {
         println!("  {folder:<52} {pass:>4} / {total:<4}");
     }
 
+    if filter.is_some() {
+        for (key, (status, message)) in &results {
+            println!("{status} {key}\n    {message}");
+        }
+        return;
+    }
     let failing: BTreeSet<&String> = results.iter().filter(|(_, (status, _))| status != "PASS").map(|(key, _)| key).collect();
     let list = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/wpt-expected-failures.txt");
     if std::env::var_os("WPT_UPDATE").is_some() {

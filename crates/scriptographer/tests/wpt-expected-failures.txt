@@ -47,10 +47,6 @@ css/geometry/structured-serialization.html: DOMRectReadOnly clone: non-initial v
 css/geometry/structured-serialization.html: DOMRectReadOnly clone: throwing getters
 html/canvas/offscreen/color-type/2d.color.type.u8p3.to.u8srgb.to.u8p3.worker.js: test srgb unorm8 canvas storing 8-bit display-p3 data accurately
 html/canvas/offscreen/color-type/2d.color.type.u8srgb.to.u8p3.to.u8srgb.worker.js: test display-p3 unorm8 canvas not storing 8-bit srgb data accurately
-html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.negativedest.worker.js: Negative destination width/height represents the correct rectangle
-html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.negativedir.worker.js: Negative dimensions do not affect the direction of the image
-html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.negativesource.worker.js: Negative source width/height represents the correct rectangle
-html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.zerocanvas.worker.js: Untitled
 html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.colormix.worker.js: color-mix works as color input
 html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsl-3.worker.js: Untitled
 html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsl-4.worker.js: Untitled
@@ -62,29 +58,7 @@ html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgba-eof.worker.
 html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.system.worker.js: Untitled
 html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.relativecolor.worker.js: Relative color works as color input
 html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.toStringFunctionCallback.worker.js: Passing a function in to ctx.fillStyle or ctx.strokeStyle with a toString callback works as specified
-html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.conic.invalid.inputs.worker.js: Conic gradient function with invalid inputs
-html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.conic.positive.rotation.worker.js: Conic gradient with positive rotation
-html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.interpolate.coloralpha.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.interpolate.zerosize.fill.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.interpolate.zerosize.fillRect.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.interpolate.zerosize.fillText.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.interpolate.zerosize.stroke.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.interpolate.zerosize.strokeRect.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.interpolate.zerosize.strokeText.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.object.invalidoffset.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.radial.equal.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.radial.negative.worker.js: createRadialGradient() throws INDEX_SIZE_ERR if either radius is negative
 html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.relativecolor.worker.js: Relative color works as CanvasGradient color input
-html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.basic.zerocanvas.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.paint.norepeat.coord3.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.paint.norepeat.outside_arc.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.paint.repeatx.coord1.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.paint.repeatx.outside.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.paint.repeaty.coord1.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.paint.repeaty.outside.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.repeat.undefined.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.transform.identity.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.transform.infinity.worker.js: Untitled
 html/canvas/offscreen/fill-and-stroke-styles/2d.strokeStyle.relativecolor.worker.js: Relative color works as color input
 html/canvas/offscreen/filters/2d.filter.canvasFilterObject.blur.exceptions.tentative.worker.js: Test exceptions on gaussianBlur filter
 html/canvas/offscreen/filters/2d.filter.canvasFilterObject.colorMatrix.tentative.worker.js: Test the functionality of ColorMatrix filters
@@ -119,30 +93,8 @@ html/canvas/offscreen/layers/2d.layer.valid-calls.beginLayer.worker.js: No excep
 html/canvas/offscreen/layers/2d.layer.valid-calls.save-beginLayer.worker.js: No exception raised on save() + beginLayer().
 html/canvas/offscreen/line-styles/2d.line.cross.worker.js: Untitled
 html/canvas/offscreen/path-objects/2d.path.isPointInPath.basic.worker.js: Verify the winding rule in isPointInPath works for for rect path.
-html/canvas/offscreen/path-objects/2d.path.isPointInPath.edge.worker.js: isPointInPath() counts points on the path as being inside
-html/canvas/offscreen/path-objects/2d.path.isPointInPath.unclosed.worker.js: isPointInPath() works on unclosed subpaths
-html/canvas/offscreen/path-objects/2d.path.isPointInPath.winding.worker.js: isPointInPath() uses the non-zero winding number rule
-html/canvas/offscreen/path-objects/2d.path.isPointInStroke.scaleddashes.worker.js: isPointInStroke() should return correct results on dashed paths at high scale factors
-html/canvas/offscreen/path-objects/2d.path.isPointInpath.invalid.worker.js: Verify isPointInPath throws exceptions with invalid inputs.
-html/canvas/offscreen/path-objects/2d.path.lineTo.nonfinite.details.worker.js: lineTo() with Infinity/NaN for first arg still converts the second arg
-html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.double.worker.js: createImageData(w, h) double is converted to long
-html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.negative.worker.js: createImageData(sw, sh) takes the absolute magnitude of the size arguments
-html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.nonfinite.worker.js: createImageData() throws TypeError if arguments are not finite
 html/canvas/offscreen/pixel-manipulation/2d.imageData.createImageBitmap.srgb.rgba.float16.worker.js: Verify round-trip of 16-bit float sRGB data ImageData through ImageBitmap
-html/canvas/offscreen/pixel-manipulation/2d.imageData.get.large.crash.worker.js: Test that canvas crash when image data cannot be allocated.
-html/canvas/offscreen/pixel-manipulation/2d.imageData.get.nonfinite.worker.js: getImageData() throws TypeError if arguments are not finite
-html/canvas/offscreen/pixel-manipulation/2d.imageData.get.zero.worker.js: getImageData() throws INDEX_SIZE_ERR if size is zero
-html/canvas/offscreen/pixel-manipulation/2d.imageData.object.properties.worker.js: ImageData objects have the right properties
 html/canvas/offscreen/pixel-manipulation/2d.imageData.put.basic.rgba.float16.worker.js: putImageData() puts 16-bit floating point image data from getImageData() onto the canvas
-html/canvas/offscreen/pixel-manipulation/2d.imageData.put.nonfinite.worker.js: putImageData() throws TypeError if arguments are not finite
-html/canvas/offscreen/pixel-manipulation/2d.imageData.put.null.worker.js: putImageData() with null imagedata throws TypeError
-html/canvas/offscreen/pixel-manipulation/2d.imageData.put.wrongtype.worker.js: putImageData() does not accept non-ImageData objects
-html/canvas/offscreen/shadows/2d.shadow.composite.1.worker.js: Shadows are drawn using globalCompositeOperation
-html/canvas/offscreen/shadows/2d.shadow.composite.2.worker.js: Shadows are drawn using globalCompositeOperation
-html/canvas/offscreen/shadows/2d.shadow.enable.blur.worker.js: Shadows are drawn if shadowBlur is set
-html/canvas/offscreen/shadows/2d.shadow.enable.x.worker.js: Shadows are drawn if shadowOffsetX is set
-html/canvas/offscreen/shadows/2d.shadow.enable.y.worker.js: Shadows are drawn if shadowOffsetY is set
-html/canvas/offscreen/shadows/2d.shadow.outside.worker.js: Shadows of shapes outside the visible area can be offset onto the visible area
 html/canvas/offscreen/text/2d.text.draw.align.center.worker.js: textAlign center is the center of the em squares (not the bounding box)
 html/canvas/offscreen/text/2d.text.draw.align.end.ltr.worker.js: textAlign end with ltr is the right edge
 html/canvas/offscreen/text/2d.text.draw.align.end.rtl.worker.js: textAlign end with rtl is the left edge

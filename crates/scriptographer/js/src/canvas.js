@@ -117,15 +117,43 @@ export class OffscreenCanvasRenderingContext2D {
     return this.#canvas
   }
 
-  // Transparent black, of a size or of another `ImageData`'s.
+  // Transparent black, of a size, either way round, or of another
+  // `ImageData`'s.
   createImageData(widthOrImage, height) {
     checkArguments(arguments, 1, 'createImageData')
     if (widthOrImage instanceof ImageData) {
       return new ImageData(widthOrImage.width, widthOrImage.height)
     } else {
       checkArguments(arguments, 2, 'createImageData')
-      return new ImageData(widthOrImage, height)
+      return new ImageData(
+        Math.abs(getLong(widthOrImage)),
+        Math.abs(getLong(height))
+      )
     }
+  }
+
+  getImageData(x, y, width, height) {
+    checkArguments(arguments, 4, 'getImageData')
+    const args = [x, y, width, height].map(getLong)
+    if (args[2] === 0 || args[3] === 0) {
+      throw new DOMException(
+        'Invalid getImageData(): the width and height must not be 0.',
+        'IndexSizeError'
+      )
+    }
+    return canvas.methods.getImageData.call(this.#surface, ...args)
+  }
+
+  putImageData(image, ...args) {
+    checkOverloads(arguments, [3, 7], 'putImageData')
+    if (!(image instanceof ImageData)) {
+      throw new TypeError('Invalid putImageData(): not an ImageData.')
+    }
+    return canvas.methods.putImageData.call(
+      this.#surface,
+      image,
+      ...args.slice(0, arguments.length === 3 ? 2 : 6).map(getLong)
+    )
   }
 
   createLinearGradient(x0, y0, x1, y1) {
@@ -158,7 +186,7 @@ export class OffscreenCanvasRenderingContext2D {
 
   // The path first, `null` for the current one:
   fill(...args) {
-    return callWithPath(this.#surface, 'fill', args, 0)
+    return callWithPath(this.#surface, 'fill', args, 0, true)
   }
 
   stroke(...args) {
@@ -166,11 +194,11 @@ export class OffscreenCanvasRenderingContext2D {
   }
 
   clip(...args) {
-    return callWithPath(this.#surface, 'clip', args, 0)
+    return callWithPath(this.#surface, 'clip', args, 0, true)
   }
 
   isPointInPath(...args) {
-    return callWithPath(this.#surface, 'isPointInPath', args, 2)
+    return callWithPath(this.#surface, 'isPointInPath', args, 2, true)
   }
 
   isPointInStroke(...args) {
@@ -187,8 +215,6 @@ export class OffscreenCanvasRenderingContext2D {
 // What the context does with numbers and text alone, and how many arguments
 // each needs, or the counts of its overloads:
 const contextMethods = {
-  getImageData: 4,
-  putImageData: [3, 7],
   measureText: 1,
   beginPath: 0,
   closePath: 0,
@@ -219,11 +245,34 @@ const contextMethods = {
   getLineDash: 0
 }
 
+// The methods that take only numbers, which WebIDL converts all before the
+// method looks at any of them:
+const numberMethods = new Set([
+  'moveTo',
+  'lineTo',
+  'bezierCurveTo',
+  'quadraticCurveTo',
+  'arc',
+  'arcTo',
+  'ellipse',
+  'rect',
+  'fillRect',
+  'strokeRect',
+  'clearRect',
+  'translate',
+  'rotate',
+  'scale',
+  'transform'
+])
+
 for (const [name, counts] of Object.entries(contextMethods)) {
   inject(OffscreenCanvasRenderingContext2D.prototype, {
     [name](...args) {
       checkOverloads(args, counts, name)
-      return canvas.methods[name].call(getContextSurface(this), ...args)
+      return canvas.methods[name].call(
+        getContextSurface(this),
+        ...getArguments(name, args, counts)
+      )
     }
   })
 }
@@ -290,6 +339,10 @@ export class ImageData {
   get colorSpace() {
     return 'srgb'
   }
+
+  get pixelFormat() {
+    return 'rgba-unorm8'
+  }
 }
 
 // A path to fill, stroke, clip with or test points against, in its own
@@ -339,7 +392,10 @@ for (const name of [
   inject(Path2D.prototype, {
     [name](...args) {
       checkOverloads(args, counts, name)
-      return canvas.pathMethods[name].call(getPath(this), ...args)
+      return canvas.pathMethods[name].call(
+        getPath(this),
+        ...getArguments(name, args, counts)
+      )
     }
   })
 }
@@ -402,7 +458,7 @@ export class CanvasGradient {
 
   addColorStop(offset, color) {
     checkArguments(arguments, 2, 'addColorStop')
-    canvas.addColorStop.call(this.#paint, offset, color)
+    canvas.addColorStop.call(this.#paint, getFinite(offset), color)
   }
 }
 
@@ -417,6 +473,11 @@ export class CanvasPattern {
 
   static {
     getPatternPaint = pattern => pattern.#paint
+  }
+
+  setTransform(transform = {}) {
+    const { a, b, c, d, e, f } = DOMMatrix.fromMatrix(transform)
+    canvas.setPatternTransform.call(this.#paint, a, b, c, d, e, f)
   }
 }
 
@@ -445,6 +506,12 @@ export async function createImageBitmap(image, ...args) {
 // The surface of a canvas or a bitmap.
 function getSurface(image) {
   if (image instanceof OffscreenCanvas) {
+    if (image.width === 0 || image.height === 0) {
+      throw new DOMException(
+        'Invalid image: a canvas of no size.',
+        'InvalidStateError'
+      )
+    }
     return getCanvasSurface(image)
   } else if (image instanceof ImageBitmap) {
     return getBitmapSurface(image)
@@ -468,10 +535,35 @@ function createGradient(kind, ...args) {
 
 // `name(path, …)` of the context, with the path's slot first: `null` without
 // one, for the current path; `count` arguments after the path are needed.
-function callWithPath(surface, name, args, count) {
+// With `hasFillRule`, the argument after the `count` it needs is a fill rule,
+// which the call without a path takes only if it gets no more than that.
+function callWithPath(surface, name, args, count, hasFillRule) {
   const path = args[0] instanceof Path2D ? getPath(args.shift()) : null
   checkArguments(args, count, name)
+  if (hasFillRule) {
+    if (!path && args.length > count + 1) {
+      throw new TypeError(`Invalid ${name}(): ${args.length} arguments.`)
+    }
+    args[count] = getFillRule(args[count])
+  }
   return canvas.methods[name].call(surface, path, ...args)
+}
+
+// The arguments of the method `name`, its numbers converted first.
+function getArguments(name, args, count) {
+  return numberMethods.has(name)
+    ? args.map((arg, index) => (index < count ? Number(arg) : arg))
+    : args
+}
+
+// A `CanvasFillRule`, as WebIDL converts an enumeration: from text, or a
+// `TypeError`.
+function getFillRule(value = 'nonzero') {
+  const rule = String(value)
+  if (rule !== 'nonzero' && rule !== 'evenodd') {
+    throw new TypeError(`Invalid fill rule: '${rule}'.`)
+  }
+  return rule
 }
 
 // A `TypeError` unless `name()` got as many arguments as it needs, or, for an
@@ -538,10 +630,35 @@ function getRoundRect(x, y, w, h, radii = 0) {
   return [+x, +y, +w, +h, ...ul, ...ur, ...lr, ...ll]
 }
 
-// A side of an `ImageData`: a whole number of pixels, more than none.
+// A number as WebIDL's `double` takes it: a `TypeError` unless it's finite.
+function getFinite(value) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) {
+    throw new TypeError(`Invalid number: '${value}'.`)
+  }
+  return number
+}
+
+// A number as WebIDL's `[EnforceRange] long` takes it.
+function getLong(value) {
+  return getInteger(value, -(2 ** 31), 2 ** 31 - 1)
+}
+
+// A whole number from `min` to `max`, as `[EnforceRange]` converts it: a
+// `TypeError` for anything else.
+function getInteger(value, min, max) {
+  const number = Math.trunc(Number(value))
+  if (!(number >= min && number <= max)) {
+    throw new TypeError(`Invalid integer: '${value}'.`)
+  }
+  return number
+}
+
+// A side of an `ImageData`, as WebIDL's `[EnforceRange] unsigned long`: a
+// whole number of pixels, more than none.
 function getSide(value) {
-  const side = Math.trunc(Number(value))
-  if (!(side > 0)) {
+  const side = getInteger(value, 0, 2 ** 32 - 1)
+  if (side === 0) {
     throw new DOMException(
       `Invalid ImageData size: '${value}'.`,
       'IndexSizeError'

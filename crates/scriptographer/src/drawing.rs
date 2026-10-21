@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
 use vello_cpu::color::Rgba8;
-use vello_cpu::kurbo::{Affine, Arc as ArcSegment, BezPath, Cap, Join, PathEl, Point, Rect, Shape, Stroke, Vec2};
+use vello_cpu::kurbo::{Affine, Arc as ArcSegment, BezPath, Cap, Join, ParamCurveNearest, PathEl, Point, Rect, Shape, Stroke, Vec2};
 use vello_cpu::peniko::{self, BlendMode, Color, ColorStop, Compose, Extend, Fill, ImageQuality, ImageSampler, Mix};
 use vello_cpu::{Pixmap, RenderContext, RenderSettings, Resources};
 
@@ -248,14 +248,8 @@ fn checked<H: Clone>(call: &mut dyn Call<H>, check: Check, value: Value<H>) -> R
             let text = call.to_string(&value)?;
             css_length(&text, 10.0).is_some().then_some(Value::String(text))
         }
-        Check::Color => match &value {
-            Value::String(css) => color_value(css),
-            _ => None,
-        },
-        Check::Style => match &value {
-            Value::String(css) => color_value(css),
-            _ => None,
-        },
+        // Gradients and patterns come with their slot; anything else is text.
+        Check::Color | Check::Style => color_value(&call.to_string(&value)?),
         Check::Filter => {
             let text = call.to_string(&value)?;
             parse_filter(&text).is_some().then_some(Value::String(text))
@@ -352,12 +346,14 @@ impl<H> Surface<H> {
     }
 
     /// Draws with `draw` inside the clips, as `compositing` has it.
-    fn draw(&mut self, compositing: &Compositing, draw: impl FnOnce(&mut RenderContext)) {
+    /// `draw` draws with its transforms after the one it's given: the shadow's offset, then none.
+    fn draw(&mut self, compositing: &Compositing, mut draw: impl FnMut(&mut RenderContext, Affine)) {
         let (width, height) = (f64::from(self.pixmap.width()), f64::from(self.pixmap.height()));
         if width == 0.0 || height == 0.0 {
             return;
         }
         let filters: Vec<Filter> = compositing.effects.iter().filter_map(|e| e.filter(width, height)).collect();
+        let shadow = compositing.shadow.filter(Shadow::shows);
         let clips = self.clips.clone();
         let scene = self.scene();
         // Clips and filters are in pixels.
@@ -366,18 +362,41 @@ impl<H> Surface<H> {
             scene.set_fill_rule(*rule);
             scene.push_clip_layer(clip);
         }
+        // The innermost layer's filter applies first.
+        let mut filtered = |scene: &mut RenderContext, offset| {
+            for filter in filters.iter().rev() {
+                scene.push_filter_layer(filter.clone());
+            }
+            draw(scene, offset);
+            for _ in &filters {
+                scene.pop_layer();
+            }
+        };
+        if let Some(shadow) = shadow {
+            // Composited as the drawing is, the drawing moved, in the shadow's colour where it
+            // covers, then blurred.
+            scene.push_layer(None, Some(compositing.blend), Some(compositing.alpha), None, None);
+            if shadow.blur > 0.0 {
+                let blur = FilterPrimitive::GaussianBlur { std_deviation: shadow.blur.min(MAX_BLUR) as f32, edge_mode: EdgeMode::None };
+                scene.push_filter_layer(Filter::from_primitive(blur));
+            }
+            filtered(scene, Affine::translate(shadow.offset));
+            scene.reset_transform();
+            scene.reset_paint_transform();
+            scene.push_layer(None, Some(BlendMode::new(Mix::Normal, Compose::SrcIn)), None, None, None);
+            scene.set_paint(shadow.color);
+            scene.fill_rect(&Rect::new(0.0, 0.0, width, height));
+            scene.pop_layer();
+            if shadow.blur > 0.0 {
+                scene.pop_layer();
+            }
+            scene.pop_layer();
+        }
         let layered = compositing.alpha < 1.0 || compositing.blend != BlendMode::default() || !filters.is_empty();
         if layered {
             scene.push_layer(None, Some(compositing.blend), Some(compositing.alpha), None, None);
         }
-        // The innermost layer's filter applies first.
-        for filter in filters.iter().rev() {
-            scene.push_filter_layer(filter.clone());
-        }
-        draw(scene);
-        for _ in &filters {
-            scene.pop_layer();
-        }
+        filtered(scene, Affine::IDENTITY);
         if layered {
             scene.pop_layer();
         }
@@ -886,17 +905,39 @@ pub(crate) fn get_line_dash<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, _
 // Painting.
 
 /// A `fillStyle` or `strokeStyle`: a colour, or a gradient or pattern object.
+#[derive(Clone)]
 enum Style {
     Color(Color),
-    Gradient(peniko::Gradient),
-    Pattern(Arc<Pixmap>, Extend, Extend),
+    /// A gradient, in its coordinates through the transform.
+    Gradient(peniko::Gradient, Affine),
+    Pattern(Pattern),
+}
+
+/// An image that paints, in its coordinates through `transform`, repeated across and down or
+/// not, and nothing beyond it where it isn't.
+#[derive(Clone)]
+pub(crate) struct Pattern {
+    pub pixels: Arc<Pixmap>,
+    pub repeat: (bool, bool),
+    pub transform: Affine,
+}
+
+impl Pattern {
+    /// Where it paints, in its coordinates, when it isn't repeated both ways.
+    fn bounds(&self) -> Option<Rect> {
+        // Far enough to be beyond any canvas, whatever the transform.
+        const FAR: f64 = 1e9;
+        let span = |repeat, size: u16| if repeat { (-FAR, FAR) } else { (0.0, f64::from(size)) };
+        let ((x0, x1), (y0, y1)) = (span(self.repeat.0, self.pixels.width()), span(self.repeat.1, self.pixels.height()));
+        (self.repeat != (true, true)).then(|| Rect::new(x0, y0, x1, y1))
+    }
 }
 
 /// What a gradient's or a pattern's slot holds: a gradient as its stops are added, or a pattern's
 /// image as it was when the pattern was made.
 pub(crate) enum Paint {
     Gradient { kind: &'static str, at: Vec<f64>, stops: Vec<ColorStop> },
-    Pattern(Arc<Pixmap>, Extend, Extend),
+    Pattern(Pattern),
 }
 
 /// The style in the property `name`, `None` when it paints nothing.
@@ -904,8 +945,8 @@ fn style<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, name: &str) -> Resul
     let (value, slot) = surface(call, this, |s| (s.properties.value(name), s.properties.style(name)))?;
     match (slot, value) {
         (Some(slot), _) => crate::canvas::with_paint(call, slot, |paint| match paint {
-            Paint::Gradient { kind, at, stops } => gradient(kind, at, stops).map(Style::Gradient),
-            Paint::Pattern(pixels, x, y) => Some(Style::Pattern(pixels.clone(), *x, *y)),
+            Paint::Gradient { kind, at, stops } => gradient(kind, at, stops).map(|(gradient, transform)| Style::Gradient(gradient, transform)),
+            Paint::Pattern(pattern) => Some(Style::Pattern(pattern.clone())),
         })
         .map(Option::flatten),
         (None, Value::String(css)) => Ok(css_color(&css).map(Style::Color)),
@@ -913,20 +954,29 @@ fn style<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, name: &str) -> Resul
     }
 }
 
-/// The gradient of `kind` at `at`, with `stops` in the order of their offsets.
-fn gradient(kind: &str, at: &[f64], stops: &[ColorStop]) -> Option<peniko::Gradient> {
+/// The gradient of `kind` at `at`, with `stops` in the order of their offsets, and the transform of
+/// its coordinates; none when it paints nothing: without stops, or a linear gradient from a point
+/// to itself or a radial one between the same circle.
+fn gradient(kind: &str, at: &[f64], stops: &[ColorStop]) -> Option<(peniko::Gradient, Affine)> {
     if stops.is_empty() {
         return None;
     }
     let mut stops = stops.to_vec();
     stops.sort_by(|a, b| a.offset.total_cmp(&b.offset));
-    let gradient = match (kind, at) {
-        ("linear", [x0, y0, x1, y1]) => peniko::Gradient::new_linear((*x0, *y0), (*x1, *y1)),
-        ("radial", [x0, y0, r0, x1, y1, r1]) => peniko::Gradient::new_two_point_radial((*x0, *y0), *r0 as f32, (*x1, *y1), *r1 as f32),
-        ("conic", [angle, x, y]) => peniko::Gradient::new_sweep((*x, *y), *angle as f32, (*angle + std::f64::consts::TAU) as f32),
+    let (gradient, transform) = match (kind, at) {
+        ("linear", [x0, y0, x1, y1]) if (x0, y0) != (x1, y1) => (peniko::Gradient::new_linear((*x0, *y0), (*x1, *y1)), Affine::IDENTITY),
+        ("radial", [x0, y0, r0, x1, y1, r1]) if (x0, y0, r0) != (x1, y1, r1) => {
+            (peniko::Gradient::new_two_point_radial((*x0, *y0), *r0 as f32, (*x1, *y1), *r1 as f32), Affine::IDENTITY)
+        }
+        // vello_cpu's sweeps start at angles from 0, so the start angle turns the gradient.
+        ("conic", [angle, x, y]) => {
+            (peniko::Gradient::new_sweep((*x, *y), 0.0, std::f32::consts::TAU), Affine::rotate_about(*angle, Point::new(*x, *y)))
+        }
         _ => return None,
     };
-    Some(gradient.with_stops(stops.as_slice()))
+    // The canvas interpolates colours with their alpha apart, not premultiplied.
+    let gradient = peniko::Gradient { interpolation_alpha_space: peniko::InterpolationAlphaSpace::Unpremultiplied, ..gradient };
+    Some((gradient.with_stops(stops.as_slice()), transform))
 }
 
 /// How a drawing lands on the canvas.
@@ -935,16 +985,35 @@ struct Compositing {
     alpha: f32,
     /// `globalCompositeOperation`.
     blend: BlendMode,
-    /// `filter`'s, then the shadow, applied in order.
+    /// `filter`'s, applied in order.
     effects: Vec<Effect>,
+    /// The shadow, drawn first.
+    shadow: Option<Shadow>,
 }
 
-/// What `filter` and the shadow do to a drawing, in pixels, whatever the transform.
+/// A shadow, which the canvas draws under a drawing as a drawing of its own: the drawing moved by
+/// `offset` (in pixels), in `color`, blurred with the standard deviation `blur`.
+#[derive(Clone, Copy, Debug)]
+struct Shadow {
+    offset: Vec2,
+    blur: f64,
+    color: Color,
+}
+
+impl Shadow {
+    /// Whether it shows: in a colour, and blurred or moved.
+    fn shows(&self) -> bool {
+        self.color.components[3] > 0.0 && (self.blur > 0.0 || self.offset != Vec2::ZERO)
+    }
+}
+
+/// What `filter` does to a drawing, in pixels, whatever the transform.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Effect {
     /// A Gaussian blur of this standard deviation.
     Blur(f64),
-    /// A shadow under the drawing, offset by `dx`, `dy`, blurred with the standard deviation `blur`.
+    /// `drop-shadow()`: a shadow under the drawing, offset by `dx`, `dy`, blurred with the standard
+    /// deviation `blur`.
     Shadow { dx: f64, dy: f64, blur: f64, color: Color },
 }
 
@@ -1099,15 +1168,17 @@ fn compositing<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>) -> Result<Comp
         "luminosity" => (Mix::Luminosity, Compose::SrcOver),
         _ => (Mix::Normal, Compose::SrcOver),
     };
-    let mut effects = parse_filter(&text_property(call, this, "filter")?).unwrap_or_default();
-    if let Some(color) = css_color(&text_property(call, this, "shadowColor")?) {
-        let dx = number_property(call, this, "shadowOffsetX", 0.0)?;
-        let dy = number_property(call, this, "shadowOffsetY", 0.0)?;
-        // As for CSS shadows, the blur's standard deviation is half the `shadowBlur`.
-        let blur = number_property(call, this, "shadowBlur", 0.0)?.max(0.0) / 2.0;
-        effects.push(Effect::Shadow { dx, dy, blur, color });
-    }
-    Ok(Compositing { alpha, blend: BlendMode::new(mix, compose), effects })
+    let effects = parse_filter(&text_property(call, this, "filter")?).unwrap_or_default();
+    let shadow = match css_color(&text_property(call, this, "shadowColor")?) {
+        Some(color) => {
+            let offset = Vec2::new(number_property(call, this, "shadowOffsetX", 0.0)?, number_property(call, this, "shadowOffsetY", 0.0)?);
+            // As for CSS shadows, the blur's standard deviation is half the `shadowBlur`.
+            let blur = number_property(call, this, "shadowBlur", 0.0)?.max(0.0) / 2.0;
+            Some(Shadow { offset, blur, color })
+        }
+        None => None,
+    };
+    Ok(Compositing { alpha, blend: BlendMode::new(mix, compose), effects, shadow })
 }
 
 /// Sets `style` as the paint, its coordinates those of `transform`.
@@ -1117,16 +1188,34 @@ fn paint(scene: &mut RenderContext, style: Style, transform: Affine, smooth: boo
             scene.reset_paint_transform();
             scene.set_paint(color);
         }
-        Style::Gradient(gradient) => {
-            scene.set_paint_transform(transform);
+        Style::Gradient(gradient, local) => {
+            scene.set_paint_transform(transform * local);
             scene.set_paint(gradient);
         }
-        Style::Pattern(pixels, x_extend, y_extend) => {
+        Style::Pattern(pattern) => {
             let quality = if smooth { ImageQuality::Medium } else { ImageQuality::Low };
-            let sampler = ImageSampler { x_extend, y_extend, quality, alpha: 1.0 };
-            scene.set_paint_transform(transform);
-            scene.set_paint(vello_cpu::Image { image: vello_cpu::ImageSource::Pixmap(pixels), sampler });
+            let extend = |repeat| if repeat { Extend::Repeat } else { Extend::Pad };
+            let sampler = ImageSampler { x_extend: extend(pattern.repeat.0), y_extend: extend(pattern.repeat.1), quality, alpha: 1.0 };
+            scene.set_paint_transform(transform * pattern.transform);
+            scene.set_paint(vello_cpu::Image { image: vello_cpu::ImageSource::Pixmap(pattern.pixels), sampler });
         }
+    }
+}
+
+/// Draws with `style`, its coordinates those of `transform` after the scene's, inside where it
+/// paints: a pattern that isn't repeated both ways only over its image.
+fn painted(scene: &mut RenderContext, style: &Style, transform: Affine, smooth: bool, draw: impl FnOnce(&mut RenderContext)) {
+    let bounds = match style {
+        Style::Pattern(pattern) => pattern.bounds().map(|bounds| transform * pattern.transform * bounds.to_path(0.1)),
+        _ => None,
+    };
+    if let Some(bounds) = &bounds {
+        scene.push_clip_layer(bounds);
+    }
+    paint(scene, style.clone(), transform, smooth);
+    draw(scene);
+    if bounds.is_some() {
+        scene.pop_layer();
     }
 }
 
@@ -1144,11 +1233,10 @@ fn fill_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, key: &str, path:
     let smooth = !matches!(property_value(call, this, "imageSmoothingEnabled")?, Value::Bool(false));
     surface(call, this, |s| {
         let transform = s.transform;
-        s.draw(&compositing, |scene| {
-            scene.reset_transform();
+        s.draw(&compositing, |scene, offset| {
+            scene.set_transform(offset);
             scene.set_fill_rule(rule);
-            paint(scene, style, transform, smooth);
-            scene.fill_path(&path);
+            painted(scene, &style, transform, smooth, |scene| scene.fill_path(&path));
         });
     })
 }
@@ -1196,11 +1284,10 @@ fn stroke_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, path: BezPath)
             return;
         }
         let path = transform.inverse() * path;
-        s.draw(&compositing, |scene| {
-            scene.set_transform(transform);
-            scene.set_stroke(stroke);
-            paint(scene, style, Affine::IDENTITY, smooth);
-            scene.stroke_path(&path);
+        s.draw(&compositing, |scene, offset| {
+            scene.set_transform(offset * transform);
+            scene.set_stroke(stroke.clone());
+            painted(scene, &style, Affine::IDENTITY, smooth, |scene| scene.stroke_path(&path));
         });
     })
 }
@@ -1244,12 +1331,7 @@ pub(crate) fn is_point_in_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>
     let Some([x, y]) = finite(args, 0) else {
         return Ok(Value::Bool(false));
     };
-    let winding = path.winding(Point::new(x, y));
-    let inside = match fill_rule(args) {
-        Fill::EvenOdd => winding % 2 != 0,
-        Fill::NonZero => winding != 0,
-    };
-    Ok(Value::Bool(inside))
+    Ok(Value::Bool(contains(&path, Point::new(x, y), fill_rule(args))))
 }
 
 /// `isPointInStroke(path, x, y)`: whether the point (in pixels) is on the path's stroke, with the
@@ -1266,7 +1348,31 @@ pub(crate) fn is_point_in_stroke<H: Clone>(call: &mut dyn Call<H>, this: &Value<
     }
     let inverse = transform.inverse();
     let outline = vello_cpu::kurbo::stroke(inverse * path, &line, &vello_cpu::kurbo::StrokeOpts::default(), 0.01);
-    Ok(Value::Bool(outline.winding(inverse * Point::new(x, y)) != 0))
+    Ok(Value::Bool(contains(&outline, inverse * Point::new(x, y), Fill::NonZero)))
+}
+
+/// Whether `point` is inside `path` as it fills, by `rule`: its open subpaths closed, and points on
+/// its edges inside, as the canvas has them.
+fn contains(path: &BezPath, point: Point, rule: Fill) -> bool {
+    let mut closed = BezPath::new();
+    let close = |closed: &mut BezPath| {
+        if closed.elements().last().is_some_and(|el| !matches!(el, PathEl::ClosePath)) {
+            closed.push(PathEl::ClosePath);
+        }
+    };
+    for el in path.elements() {
+        if matches!(el, PathEl::MoveTo(_)) {
+            close(&mut closed);
+        }
+        closed.push(*el);
+    }
+    close(&mut closed);
+    let winding = closed.winding(point);
+    let inside = match rule {
+        Fill::EvenOdd => winding % 2 != 0,
+        Fill::NonZero => winding != 0,
+    };
+    inside || closed.segments().any(|segment| segment.nearest(point, 1e-9).distance_sq < 1e-12)
 }
 
 /// A rectangle in user space, as a closed path in pixels.
@@ -1296,9 +1402,9 @@ pub(crate) fn clear_rect<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args
         surface(call, this, |s| {
             let path = rect_path(s, x, y, w, h);
             // Removing an opaque rectangle's coverage leaves only it transparent.
-            let clearing = Compositing { alpha: 1.0, blend: BlendMode::new(Mix::Normal, Compose::DestOut), effects: Vec::new() };
-            s.draw(&clearing, |scene| {
-                scene.reset_transform();
+            let clearing = Compositing { alpha: 1.0, blend: BlendMode::new(Mix::Normal, Compose::DestOut), effects: Vec::new(), shadow: None };
+            s.draw(&clearing, |scene, offset| {
+                scene.set_transform(offset);
                 scene.set_fill_rule(Fill::NonZero);
                 scene.set_paint(Color::BLACK);
                 scene.fill_path(&path);
@@ -1383,6 +1489,8 @@ pub(crate) fn draw_image<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args
             None => return Ok(Value::Undefined),
         },
     };
+    // Negative sizes give the same rectangles, not flipped images.
+    let (source, destination) = (source.abs(), destination.abs());
     if source.width() == 0.0 || source.height() == 0.0 || destination.width() == 0.0 || destination.height() == 0.0 {
         return Ok(Value::Undefined);
     }
@@ -1406,10 +1514,11 @@ pub(crate) fn draw_image<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args
     surface(call, this, |s| {
         let transform = s.transform;
         let path = transform * shown.to_path(0.1);
-        s.draw(&compositing, |scene| {
-            scene.reset_transform();
+        s.draw(&compositing, |scene, offset| {
+            scene.set_transform(offset);
             scene.set_fill_rule(Fill::NonZero);
-            paint(scene, Style::Pattern(pixels, Extend::Pad, Extend::Pad), transform * image_to_user, smooth);
+            let pattern = Pattern { pixels: pixels.clone(), repeat: (false, false), transform: Affine::IDENTITY };
+            paint(scene, Style::Pattern(pattern), transform * image_to_user, smooth);
             scene.fill_path(&path);
         });
     })?;
@@ -1422,6 +1531,11 @@ pub(crate) fn create_gradient<H: Clone>(call: &mut dyn Call<H>, kind: &'static s
     let at: Vec<f64> = (0..count).map(|i| number(args, i)).collect();
     if at.iter().any(|n| !n.is_finite()) {
         return Err(Error::Type(format!("create{kind}Gradient: not finite")));
+    }
+    if let ("radial", [_, _, r0, _, _, r1]) = (kind, at.as_slice())
+        && (*r0 < 0.0 || *r1 < 0.0)
+    {
+        return Err(Error::Dom("IndexSizeError", "createRadialGradient: a radius is negative".into()));
     }
     crate::canvas::store_paint(call, Paint::Gradient { kind, at, stops: Vec::new() })
 }
@@ -1455,18 +1569,33 @@ pub(crate) fn create_pattern<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>,
     };
     // The image's pixels as they are now.
     let pixels = crate::canvas::image_pixels(call, image)?;
+    // `null` is no text, as WebIDL's `[LegacyNullToEmptyString]` has it.
     let repetition = match args.get(1) {
-        None | Some(Value::Null | Value::Undefined) => String::new(),
+        None | Some(Value::Null) => String::new(),
         Some(r) => call.to_string(r)?,
     };
-    let (x, y) = match repetition.as_str() {
-        "" | "repeat" => (Extend::Repeat, Extend::Repeat),
-        "repeat-x" => (Extend::Repeat, Extend::Pad),
-        "repeat-y" => (Extend::Pad, Extend::Repeat),
-        "no-repeat" => (Extend::Pad, Extend::Pad),
+    let repeat = match repetition.as_str() {
+        "" | "repeat" => (true, true),
+        "repeat-x" => (true, false),
+        "repeat-y" => (false, true),
+        "no-repeat" => (false, false),
         _ => return Err(Error::Dom("SyntaxError", format!("createPattern: '{repetition}' isn't a repetition"))),
     };
-    crate::canvas::store_paint(call, Paint::Pattern(pixels, x, y))
+    crate::canvas::store_paint(call, Paint::Pattern(Pattern { pixels, repeat, transform: Affine::IDENTITY }))
+}
+
+/// `setTransform(a, b, c, d, e, f)` of the pattern `this` is: its coordinates from then on; one
+/// that isn't finite changes nothing.
+pub(crate) fn set_pattern_transform<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    if let Some(m) = finite::<6, H>(args, 0) {
+        let slot = call.to_number(this)?;
+        crate::canvas::with_paint(call, slot as usize, |paint| {
+            if let Paint::Pattern(pattern) = paint {
+                pattern.transform = Affine::new(m);
+            }
+        })?;
+    }
+    Ok(Value::Undefined)
 }
 
 #[cfg(test)]
