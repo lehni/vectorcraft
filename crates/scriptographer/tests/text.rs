@@ -278,6 +278,24 @@ fn scripts_make_new_text<E: Engine>() {
     assert!(t.cached_bounds.is_some(), "laid out");
 }
 
+/// Text a script makes on a path stays out of threads, as Scriptographer's tutorial makes it.
+fn scripts_make_text_on_a_path<E: Engine>() {
+    let (mut s, ..) = document();
+    run::<E>(&mut s, "var textItem = new PathText(new Path.Circle(new Point(100, 100), 25))\ntextItem.content = 'This text runs along the path.'");
+    let layer = s.active().unwrap().doc.layers[0].clone();
+    let texts: Vec<String> = layer
+        .children()
+        .unwrap()
+        .iter()
+        .filter_map(|n| match &n.kind {
+            NodeKind::Text(t) if matches!(t.kind, vectorcraft_doc::TextKind::OnPath { .. }) => Some(t.plain_text()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(texts, ["This text runs along the path."]);
+    assert!(threads(&s).is_empty());
+}
+
 fn type_on_a_path_is_path_text<E: Engine>() {
     let (mut s, ..) = document();
     let path = NodeId(s.execute("shape.ellipse", &json!({"x": 50, "y": 150, "width": 100, "height": 100})).unwrap()["id"].as_u64().unwrap());
@@ -365,6 +383,11 @@ macro_rules! engine_tests {
             #[test]
             fn scripts_make_new_text() {
                 super::scripts_make_new_text::<$engine>();
+            }
+
+            #[test]
+            fn scripts_make_text_on_a_path() {
+                super::scripts_make_text_on_a_path::<$engine>();
             }
 
             #[test]

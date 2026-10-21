@@ -474,7 +474,7 @@ pub(crate) fn set_threads(d: &mut Document, threads: &[Vec<NodeId>]) -> std::res
     let mut listed = std::collections::HashSet::new();
     for id in threads.iter().flatten() {
         if text_of(d, *id).is_none() {
-            return Err(format!("{} isn't area type, which only threads", id.0));
+            return Err(format!("{} isn't area type: only area type can be threaded", id.0));
         }
         if !listed.insert(*id) {
             return Err(format!("{} is in more than one thread", id.0));
