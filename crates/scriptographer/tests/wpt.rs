@@ -5,12 +5,14 @@
 //! (`html/canvas/offscreen`) and the geometry interfaces (`css/geometry`). A test's scripts (its
 //! `importScripts()` or `<script>`s) run as one, after testharness.js, as a shell runs them. The tests that fail are listed in `tests/wpt-expected-failures.txt`: this test
 //! fails when another one fails, or when a listed one passes, so the list stays the truth.
-//! `WPT_UPDATE=1` writes the list anew. The pass rate by folder prints with `--nocapture`.
+//! `WPT_UPDATE=1` writes the list anew. The pass rate by folder prints with `--nocapture`, the
+//! standard's tests apart from the tentative ones, which test proposals.
 //! `WPT_FILTER=text` runs only the files whose path contains `text` and prints each test's result
 //! and message, without checking the list.
 //!
-//! What fails, by cause (2026-10-21: 1728 of 1821 pass; the canvas 1015 of 1093, geometry 713
-//! of 728), to come back to; most of it rarely matters to a script:
+//! What fails, by cause (2026-10-21: 1728 of 1821 pass, 1727 of the standard's 1777 and 1 of
+//! the 44 tentative ones; the canvas 1015 of 1093, geometry 713 of 728), to come back to; most of
+//! it rarely matters to a script. `docs/gaps.md` (G6) sums it up:
 //!
 //! - Text (canvas/text, 36): the `TextMetrics` methods (`getActualBoundingBox()`,
 //!   `getTextClusters()`, `getIndexFromOffset()`, `getSelectionRects()`) and `fillTextCluster()`,
@@ -106,7 +108,14 @@ fn web_platform_tests() {
         }
     }
     let passed: usize = folders.values().map(|c| c.0).sum();
-    println!("WPT: {passed} of {} pass", results.len());
+    // Tests of proposals, which WPT marks tentative, apart from the standard's:
+    let tentative = |key: &String| key.contains(".tentative.");
+    let count = |of: &dyn Fn(&String) -> bool| {
+        let tests: Vec<_> = results.iter().filter(|(key, _)| of(key)).collect();
+        (tests.iter().filter(|(_, (status, _))| status == "PASS").count(), tests.len())
+    };
+    let ((standard, standards), (proposed, proposals)) = (count(&|key| !tentative(key)), count(&tentative));
+    println!("WPT: {passed} of {} pass: {standard} of {standards} of the standard's, {proposed} of {proposals} tentative", results.len());
     for (folder, (pass, total)) in &folders {
         println!("  {folder:<52} {pass:>4} / {total:<4}");
     }
