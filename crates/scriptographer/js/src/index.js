@@ -1,7 +1,7 @@
 // What scripts see that's written in JavaScript, on every platform. The runtime
 // runs it before its own classes, which build on these.
 import { natives } from './natives.js'
-import { inject } from './define.js'
+import { inject, internal } from './define.js'
 import * as abort from './abort.js'
 import * as blob from './blob.js'
 import * as canvas from './canvas.js'
@@ -17,6 +17,7 @@ import * as fetch from './fetch.js'
 import * as fileSystem from './file-system.js'
 import * as geometry from './geometry.js'
 import * as globalScope from './global-scope.js'
+import { FontFace, FontFaceSet } from './font-face.js'
 import { LocalFile } from './local-file.js'
 import {
   Palette,
@@ -101,6 +102,14 @@ if (natives.fs) {
 }
 if (!globalThis.OffscreenCanvas) {
   inject(globalThis, { ...canvas })
+}
+// Fonts for the canvases, as a worker has them, `fonts`:
+if (!globalThis.FontFace) {
+  inject(globalThis, {
+    FontFace,
+    FontFaceSet,
+    fonts: new FontFaceSet(internal)
+  })
 }
 if (!globalThis.DOMMatrix) {
   const { getGeometryValues, ...classes } = geometry

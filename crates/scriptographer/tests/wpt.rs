@@ -9,15 +9,14 @@
 //! `WPT_FILTER=text` runs only the files whose path contains `text` and prints each test's result
 //! and message, without checking the list.
 //!
-//! What fails, by cause (2026-10-21: 1683 of 1821 pass; the canvas 970 of 1093, geometry 713
+//! What fails, by cause (2026-10-21: 1707 of 1821 pass; the canvas 994 of 1093, geometry 713
 //! of 728), to come back to; most of it rarely matters to a script:
 //!
-//! - Text (canvas/text, about 80): WPT loads its test font with `FontFace`, which scripts don't
-//!   have (it would add a font to the process's font database, for one runtime); the
-//!   `TextMetrics` methods (`getActualBoundingBox()`, `getTextClusters()`,
-//!   `getIndexFromOffset()`, `getSelectionRects()`, tentative); `direction: 'rtl'` in measuring;
-//!   `fontKerning`, `fontStretch`, `fontVariantCaps` and `textRendering` are kept but don't
-//!   change the text yet; `maxWidth` of NaN.
+//! - Text (canvas/text, 57): the `TextMetrics` methods (`getActualBoundingBox()`,
+//!   `getTextClusters()`, `getIndexFromOffset()`, `getSelectionRects()`, tentative) and
+//!   `fillTextCluster()`; `direction: 'rtl'`; the hanging and ideographic baselines, the em
+//!   heights; `fontKerning`, `fontStretch`, `fontVariantCaps` and `textRendering` are kept but don't
+//!   change the text yet; `lang`; `maxWidth` of NaN, 0 or less.
 //! - `beginLayer()`/`endLayer()` and `CanvasFilter` (about 30): tentative APIs only Chrome has;
 //!   `filter`'s colour functions (`grayscale()`, `url()` …), which vello_cpu doesn't have.
 //! - A worker's matrices (css/geometry, 12): a script has a window, so `new DOMMatrix(text)`
@@ -191,7 +190,8 @@ fn scripts(harness: &Harness, file: &Path) -> String {
             source.push('\n');
         }
     }
-    source.replace("fetch('/", &format!("fetch('{}/", harness.server))
+    // What they fetch, and the fonts they load, from the server's root:
+    source.replace("fetch('/", &format!("fetch('{}/", harness.server)).replace("url('/", &format!("url('{}/", harness.server))
 }
 
 /// Each test of the test `file`, with its status and message; the file's own name when the harness

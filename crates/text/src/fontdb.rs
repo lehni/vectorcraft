@@ -1139,6 +1139,17 @@ fn enumerate_faces(data: &[u8]) -> Vec<(u32, FaceStyle)> {
         .collect()
 }
 
+/// The families of the faces in `data`, a font file or collection, in order, each once.
+pub fn font_families(data: &[u8]) -> Vec<String> {
+    let mut families: Vec<String> = Vec::new();
+    for (_, style) in enumerate_faces(data) {
+        if !families.contains(&style.family) {
+            families.push(style.family);
+        }
+    }
+    families
+}
+
 /// The font files held by the file at `path`: its contents, or for a suitcase font the fonts in
 /// its resource fork ([`crate::suitcase`]). None when it can't be read.
 #[cfg(not(target_arch = "wasm32"))]

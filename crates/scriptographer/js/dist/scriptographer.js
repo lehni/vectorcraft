@@ -460,9 +460,9 @@
     return state;
   }
   __name(getState, "getState");
-  function setMembers(event, init, defaults) {
+  function setMembers(event, init, defaults2) {
     const state = getState(event);
-    for (const [name, value] of Object.entries(defaults)) {
+    for (const [name, value] of Object.entries(defaults2)) {
       const given = init?.[name];
       state[name] = given === void 0 ? Array.isArray(value) ? [] : value : typeof value === "string" ? String(given) : typeof value === "number" ? Number(given) : typeof value === "boolean" ? !!given : given;
     }
@@ -1861,7 +1861,7 @@ ${stack}` : ""));
     Headers: () => Headers,
     Request: () => Request,
     Response: () => Response,
-    fetch: () => fetch,
+    fetch: () => fetch2,
     getBody: () => getBody
   });
 
@@ -2130,7 +2130,7 @@ ${stack}` : ""));
     }
   };
   setToStringTag(Headers, FormData, Request, Response);
-  async function fetch(input, init) {
+  async function fetch2(input, init) {
     const request = new Request(input, init);
     const { method, url, headers, signal, redirect } = request;
     signal?.throwIfAborted();
@@ -2144,7 +2144,7 @@ ${stack}` : ""));
       }, reject).finally(() => signal?.removeEventListener("abort", abort2));
     });
   }
-  __name(fetch, "fetch");
+  __name(fetch2, "fetch");
   function getBody(body) {
     const bytes = getBufferBytes(body);
     return bytes ? { bytes, type: null } : body instanceof Blob ? { bytes: getBytes(body), type: body.type || null } : body instanceof FormData ? getMultipart(body) : {
@@ -3470,6 +3470,229 @@ ${value}\r
   }
   __name(getGeometryValues, "getGeometryValues");
 
+  // src/font-face.js
+  var defaults = {
+    style: "normal",
+    weight: "normal",
+    stretch: "normal",
+    unicodeRange: "U+0-10FFFF",
+    featureSettings: "normal",
+    variationSettings: "normal",
+    display: "auto",
+    ascentOverride: "normal",
+    descentOverride: "normal",
+    lineGapOverride: "normal"
+  };
+  var getFamilies;
+  var FontFace = class {
+    static {
+      __name(this, "FontFace");
+    }
+    #family;
+    #source;
+    #status = "unloaded";
+    // The font's families, as VectorCraft knows them, once it's loaded:
+    #families = null;
+    #loaded;
+    #settle;
+    constructor(family, source, descriptors = {}) {
+      checkArguments(arguments, 2, "FontFace");
+      this.#family = String(family);
+      this.#source = source;
+      this.#loaded = new Promise((resolve, reject) => {
+        this.#settle = { resolve, reject };
+      });
+      this.#loaded.catch(() => {
+      });
+      for (const key of Object.keys(defaults)) {
+        if (key in descriptors) {
+          this[key] = descriptors[key];
+        }
+      }
+      if (typeof source !== "string") {
+        this.load();
+      }
+    }
+    static {
+      getFamilies = /* @__PURE__ */ __name((face) => face.#families, "getFamilies");
+    }
+    get family() {
+      return this.#family;
+    }
+    set family(family) {
+      this.#family = String(family);
+    }
+    get status() {
+      return this.#status;
+    }
+    get loaded() {
+      return this.#loaded;
+    }
+    load() {
+      if (this.#status === "unloaded") {
+        this.#status = "loading";
+        getFontBytes(this.#source).then((bytes) => {
+          const families = natives.canvas.addFont(bytes);
+          if (!families.length) {
+            throw new DOMException(
+              `Invalid font: '${this.#family}' is no font file.`,
+              "SyntaxError"
+            );
+          }
+          this.#families = families;
+          this.#status = "loaded";
+          this.#settle.resolve(this);
+        }).catch((err) => {
+          this.#status = "error";
+          this.#settle.reject(
+            err instanceof DOMException ? err : new DOMException(
+              `Unable to load font '${this.#family}': ${err.message}`,
+              "NetworkError"
+            )
+          );
+        });
+      }
+      return this.#loaded;
+    }
+  };
+  for (const key of Object.keys(defaults)) {
+    const values = /* @__PURE__ */ new WeakMap();
+    inject(
+      FontFace.prototype,
+      {
+        get [key]() {
+          return values.get(this) ?? defaults[key];
+        },
+        set [key](value) {
+          values.set(this, String(value));
+        }
+      },
+      { enumerable: true }
+    );
+  }
+  var FontFaceSet = class extends EventTarget {
+    static {
+      __name(this, "FontFaceSet");
+    }
+    #faces = /* @__PURE__ */ new Set();
+    constructor(key) {
+      checkInternal(key, "FontFaceSet", "scripts have one, fonts");
+      super();
+    }
+    get size() {
+      return this.#faces.size;
+    }
+    get status() {
+      return [...this.#faces].some((face) => face.status === "loading") ? "loading" : "loaded";
+    }
+    // Once the faces that are loading now loaded or failed:
+    get ready() {
+      const loading = [...this.#faces].filter((face) => face.status === "loading");
+      return Promise.allSettled(loading.map((face) => face.loaded)).then(
+        () => this
+      );
+    }
+    add(face) {
+      checkFace(face);
+      if (!this.#faces.has(face)) {
+        this.#faces.add(face);
+        face.loaded.then(
+          () => {
+            if (this.#faces.has(face)) {
+              show(face, true);
+            }
+          },
+          () => {
+          }
+        );
+      }
+      return this;
+    }
+    delete(face) {
+      checkFace(face);
+      const deleted = this.#faces.delete(face);
+      if (deleted && face.status === "loaded") {
+        show(face, false);
+      }
+      return deleted;
+    }
+    clear() {
+      for (const face of [...this.#faces]) {
+        this.delete(face);
+      }
+    }
+    has(face) {
+      return this.#faces.has(face);
+    }
+    forEach(callback, thisArg) {
+      for (const face of this.#faces) {
+        callback.call(thisArg, face, face, this);
+      }
+    }
+    values() {
+      return this.#faces.values();
+    }
+    keys() {
+      return this.#faces.values();
+    }
+    entries() {
+      return this.#faces.entries();
+    }
+    [Symbol.iterator]() {
+      return this.#faces.values();
+    }
+    // The faces of the families in the CSS `font`, loaded:
+    load(font, text = "") {
+      return Promise.all(this.#matching(font).map((face) => face.load()));
+    }
+    // Whether the faces of the families in the CSS `font` are all loaded:
+    check(font, text = "") {
+      return this.#matching(font).every((face) => face.status === "loaded");
+    }
+    #matching(font) {
+      const families = String(font).split(",").map(
+        (family) => family.trim().split(/\s+/).pop().replace(/^['"]|['"]$/g, "")
+      ).map((family) => family.toLowerCase());
+      return [...this.#faces].filter(
+        (face) => families.includes(face.family.toLowerCase())
+      );
+    }
+  };
+  setToStringTag(FontFace, FontFaceSet);
+  function checkFace(face) {
+    if (!(face instanceof FontFace)) {
+      throw new TypeError(`Invalid font face: '${face}', not a FontFace.`);
+    }
+  }
+  __name(checkFace, "checkFace");
+  function show(face, shown) {
+    natives.canvas.setFontFace(face.family, getFamilies(face), shown);
+  }
+  __name(show, "show");
+  async function getFontBytes(source) {
+    if (typeof source === "string") {
+      const url = /url\(\s*(['"]?)(.*?)\1\s*\)/.exec(source)?.[2];
+      if (!url) {
+        throw new DOMException(
+          `Invalid font source: '${source}'.`,
+          "SyntaxError"
+        );
+      }
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`${response.status} ${response.statusText}`);
+      }
+      return new Uint8Array(await response.arrayBuffer());
+    } else {
+      const bytes = getBufferBytes(source);
+      if (!bytes) {
+        throw new TypeError(`Invalid font source: '${source}'.`);
+      }
+      return bytes;
+    }
+  }
+  __name(getFontBytes, "getFontBytes");
+
   // src/palette.js
   var palettes = /* @__PURE__ */ new Map();
   var lastId = 0;
@@ -3497,10 +3720,10 @@ ${value}\r
     }
     // Every component's value back to the one it was defined with.
     reset() {
-      const { defaults } = [...palettes.values()].find(
+      const { defaults: defaults2 } = [...palettes.values()].find(
         (entry) => entry.palette === this
       );
-      for (const component of defaults) {
+      for (const component of defaults2) {
         const value = getValue(component, component.value);
         this.values[component.name] = value;
         this.components[component.name].value = value;
@@ -4169,6 +4392,13 @@ ${value}\r
   }
   if (!globalThis.OffscreenCanvas) {
     inject(globalThis, { ...canvas_exports });
+  }
+  if (!globalThis.FontFace) {
+    inject(globalThis, {
+      FontFace,
+      FontFaceSet,
+      fonts: new FontFaceSet(internal)
+    });
   }
   if (!globalThis.DOMMatrix) {
     const { getGeometryValues: getGeometryValues2, ...classes } = geometry_exports;

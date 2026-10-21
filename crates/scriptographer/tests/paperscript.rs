@@ -1390,6 +1390,45 @@ fn message_channels_join_ports_in_a_script_and_across_workers<E: Engine>(name: &
     std::fs::remove_dir_all(&folder).unwrap();
 }
 
+fn font_faces_give_canvases_fonts_by_the_scripts_names<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    let font = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/fonts/SourceSerif4-Regular.ttf");
+    runtime
+        .execute(
+            &scope,
+            &format!(
+                "const ctx = new OffscreenCanvas(10, 10).getContext('2d')\n\
+                 const width = font => {{ ctx.font = font; return ctx.measureText('Hello').width }}\n\
+                 const before = width('20px \"My Face\"')\n\
+                 const face = new FontFace('My Face', await new LocalFile({font:?}).arrayBuffer())\n\
+                 face.loaded.then(() => {{\n\
+                     console.log(face.status, width('20px \"My Face\"') === before, fonts.check('20px \"My Face\"'))\n\
+                     fonts.add(face)\n\
+                 }})\n\
+                 fonts.ready.then(() => setTimeout(() => {{\n\
+                     console.log(fonts.size, width('20px \"My Face\"') === width('20px \"Source Serif 4\"'), width('20px \"My Face\"') !== before)\n\
+                     fonts.delete(face)\n\
+                     console.log(width('20px \"My Face\"') === before)\n\
+                 }}))\n\
+                 new FontFace('Nothing', new Uint8Array([1, 2, 3])).loaded.catch(e => console.log(e.name))"
+            ),
+        )
+        .unwrap();
+    run_until_done(&mut runtime);
+    assert_eq!(
+        runtime.take_output(),
+        [
+            // Loaded but not added, the name is no font's yet:
+            "loaded true true",
+            "SyntaxError",
+            "1 true true",
+            // Deleted, it's no longer:
+            "true",
+        ]
+    );
+}
+
 fn runtimes_live_side_by_side<E: Engine>() {
     // As the app runs them: a second script starts while the first keeps running, and the first
     // stops first.
@@ -1650,6 +1689,11 @@ macro_rules! engine_tests {
             #[test]
             fn workers_run_scripts_on_their_threads() {
                 super::workers_run_scripts_on_their_threads::<$engine>(stringify!($module));
+            }
+
+            #[test]
+            fn font_faces_give_canvases_fonts_by_the_scripts_names() {
+                super::font_faces_give_canvases_fonts_by_the_scripts_names::<$engine>();
             }
 
             #[test]

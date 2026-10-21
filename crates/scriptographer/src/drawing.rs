@@ -1408,6 +1408,7 @@ fn text_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>
     let align = text_property(call, this, "textAlign")?;
     let baseline = text_property(call, this, "textBaseline")?;
     let spacing = (text_property(call, this, "letterSpacing")?, text_property(call, this, "wordSpacing")?);
+    let font = crate::canvas::font_of(call, &font)?;
     let (outline, measured) = crate::canvas::outline(&text, &font, &spacing);
     let dx = match align.as_str() {
         "center" => -measured.width / 2.0,

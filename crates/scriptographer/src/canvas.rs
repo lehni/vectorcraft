@@ -25,16 +25,19 @@ pub(crate) const SIDE: f64 = 16384.0;
 pub(crate) const AREA: f64 = 16384.0 * 16384.0 / 4.0;
 
 /// The slots of every canvas and `ImageBitmap` (their pixels and drawing state), `Path2D` and
-/// gradient or pattern, by their numbers, which their objects in `js/src/canvas.js` keep.
+/// gradient or pattern, by their numbers, which their objects in `js/src/canvas.js` keep; and the
+/// fonts the script added to its `FontFaceSet`, as the family it named each and the families of
+/// the font, as VectorCraft's font database knows them.
 pub(crate) struct Canvases<H> {
     pub surfaces: Vec<Option<Surface<H>>>,
     pub paths: Vec<Option<BezPath>>,
     pub paints: Vec<Option<Paint>>,
+    faces: Vec<(String, String)>,
 }
 
 impl<H> Default for Canvases<H> {
     fn default() -> Self {
-        Self { surfaces: Vec::new(), paths: Vec::new(), paints: Vec::new() }
+        Self { surfaces: Vec::new(), paths: Vec::new(), paints: Vec::new(), faces: Vec::new() }
     }
 }
 
@@ -134,6 +137,8 @@ pub(crate) fn natives<E: Engine>(engine: &mut E) -> Result<Vec<(&'static str, E:
         ("setPatternTransform", drawing::set_pattern_transform),
         ("createPath", path2d::construct),
         ("createImageBitmap", bitmap::create),
+        ("addFont", add_font),
+        ("setFontFace", set_font_face),
         ("release", release),
     ];
     let functions = |engine: &mut E, list: Vec<(&'static str, HostFunction<E::Handle>)>| {
@@ -405,7 +410,7 @@ fn measure_text<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value
     };
     let spacing = (drawing::property_value(call, this, "letterSpacing")?, drawing::property_value(call, this, "wordSpacing")?);
     let spacing = (call.to_string(&spacing.0)?, call.to_string(&spacing.1)?);
-    let font = Font::parse(&font).unwrap_or_default();
+    let font = font_of(call, &font)?;
     let measured = measure_layout(&layout(&text, &font, &spacing));
     let metrics = call.new_object()?;
     for (key, value) in [
@@ -425,7 +430,7 @@ fn measure_text<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value
 /// A CSS `font` shorthand as the canvas reads it: `[style] [variant] [weight] [stretch]
 /// size[/line-height] family[, family…]`.
 #[derive(Debug, PartialEq)]
-struct Font {
+pub(crate) struct Font {
     families: Vec<String>,
     /// `italic` or `oblique`, or none (`normal`).
     style: Option<&'static str>,
@@ -722,11 +727,64 @@ fn layout(text: &str, font: &Font, (letter, word): &(String, String)) -> vectorc
     laid
 }
 
-/// The outlines of `text` in the CSS `font`, the start of its baseline at the origin, and its
+/// The CSS `font`, its families those of the fonts the script named them for, when it did.
+pub(crate) fn font_of<H>(call: &mut dyn Call<H>, css: &str) -> Result<Font, Error> {
+    let mut font = Font::parse(css).unwrap_or_default();
+    with_canvases(call, |canvases| {
+        font.families = std::mem::take(&mut font.families)
+            .into_iter()
+            .flat_map(|family| {
+                let named: Vec<String> =
+                    canvases.faces.iter().filter(|(name, _)| name.eq_ignore_ascii_case(&family)).map(|(_, f)| f.clone()).collect();
+                if named.is_empty() { vec![family] } else { named }
+            })
+            .collect();
+    })?;
+    Ok(font)
+}
+
+/// `addFont(bytes)`: adds the font file or collection to VectorCraft's font database, and gives
+/// back its families; none when it isn't one.
+fn add_font<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let Some(Value::Js(data)) = args.first() else {
+        return Err(Error::Type("addFont: no bytes".into()));
+    };
+    let bytes = call.bytes(data)?;
+    let families = vectorcraft_text::font_families(&bytes);
+    if !families.is_empty() {
+        vectorcraft_text::FontDb::global().add_font(bytes);
+    }
+    let array = crate::global_class(call, "Array")?;
+    let families: Vec<Value<H>> = families.into_iter().map(Value::String).collect();
+    crate::method(call, &array, "of", &families)
+}
+
+/// `setFontFace(name, families, shown)`: the font of `families` goes by the family `name` in the
+/// script's fonts while `shown`, and no longer once it isn't.
+fn set_font_face<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let name = call.to_string(args.first().unwrap_or(&Value::Undefined))?;
+    let mut families = Vec::new();
+    if let Some(Value::Js(list)) = args.get(1) {
+        let length = call.get(list, "length")?;
+        for i in 0..call.to_number(&length)? as usize {
+            let family = call.get(list, &i.to_string())?;
+            families.push(call.to_string(&family)?);
+        }
+    }
+    let shown = crate::truthy(args.get(2).unwrap_or(&Value::Undefined));
+    with_canvases(call, |canvases| {
+        canvases.faces.retain(|(n, f)| !(n == &name && families.contains(f)));
+        if shown {
+            canvases.faces.extend(families.into_iter().map(|family| (name.clone(), family)));
+        }
+    })?;
+    Ok(Value::Undefined)
+}
+
+/// The outlines of `text` in `font`, the start of its baseline at the origin, and its
 /// measurements: what `fillText` draws.
-pub(crate) fn outline(text: &str, font: &str, spacing: &(String, String)) -> (vectorcraft_geom::BezPath, Measured) {
-    let font = Font::parse(font).unwrap_or_default();
-    let laid = layout(text, &font, spacing);
+pub(crate) fn outline(text: &str, font: &Font, spacing: &(String, String)) -> (vectorcraft_geom::BezPath, Measured) {
+    let laid = layout(text, font, spacing);
     let measured = measure_layout(&laid);
     let start = laid.glyphs.first().map_or(0.0, |g| g.origin.x);
     let baseline = laid.lines.first().map_or(0.0, |l| l.baseline);

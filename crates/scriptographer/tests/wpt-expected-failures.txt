@@ -53,33 +53,13 @@ html/canvas/offscreen/line-styles/2d.line.cross.worker.js: Untitled
 html/canvas/offscreen/path-objects/2d.path.isPointInPath.basic.worker.js: Verify the winding rule in isPointInPath works for for rect path.
 html/canvas/offscreen/pixel-manipulation/2d.imageData.createImageBitmap.srgb.rgba.float16.worker.js: Verify round-trip of 16-bit float sRGB data ImageData through ImageBitmap
 html/canvas/offscreen/pixel-manipulation/2d.imageData.put.basic.rgba.float16.worker.js: putImageData() puts 16-bit floating point image data from getImageData() onto the canvas
-html/canvas/offscreen/text/2d.text.draw.align.center.worker.js: textAlign center is the center of the em squares (not the bounding box)
-html/canvas/offscreen/text/2d.text.draw.align.end.ltr.worker.js: textAlign end with ltr is the right edge
 html/canvas/offscreen/text/2d.text.draw.align.end.rtl.worker.js: textAlign end with rtl is the left edge
-html/canvas/offscreen/text/2d.text.draw.align.left.worker.js: textAlign left is the left of the first em square (not the bounding box)
-html/canvas/offscreen/text/2d.text.draw.align.right.worker.js: textAlign right is the right of the last em square (not the bounding box)
-html/canvas/offscreen/text/2d.text.draw.align.start.ltr.worker.js: textAlign start with ltr is the left edge
 html/canvas/offscreen/text/2d.text.draw.align.start.rtl.worker.js: textAlign start with rtl is the right edge
-html/canvas/offscreen/text/2d.text.draw.baseline.alphabetic.worker.js: Untitled
-html/canvas/offscreen/text/2d.text.draw.baseline.bottom.worker.js: textBaseline bottom is the bottom of the em square (not the bounding box)
 html/canvas/offscreen/text/2d.text.draw.baseline.hanging.worker.js: Untitled
 html/canvas/offscreen/text/2d.text.draw.baseline.ideographic.worker.js: Untitled
-html/canvas/offscreen/text/2d.text.draw.baseline.middle.worker.js: textBaseline middle is the middle of the em square (not the bounding box)
-html/canvas/offscreen/text/2d.text.draw.baseline.top.worker.js: textBaseline top is the top of the em square (not the bounding box)
 html/canvas/offscreen/text/2d.text.draw.fill.maxWidth.NaN.worker.js: fillText handles maxWidth correctly
-html/canvas/offscreen/text/2d.text.draw.fill.maxWidth.bound.worker.js: fillText handles maxWidth based on line size, not bounding box size
-html/canvas/offscreen/text/2d.text.draw.fill.maxWidth.fontface.worker.js: fillText works on @font-face fonts
 html/canvas/offscreen/text/2d.text.draw.fill.maxWidth.negative.worker.js: fillText handles maxWidth correctly
 html/canvas/offscreen/text/2d.text.draw.fill.maxWidth.zero.worker.js: fillText handles maxWidth correctly
-html/canvas/offscreen/text/2d.text.draw.fontface.notinpage.worker.js: @font-face fonts should work even if they are not used in the page
-html/canvas/offscreen/text/2d.text.draw.fontface.repeat.worker.js: Draw with the font immediately, then wait a bit until and draw again. (This crashes some version of WebKit.)
-html/canvas/offscreen/text/2d.text.draw.fontface.worker.js: Untitled
-html/canvas/offscreen/text/2d.text.draw.space.basic.worker.js: U+0020 is rendered the correct size (1em wide)
-html/canvas/offscreen/text/2d.text.draw.space.collapse.end.worker.js: Space characters at the end of a line are NOT collapsed
-html/canvas/offscreen/text/2d.text.draw.space.collapse.nonspace.worker.js: Non-space characters are not converted to U+0020 and collapsed
-html/canvas/offscreen/text/2d.text.draw.space.collapse.other.worker.js: Space characters are converted to U+0020, and are NOT collapsed
-html/canvas/offscreen/text/2d.text.draw.space.collapse.space.worker.js: Space characters are converted to U+0020, and are NOT collapsed
-html/canvas/offscreen/text/2d.text.draw.space.collapse.start.worker.js: Space characters at the start of a line are NOT collapsed
 html/canvas/offscreen/text/2d.text.drawing.style.absolute.spacing.worker.js: Testing letter spacing and word spacing with absolute length
 html/canvas/offscreen/text/2d.text.drawing.style.font-relative.spacing.worker.js: Testing letter spacing and word spacing with font-relative length
 html/canvas/offscreen/text/2d.text.drawing.style.fontKerning.worker.js: Testing basic functionalities of fontKerning for canvas
@@ -87,9 +67,7 @@ html/canvas/offscreen/text/2d.text.drawing.style.measure.direction.worker.js: Me
 html/canvas/offscreen/text/2d.text.drawing.style.measure.textAlign.worker.js: Measurement should be related to textAlignment
 html/canvas/offscreen/text/2d.text.fontVariantCaps2.worker.js: Testing small caps setting in fontVariant
 html/canvas/offscreen/text/2d.text.lang.default.worker.js: Untitled
-html/canvas/offscreen/text/2d.text.measure.actualBoundingBox.small-font.worker.js: Testing that actualBoundingBox metrics are precise at small font sizes
 html/canvas/offscreen/text/2d.text.measure.actualBoundingBox.whitespace.worker.js: Testing actualBoundingBox with leading/trailing whitespace
-html/canvas/offscreen/text/2d.text.measure.actualBoundingBox.worker.js: Testing actualBoundingBox
 html/canvas/offscreen/text/2d.text.measure.baselines.worker.js: Testing baselines
 html/canvas/offscreen/text/2d.text.measure.emHeights-low-ascent.worker.js: Testing emHeights with reduced ascent metric
 html/canvas/offscreen/text/2d.text.measure.emHeights-zero-descent.worker.js: Testing emHeights with zero descent metric
@@ -99,7 +77,6 @@ html/canvas/offscreen/text/2d.text.measure.fillTextCluster-range.tentative.worke
 html/canvas/offscreen/text/2d.text.measure.fontBoundingBox-reduced-ascent.worker.js: Testing fontBoundingBox for OffscreenCanvas with reduced ascent metric
 html/canvas/offscreen/text/2d.text.measure.fontBoundingBox-zero-descent.worker.js: Testing fontBoundingBox for OffscreenCanvas with zero descent metric
 html/canvas/offscreen/text/2d.text.measure.fontBoundingBox.ahem.worker.js: Testing fontBoundingBox for font ahem
-html/canvas/offscreen/text/2d.text.measure.fontBoundingBox.worker.js: Testing fontBoundingBox measurements
 html/canvas/offscreen/text/2d.text.measure.getActualBoundingBox-exceptions.tentative.worker.js: Check that TextMetrics::getActualBoundingBox() throws when using invalid indexes.
 html/canvas/offscreen/text/2d.text.measure.getActualBoundingBox-full-text.tentative.worker.js: Test TextMetrics::getActualBoundingBox() for the full length of the string for some edge cases, with direction ltr and directional-override
 html/canvas/offscreen/text/2d.text.measure.getActualBoundingBox-full-text.tentative.worker.js: Test TextMetrics::getActualBoundingBox() for the full length of the string for some edge cases, with direction ltr and no-directional-override
@@ -130,7 +107,6 @@ html/canvas/offscreen/text/2d.text.measure.strokeTextCluster-range.tentative.wor
 html/canvas/offscreen/text/2d.text.measure.text-clusters-exceptions.tentative.worker.js: Check that TextMetrics::getTextClusters() throws when using invalid indexes.
 html/canvas/offscreen/text/2d.text.measure.text-clusters-position.tentative.worker.js: Test that TextMetrics::getTextClusters() returns clusters that are positioned according to the target align and baseline passed as options.
 html/canvas/offscreen/text/2d.text.measure.text-clusters-split.tentative.worker.js: Test that getTextClusters() splits the input correctly into the minimal clusters, keeping emojis together.
-html/canvas/offscreen/text/2d.text.measure.width.basic.worker.js: The width of character is same as font used
 html/canvas/offscreen/text/2d.text.measure.width.empty.worker.js: The empty string has zero width
 html/canvas/offscreen/text/2d.text.measure.width.nullCharacter.worker.js: Null character does not take up space
 html/canvas/offscreen/text/2d.text.measure.width.space.worker.js: Space characters are converted to U+0020 and NOT collapsed
