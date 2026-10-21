@@ -115,9 +115,11 @@ fn writes_text_back_as_one_undo_step<E: Engine>() {
 
 fn ranges_style_runs<E: Engine>() {
     let (mut s, _, point, _) = document();
-    run::<E>(&mut s, &format!("project.getItemByKey({}).range(0, 5).fontSize = 40", point.0));
-    let sizes: Vec<(String, f64)> = text(&s, point).runs.iter().map(|r| (r.text.clone(), r.style.size)).collect();
+    run::<E>(&mut s, &format!("var range = project.getItemByKey({}).range(0, 5)\n range.fontSize = 40\n range.fillColor = 'red'", point.0));
+    let runs = text(&s, point).runs;
+    let sizes: Vec<(String, f64)> = runs.iter().map(|r| (r.text.clone(), r.style.size)).collect();
     assert_eq!(sizes, [("Hello".to_owned(), 40.0), (" world".to_owned(), 24.0)]);
+    assert_eq!(runs[0].style.fill, vectorcraft_color::Paint::solid(vectorcraft_color::Color::rgb(1.0, 0.0, 0.0)), "the range's colour");
 }
 
 fn area_options_go_back<E: Engine>() {

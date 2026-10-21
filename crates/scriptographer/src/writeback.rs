@@ -328,12 +328,17 @@ fn apply_style(appearance: &mut Appearance, props: &Map<String, Json>, before: &
 }
 
 /// A Paper.js colour: `[r, g, b, alpha?]` or `['gray', g]`, `['rgb', …]`, `['hsb', …]`,
-/// `['hsl', …]`. Gradients have no VectorCraft form here yet.
+/// `['hsl', …]`, also with its class in front, `['Color', …]`, as text runs write them.
+/// Gradients have no VectorCraft form here yet.
 pub(crate) fn color(json: &Json) -> Option<Color> {
     let list = json.as_array()?;
+    let list = match list.split_first() {
+        Some((Json::String(class), rest)) if class == "Color" => rest,
+        _ => list,
+    };
     let (kind, values) = match list.first()?.as_str() {
         Some(kind) => (kind, &list[1..]),
-        None => ("rgb", &list[..]),
+        None => ("rgb", list),
     };
     let v = |i: usize| values.get(i).and_then(Json::as_f64).unwrap_or(0.0).clamp(0.0, 1.0) as f32;
     match kind {
