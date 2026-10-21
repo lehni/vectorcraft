@@ -1,5 +1,5 @@
 /*!
- * Paper.js v0.14.0-HEAD - The Swiss Army Knife of Vector Graphics Scripting.
+ * Paper.js v0.15.0-HEAD - The Swiss Army Knife of Vector Graphics Scripting.
  * http://paperjs.org/
  *
  * Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey
@@ -9,7 +9,7 @@
  *
  * All rights reserved.
  *
- * Date: Wed Oct 21 12:35:43 2026 +0200
+ * Date: Wed Oct 21 17:03:01 2026 +0200
  *
  ***
  *
@@ -791,10 +791,9 @@ var PaperScope = Base.extend({
 		PaperScope._scopes[this._id] = this;
 		var proto = PaperScope.prototype;
 		if (!this.support) {
-			proto.support = Base.define({}, 'nativeBlendModes', {
-				enumerable: true,
-				get: BlendMode.getNativeModes
-			});
+			proto.support = {
+				nativeBlendModes: BlendMode.nativeModes
+			};
 		}
 		if (!this.agent) {
 			var user = self.navigator.userAgent.toLowerCase(),
@@ -824,7 +823,7 @@ var PaperScope = Base.extend({
 		}
 	},
 
-	version: "0.14.0-HEAD",
+	version: "0.15.0-HEAD",
 
 	getView: function() {
 		var project = this.project;
@@ -1528,6 +1527,10 @@ var Point = Base.extend({
 		return [f.number(this.x), f.number(this.y)];
 	},
 
+	getValues: function() {
+		return [this.x, this.y];
+	},
+
 	getLength: function() {
 		return Math.sqrt(this.x * this.x + this.y * this.y);
 	},
@@ -1891,6 +1894,10 @@ var Size = Base.extend({
 				f.number(this.height)];
 	},
 
+	getValues: function() {
+		return [this.width, this.height];
+	},
+
 	add: function() {
 		var size = Size.read(arguments);
 		return new Size(this.width + size.width, this.height + size.height);
@@ -2095,6 +2102,10 @@ var Rectangle = Base.extend({
 				f.number(this.y),
 				f.number(this.width),
 				f.number(this.height)];
+	},
+
+	getValues: function() {
+		return [this.x, this.y, this.width, this.height];
 	},
 
 	getPoint: function(_dontLink) {
@@ -5148,8 +5159,7 @@ new function() {
 		var blendMode = this._blendMode,
 			opacity = Numerical.clamp(this._opacity, 0, 1),
 			normalBlend = blendMode === 'normal',
-			nativeBlend = !normalBlend
-					&& BlendMode.getNativeModes()[blendMode],
+			nativeBlend = BlendMode.nativeModes[blendMode],
 			style = this._style,
 			shadow = (normalBlend || nativeBlend)
 					&& style.getShadowColor(true) && style.hasShadow()
@@ -9982,7 +9992,13 @@ var Path = PathItem.extend({
 			segments = this._segments,
 			numSegments = segments.length,
 			closed = this._closed,
-			tolerancePadding = options._tolerancePadding,
+			strokeSpace = strokeMatrix && strokeMatrix.inverted(),
+			strokePoint = point.transform(strokeSpace),
+			tolerancePadding = strokeSpace
+					? new Size(Matrix._getCircleExtents(
+						Math.max(options.tolerance, 1e-12),
+						this.getView()._matrix._shiftless()))
+					: options._tolerancePadding,
 			strokePadding = tolerancePadding,
 			join, cap, miterLimit,
 			area, loc, res,
@@ -9999,15 +10015,14 @@ var Path = PathItem.extend({
 				join = style.getStrokeJoin();
 				cap = style.getStrokeCap();
 				miterLimit = style.getMiterLimit();
-				strokePadding = strokePadding.add(
-					Matrix._getCircleExtents(strokeRadius, strokeMatrix));
+				strokePadding = strokePadding.add(strokeRadius);
 			} else {
 				join = cap = 'round';
 			}
 		}
 
 		function isCloseEnough(pt, padding) {
-			return point.subtract(pt).divide(padding).length <= 1;
+			return strokePoint.subtract(pt).divide(padding).length <= 1;
 		}
 
 		function checkSegmentPoint(seg, pt, name) {
@@ -10015,7 +10030,7 @@ var Path = PathItem.extend({
 				var anchor = seg._point;
 				if (pt !== anchor)
 					pt = pt.add(anchor);
-				if (isCloseEnough(pt, strokePadding)) {
+				if (isCloseEnough(pt.transform(strokeSpace), strokePadding)) {
 					var hit = new HitResult(name, that, {
 						segment: seg,
 						point: pt
@@ -10039,25 +10054,42 @@ var Path = PathItem.extend({
 			area.add(point);
 		}
 
+		function getJoinTangent(curve, forward) {
+			for (var i = 0; curve && i < numSegments; i++) {
+				if (curve.hasLength())
+					return curve.getTangentAtTime(forward ? 0 : 1);
+				curve = forward ? curve.getNext() : curve.getPrevious();
+			}
+		}
+
+		function isFlatJoin(segment) {
+			var curve = segment.getCurve(),
+				tangent1 = getJoinTangent(curve.getPrevious(), false),
+				tangent2 = getJoinTangent(curve, true);
+			return tangent1 && tangent2 && tangent1.isCollinear(tangent2)
+					&& tangent1.dot(tangent2) > 0;
+		}
+
 		function checkSegmentStroke(segment) {
 			var isJoin = closed || segment._index > 0
 					&& segment._index < numSegments - 1;
-			if (isJoin && segment.isSmooth()
+			if (isJoin && (segment.isSmooth() || isFlatJoin(segment))
 					|| (isJoin ? join : cap) === 'round') {
-				return isCloseEnough(segment._point, strokePadding);
+				return isCloseEnough(segment._point.transform(strokeSpace),
+						strokePadding);
 			} else {
 				area = new Path({ internal: true, closed: true });
 				if (isJoin) {
 					Path._addBevelJoin(segment, join, strokeRadius,
-						   miterLimit, null, strokeMatrix, addToArea, true);
+						   miterLimit, strokeSpace, null, addToArea, true);
 				} else {
-					Path._addSquareCap(segment, cap, strokeRadius, null,
-							strokeMatrix, addToArea, true);
+					Path._addSquareCap(segment, cap, strokeRadius,
+							strokeSpace, null, addToArea, true);
 				}
 				if (!area.isEmpty()) {
 					var loc;
-					return area.contains(point)
-						|| (loc = area.getNearestLocation(point))
+					return area.contains(strokePoint)
+						|| (loc = area.getNearestLocation(strokePoint))
 							&& isCloseEnough(loc.getPoint(), tolerancePadding);
 				}
 			}
@@ -10073,20 +10105,34 @@ var Path = PathItem.extend({
 					return res;
 		}
 		if (strokeRadius !== null) {
-			loc = this.getNearestLocation(point);
+			var curves = this.getCurves(),
+				minDistance = Infinity,
+				nearest;
+			for (var i = 0, l = curves.length; i < l; i++) {
+				var values = curves[i].getValues(strokeSpace),
+					t = Curve.getNearestTime(values, strokePoint),
+					pt = Curve.getPoint(values, t),
+					distance = pt.getDistance(strokePoint);
+				if (distance < minDistance) {
+					minDistance = distance;
+					loc = new CurveLocation(curves[i], t);
+					nearest = pt;
+				}
+			}
 			if (loc) {
 				var time = loc.getTime();
 				if (time === 0 || time === 1 && numSegments > 1) {
 					if (!checkSegmentStroke(loc.getSegment()))
 						loc = null;
-				} else if (!isCloseEnough(loc.getPoint(), strokePadding)) {
+				} else if (!isCloseEnough(nearest, strokePadding)) {
 					loc = null;
 				}
 			}
 			if (!loc && join === 'miter' && numSegments > 1) {
 				for (var i = 0; i < numSegments; i++) {
 					var segment = segments[i];
-					if (point.getDistance(segment._point)
+					if (strokePoint.getDistance(
+								segment._point.transform(strokeSpace))
 							<= miterLimit * strokeRadius
 							&& checkSegmentStroke(segment)) {
 						loc = segment.getLocation();
@@ -20060,54 +20106,24 @@ var BlendMode = new function() {
 		}
 	};
 
-	var nativeModes = Base.each([
-			'source-over', 'source-in', 'source-out', 'source-atop',
-			'destination-over', 'destination-in', 'destination-out',
-			'destination-atop', 'lighter', 'darker', 'copy', 'xor'
-		], function(mode) {
-			this[mode] = true;
-		}, {}),
-		tested = false;
-
-	function getNativeModes() {
-		var ctx = !tested && CanvasProvider.getContext(1, 1,
-				{ willReadFrequently: true });
-		if (ctx) {
-			tested = true;
-			Base.each([
-				'multiply', 'screen', 'overlay', 'soft-light', 'hard-light',
-				'color-dodge', 'color-burn', 'darken', 'lighten', 'difference',
-				'exclusion', 'hue', 'saturation', 'luminosity', 'color'
-			].concat(Object.keys(modes)), function(mode) {
-				var darken = mode === 'darken',
-					ok = false;
-				ctx.save();
-				try {
-					ctx.fillStyle = darken ? '#330' : '#a00';
-					ctx.fillRect(0, 0, 1, 1);
-					ctx.globalCompositeOperation = mode;
-					if (ctx.globalCompositeOperation === mode) {
-						ctx.fillStyle = darken ? '#a00' : '#330';
-						ctx.fillRect(0, 0, 1, 1);
-						ok = ctx.getImageData(0, 0, 1, 1).data[0] !==
-								(darken ? 170 : 51);
-					}
-				} catch (e) {}
-				ctx.restore();
-				nativeModes[mode] = ok;
-			});
-			CanvasProvider.release(ctx);
-		}
-		return nativeModes;
-	}
-
-	this.getNativeModes = getNativeModes;
+	this.nativeModes = Base.each([
+		'source-over', 'source-in', 'source-out', 'source-atop',
+		'destination-over', 'destination-in', 'destination-out',
+		'destination-atop', 'lighter', 'darker', 'copy', 'xor',
+		'multiply', 'screen', 'overlay', 'soft-light', 'hard-light',
+		'color-dodge', 'color-burn', 'darken', 'lighten', 'difference',
+		'exclusion', 'hue', 'saturation', 'luminosity', 'color'
+	], function(mode) {
+		this[mode] = true;
+	}, Base.each(modes, function(process, mode) {
+		this[mode] = false;
+	}, {}));
 
 	this.process = function(mode, srcContext, dstContext, alpha, offset) {
 		var srcCanvas = srcContext.canvas,
 			normal = mode === 'normal',
 			process = modes[mode];
-		if (getNativeModes()[mode] || !process) {
+		if (!process) {
 			dstContext.save();
 			dstContext.setTransform(1, 0, 0, 1, 0, 0);
 			dstContext.globalAlpha = alpha;
@@ -20502,6 +20518,25 @@ new function() {
 			}
 		},
 
+		_unload: function _unload() {
+			var path = !this._shell && this.getTextPath(),
+				that = this;
+			_unload.base.call(this);
+			return path && function() {
+				if (that._shell)
+					that._loadContent();
+				var loaded = that.getTextPath();
+				if (loaded && loaded !== path
+						&& loaded.constructor === path.constructor) {
+					path._parent = path._index = null;
+					path.removeChildren();
+					path.copyContent(loaded);
+					path.copyAttributes(loaded);
+					that.setTextPath(path);
+				}
+			};
+		},
+
 		_getHostLayout: function(host) {
 			var that = this,
 				story = this._story,
@@ -20588,14 +20623,16 @@ new function() {
 			var itemsByKey = this._itemsByKey,
 				keys = columns.keys,
 				names = columns.names || {},
+				reloads = [],
 				that = this;
 			whileLoading(this, function() {
 				for (var i = 0, l = keys.length; i < l; i++) {
 					var item = itemsByKey[keys[i]],
 						flags = columns.flags[i];
 					if (item) {
-						if (flags & 16)
-							item._unload();
+						var reload = flags & 16 && item._unload();
+						if (reload)
+							reloads.push(reload);
 						if (flags & 32)
 							item._reloadChildren();
 						if ((names[i] || undefined) !== item._name)
@@ -20608,6 +20645,9 @@ new function() {
 						that._updateSelection(item);
 					}
 				}
+				reloads.forEach(function(reload) {
+					reload();
+				});
 			});
 		}
 	});

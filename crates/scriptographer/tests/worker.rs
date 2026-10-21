@@ -85,3 +85,32 @@ fn a_dialog_waits_for_the_answer() {
     let Some(Reply::Done { output, error: None, .. }) = worker.recv(WAIT) else { panic!("done") };
     assert_eq!(output, ["true"]);
 }
+
+/// Text on a path that a script moves goes on moving with it after the app changes the text, as
+/// when the user selects all and clears the fill.
+#[test]
+fn text_on_a_path_keeps_its_path_when_the_app_changes_it() {
+    let mut s = session();
+    let worker = spawn(&s);
+    let script = "var path = new Path.Circle([100, 100], 25)\n\
+                  var text = new PathText(path)\n\
+                  text.content = 'This text runs along the path.'\n\
+                  function onFrame() { path.position += [10, 0] }";
+    send(&s, &worker, Work::Execute(script.into()));
+    assert_eq!(settle(&mut s, &worker), None);
+    let path_left = |s: &Session| {
+        let st = s.active().unwrap();
+        st.doc.layers[0].children().unwrap().iter().find_map(|n| match &n.kind {
+            vectorcraft_doc::NodeKind::Text(t) => t.kind.path_span().and(n.geometric_bounds()).map(|b| b.x0),
+            _ => None,
+        })
+    };
+    send(&s, &worker, Work::Frame(20.0));
+    assert_eq!(settle(&mut s, &worker), None);
+    let before = path_left(&s).expect("the text on its path");
+    s.execute("select.all", &json!({})).unwrap();
+    s.execute("paint.setFill", &json!({"none": true})).unwrap();
+    send(&s, &worker, Work::Frame(40.0));
+    assert_eq!(settle(&mut s, &worker), None);
+    assert!(path_left(&s).unwrap() > before + 5.0, "the text moves on with its path");
+}
