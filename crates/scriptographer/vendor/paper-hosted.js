@@ -1,5 +1,5 @@
 /*!
- * Paper.js v0.14.0-HEAD - The Swiss Army Knife of Vector Graphics Scripting.
+ * Paper.js v0.14.0-develop - The Swiss Army Knife of Vector Graphics Scripting.
  * http://paperjs.org/
  *
  * Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey
@@ -9,7 +9,7 @@
  *
  * All rights reserved.
  *
- * Date: Tue Oct 20 20:06:26 2026 +0200
+ * Date: Wed Oct 21 02:00:46 2026 +0200
  *
  ***
  *
@@ -780,6 +780,7 @@ var PaperScope = Base.extend({
 			applyMatrix: true,
 			insertItems: true,
 			handleSize: 4,
+			segmentSize: null,
 			hitTolerance: 0,
 			scaleStrokes: false
 		});
@@ -825,7 +826,7 @@ var PaperScope = Base.extend({
 		}
 	},
 
-	version: "0.14.0-HEAD",
+	version: "0.14.0-develop",
 
 	getView: function() {
 		var project = this.project;
@@ -1505,6 +1506,9 @@ var Point = Base.extend({
 			} else if ('angle' in obj) {
 				this._set(obj.length || 0, 0);
 				this.setAngle(obj.angle || 0);
+			} else if ('angleInRadians' in obj) {
+				this._set(obj.length || 0, 0);
+				this.setAngleInRadians(obj.angleInRadians || 0);
 			} else {
 				this._set(0, 0);
 				read = 0;
@@ -2356,14 +2360,20 @@ new function() {
 			};
 		}, {
 			isSelected: function() {
-				return !!(this._owner._selection & 2);
+				return !!(this._owner._selection & this._getSelection());
 			},
 
 			setSelected: function(selected) {
 				var owner = this._owner;
 				if (owner._changeSelection) {
-					owner._changeSelection(2, selected);
+					owner._changeSelection(this._getSelection(), selected);
 				}
+			},
+
+			_getSelection: function() {
+				return this._setter === 'setStrokeBounds'
+						? 8
+						: 2;
 			}
 		})
 	);
@@ -3366,6 +3376,7 @@ var Item = Base.extend(Emitter, {
 	_opacity: 1,
 	_locked: false,
 	_guide: false,
+	_textWrap: null,
 	_clipMask: false,
 	_selection: 0,
 	_selectBounds: true,
@@ -3381,6 +3392,7 @@ var Item = Base.extend(Emitter, {
 		locked: false,
 		guide: false,
 		clipMask: false,
+		textWrap: null,
 		selected: false,
 		data: {}
 	},
@@ -3465,8 +3477,7 @@ new function() {
 		function serialize(fields) {
 			for (var key in fields) {
 				var value = that[key];
-				if (!Base.equals(value, key === 'leading'
-						? fields.fontSize * 1.2 : fields[key])) {
+				if (!Base.equals(value, fields[key])) {
 					props[key] = Base.serialize(value, options,
 							key !== 'data', dictionary);
 				}
@@ -3496,8 +3507,21 @@ new function() {
 		if (flags & 2) {
 			Item._clearBoundsCache(this);
 		}
+		for (var item = this; item && !(item instanceof Layer);
+				item = item._parent) {
+			if (item._textWrap) {
+				var layer = item.getLayer();
+				if (layer)
+					layer._textWrapVersion++;
+				break;
+			}
+		}
+		var parent = this._parent,
+			owner = parent && !parent.getChildren() && parent;
 		if (project)
-			project._changed(flags, this);
+			project._changed(flags, owner ? null : this);
+		if (owner)
+			owner._changed(flags);
 		if (symbol)
 			symbol._changed(flags);
 	},
@@ -3535,6 +3559,9 @@ new function() {
 
 	setStyle: function(style) {
 		this.getStyle().set(style);
+	},
+
+	_getStyles: function() {
 	}
 }, Base.each(['locked', 'visible', 'blendMode', 'opacity', 'guide'],
 	function(name) {
@@ -3556,6 +3583,35 @@ new function() {
 	},
 {}), {
 	beans: true,
+
+	getTextWrap: function() {
+		var wrap = this._textWrap;
+		return wrap && Base.set({}, wrap);
+	},
+
+	setTextWrap: function(wrap) {
+		if (wrap || this._textWrap) {
+			this._textWrap = wrap
+					? Base.set({ offset: 6, invert: false },
+						Base.isPlainObject(wrap) ? wrap : null)
+					: null;
+			this._updateTextWrap();
+			this._changed(257);
+		}
+	},
+
+	_updateTextWrap: function(remove) {
+		var layer = this.getLayer();
+		if (layer) {
+			var items = layer._textWrapItems || (layer._textWrapItems = {});
+			if (this._textWrap && !remove) {
+				items[this._id] = this;
+			} else {
+				delete items[this._id];
+			}
+			layer._textWrapVersion++;
+		}
+	},
 
 	getSelection: function() {
 		return this._selection;
@@ -3673,7 +3729,6 @@ new function() {
 		this._position = undefined;
 	}
 }, Base.each({
-		getStrokeBounds: { stroke: true },
 		getHandleBounds: { handle: true },
 		getInternalBounds: { internal: true }
 	},
@@ -3698,6 +3753,14 @@ new function() {
 				: rect;
 	},
 
+	getStrokeBounds: function(matrix) {
+		var rect = this.getBounds(matrix, { stroke: true });
+		return !arguments.length
+				? new LinkedRectangle(rect.x, rect.y, rect.width, rect.height,
+					this, 'setStrokeBounds')
+				: rect;
+	},
+
 	setBounds: function() {
 		var rect = Rectangle.read(arguments),
 			bounds = this.getBounds(),
@@ -3718,6 +3781,65 @@ new function() {
 		center = bounds.getCenter();
 		matrix.translate(-center.x, -center.y);
 		this.transform(matrix);
+	},
+
+	setStrokeBounds: function() {
+		var rect = Rectangle.read(arguments),
+			item = this,
+			bounds = this.getBounds(),
+			center = bounds.getCenter(),
+			signX = rect.width < 0 ? -1 : 1,
+			signY = rect.height < 0 ? -1 : 1,
+			width = Math.abs(rect.width),
+			height = Math.abs(rect.height),
+			canScaleX = !!bounds.width,
+			canScaleY = !!bounds.height,
+			min = 1e-12,
+			epsilon = 1e-7,
+			sx = 1,
+			sy = 1;
+
+		function getMatrix(sx, sy) {
+			return new Matrix().scale(signX * sx, signY * sy, center);
+		}
+
+		function getStrokeBounds(sx, sy) {
+			var matrix = getMatrix(sx, sy);
+			return item.getBounds(matrix.appended(item._matrix), {
+				stroke: true,
+				transform: { matrix: matrix, item: item }
+			});
+		}
+
+		for (var i = 0; i < 16; i++) {
+			var size = getStrokeBounds(sx, sy).getSize(),
+				fx = canScaleX ? size.width - width : 0,
+				fy = canScaleY ? size.height - height : 0;
+			if (Math.abs(fx) < epsilon && Math.abs(fy) < epsilon)
+				break;
+			var hx = Math.max(sx, 1) * 1e-6,
+				hy = Math.max(sy, 1) * 1e-6,
+				sizeX = getStrokeBounds(sx + hx, sy).getSize(),
+				sizeY = getStrokeBounds(sx, sy + hy).getSize(),
+				a = canScaleX ? (sizeX.width - size.width) / hx : 1,
+				b = canScaleX && canScaleY
+						? (sizeY.width - size.width) / hy : 0,
+				c = canScaleX && canScaleY
+						? (sizeX.height - size.height) / hx : 0,
+				d = canScaleY ? (sizeY.height - size.height) / hy : 1,
+				det = a * d - b * c;
+			if (!det)
+				break;
+			var nx = Math.max(sx - (fx * d - fy * b) / det, min),
+				ny = Math.max(sy - (fy * a - fx * c) / det, min);
+			if (nx === sx && ny === sy)
+				break;
+			sx = nx;
+			sy = ny;
+		}
+		this.transform(new Matrix().translate(rect.getCenter()
+				.subtract(getStrokeBounds(sx, sy).getCenter()))
+				.append(getMatrix(sx, sy)));
 	},
 
 	_getBounds: function(matrix, options) {
@@ -3770,6 +3892,7 @@ new function() {
 			var cached = bounds[cacheKey] = {
 				rect: rect.clone(),
 				nonscaling: nonscaling,
+				stroke: options.stroke,
 				internal: internal
 			};
 		}
@@ -3783,7 +3906,17 @@ new function() {
 		var parent = this.getStrokeScaling() ? null
 				: options && options.internal ? this
 					: this._parent || this._symbol && this._symbol._item,
-			mx = parent ? parent.getViewMatrix().invert() : matrix;
+			mx = parent ? parent.getViewMatrix().invert() : matrix,
+			transform = !parent && options && options.transform;
+		if (transform) {
+			for (var item = this; item && item._applyMatrix;
+					item = item._parent) {
+				if (item === transform.item) {
+					mx = transform.matrix.inverted().appended(mx);
+					break;
+				}
+			}
+		}
 		return mx && mx._shiftless();
 	},
 
@@ -3983,6 +4116,8 @@ new function() {
 		_installEvents.base.call(this, install);
 		if (this._selection)
 			this._project._updateSelection(this, !install);
+		if (this._textWrap)
+			this._updateTextWrap(!install);
 		var children = this._children;
 		for (var i = 0, l = children && children.length; i < l; i++)
 			children[i]._installEvents(install);
@@ -4058,6 +4193,7 @@ new function() {
 				&& this._opacity === item._opacity
 				&& this._clipMask === item._clipMask
 				&& this._guide === item._guide
+				&& Base.equals(this._textWrap, item._textWrap)
 				&& this._equals(item)
 				|| false;
 	},
@@ -4105,7 +4241,7 @@ new function() {
 	copyAttributes: function(source, excludeMatrix) {
 		this.setStyle(source._style);
 		var keys = ['_locked', '_visible', '_blendMode', '_opacity',
-				'_clipMask', '_guide'];
+				'_clipMask', '_guide', '_textWrap'];
 		for (var i = 0, l = keys.length; i < l; i++) {
 			var key = keys[i];
 			if (source.hasOwnProperty(key))
@@ -4201,8 +4337,26 @@ new function() {
 	intersects: function(item, _matrix) {
 		if (!(item instanceof Item))
 			return false;
-		return this._asPathItem().getIntersections(item._asPathItem(), null,
-				_matrix, true).length > 0;
+		var path1 = this._asPathItem(),
+			path2 = item._asPathItem(),
+			matrix1 = path1._matrix,
+			matrix2 = _matrix || path2._matrix;
+
+		function contains(path, matrix, other, otherMatrix) {
+			var paths = path._children || [path];
+			for (var i = 0, l = paths.length; i < l; i++) {
+				var segment = paths[i]._segments[0],
+					point = segment && otherMatrix._inverseTransform(
+							matrix._transformPoint(segment._point));
+				if (point && other._contains(point))
+					return true;
+			}
+			return false;
+		}
+
+		return path1.getIntersections(path2, null, _matrix, true).length > 0
+				|| contains(path2, matrix2, path1, matrix1)
+				|| contains(path1, matrix1, path2, matrix2);
 	}
 },
 new function() {
@@ -4449,8 +4603,8 @@ new function() {
 					if (!rect.intersects(bounds))
 						continue;
 					if (!(rect.contains(bounds)
-							|| param.overlapping && (bounds.contains(rect)
-								|| param.path.intersects(child, childMatrix))))
+							|| param.overlapping
+								&& param.path.intersects(child, childMatrix)))
 						add = false;
 				}
 				if (add && child.matches(options)) {
@@ -4458,7 +4612,7 @@ new function() {
 					if (firstOnly)
 						break;
 				}
-				if (param.recursive !== false) {
+				if (param.recursive !== false && child.getChildren()) {
 					_getItems(child, options, childMatrix, param, firstOnly);
 				}
 				if (firstOnly && items.length > 0)
@@ -4650,10 +4804,12 @@ new function() {
 	},
 
 	replaceWith: function(item) {
-		var ok = item && item.insertBelow(this);
+		var ok = item;
+		for (var i = 0, l = arguments.length; i < l && ok; i++)
+			ok = arguments[i] && arguments[i].insertBelow(this);
 		if (ok)
 			this.remove();
-		return ok;
+		return ok && item;
 	},
 
 	removeChildren: function(start, end) {
@@ -4846,7 +5002,8 @@ new function() {
 		if (decomp && decomp.skewing.isZero() && decomp.rotation % 90 === 0) {
 			for (var key in bounds) {
 				var cache = bounds[key];
-				if (cache.nonscaling) {
+				if (cache.nonscaling || applyMatrix && cache.stroke
+						&& !decomp.scaling.abs().equals([1, 1])) {
 					delete bounds[key];
 				} else if (applyMatrix || !cache.internal) {
 					var rect = cache.rect;
@@ -4923,9 +5080,9 @@ new function() {
 	}
 }), {
 
-	_setStyles: function(ctx, param, viewMatrix, strokeMatrix) {
-		var style = this._style,
-			matrix = this._matrix;
+	_setStyles: function(ctx, param, viewMatrix, strokeMatrix, style) {
+		var matrix = this._matrix;
+		style = style || this._style;
 		if (style.hasFill()) {
 			ctx.fillStyle = style.getFillColor().toCanvasStyle(ctx, matrix,
 					strokeMatrix);
@@ -4957,17 +5114,21 @@ new function() {
 				}
 			}
 		}
-		if (style.hasShadow()) {
-			var pixelRatio = param.pixelRatio || 1,
-				mx = viewMatrix._shiftless().prepend(
-					new Matrix().scale(pixelRatio, pixelRatio)),
-				blur = mx.transform(new Point(style.getShadowBlur(), 0)),
-				offset = mx.transform(this.getShadowOffset());
-			ctx.shadowColor = style.getShadowColor().toCanvasStyle(ctx);
-			ctx.shadowBlur = blur.getLength();
-			ctx.shadowOffsetX = offset.x;
-			ctx.shadowOffsetY = offset.y;
-		}
+		if (style.hasShadow() && !param.dontShadow)
+			this._setShadow(ctx, param, viewMatrix);
+	},
+
+	_setShadow: function(ctx, param, viewMatrix) {
+		var style = this._style,
+			pixelRatio = param.pixelRatio || 1,
+			mx = viewMatrix._shiftless().prepend(
+				new Matrix().scale(pixelRatio, pixelRatio)),
+			blur = mx.transform(new Point(style.getShadowBlur(), 0)),
+			offset = mx.transform(this.getShadowOffset());
+		ctx.shadowColor = style.getShadowColor().toCanvasStyle(ctx);
+		ctx.shadowBlur = blur.getLength();
+		ctx.shadowOffsetX = offset.x;
+		ctx.shadowOffsetY = offset.y;
 	},
 
 	draw: function(ctx, param, parentStrokeMatrix) {
@@ -4995,16 +5156,20 @@ new function() {
 			opacity = Numerical.clamp(this._opacity, 0, 1),
 			normalBlend = blendMode === 'normal',
 			nativeBlend = BlendMode.nativeModes[blendMode],
-			direct = normalBlend && opacity === 1 && !this._isolated
-					|| param.dontStart
-					|| param.clip
+			style = this._style,
+			shadow = (normalBlend || nativeBlend)
+					&& style.getShadowColor(true) && style.hasShadow()
+					&& style.hasFill() && style.hasStroke(),
+			direct = !shadow && (normalBlend && opacity === 1
+						&& !this._isolated
 					|| (nativeBlend || normalBlend && opacity < 1)
-						&& this._canComposite(),
+						&& this._canComposite())
+					|| param.dontStart
+					|| param.clip,
 			pixelRatio = param.pixelRatio || 1,
 			mainCtx, itemOffset, prevOffset;
 		if (!direct) {
-			var bounds = this.getStrokeBounds(viewMatrix),
-				style = this._style;
+			var bounds = this.getStrokeBounds(viewMatrix);
 			if (style.getShadowColor(true)) {
 				var mx = viewMatrix._shiftless(),
 					blur = mx.transform(
@@ -5062,15 +5227,23 @@ new function() {
 			if (offset)
 				ctx.translate(-offset.x, -offset.y);
 		}
-		this._draw(ctx, param, viewMatrix, strokeMatrix);
+		this._draw(ctx, shadow && !direct
+				? param.extend({ dontShadow: true }) : param,
+				viewMatrix, strokeMatrix);
 		ctx.restore();
 		matrices.pop();
 		if (param.clip && !param.dontFinish) {
 			ctx.clip(this.getFillRule());
 		}
 		if (!direct) {
+			if (shadow) {
+				mainCtx.save();
+				this._setShadow(mainCtx, param, viewMatrix);
+			}
 			BlendMode.process(blendMode, ctx, mainCtx, opacity,
 					itemOffset.subtract(prevOffset).multiply(pixelRatio));
+			if (shadow)
+				mainCtx.restore();
 			CanvasProvider.release(ctx);
 			param.offset = prevOffset;
 		}
@@ -5094,10 +5267,13 @@ new function() {
 			itemSelected = selection & 1,
 			boundsSelected = selection & 2
 					|| itemSelected && this._selectBounds,
+			strokeBoundsSelected = selection
+					& 8,
 			positionSelected = selection & 4;
 		if (!this._drawSelected)
 			itemSelected = false;
-		if ((itemSelected || boundsSelected || positionSelected)
+		if ((itemSelected || boundsSelected || strokeBoundsSelected
+				|| positionSelected)
 				&& this._isUpdated(updateVersion) && this.isInserted()) {
 			var layer,
 				color = this.getSelectedColor(true) || (layer = this.getLayer())
@@ -5129,8 +5305,8 @@ new function() {
 					ctx.stroke();
 				}
 			}
-			if (boundsSelected) {
-				var coords = mx._transformCorners(this.getInternalBounds());
+			var drawBounds = function(bounds) {
+				var coords = mx._transformCorners(bounds);
 				ctx.beginPath();
 				for (var i = 0; i < 8; i++) {
 					ctx[!i ? 'moveTo' : 'lineTo'](coords[i], coords[++i]);
@@ -5141,7 +5317,11 @@ new function() {
 					ctx.fillRect(coords[i] - half, coords[++i] - half,
 							size, size);
 				}
-			}
+			};
+			if (boundsSelected)
+				drawBounds(this.getInternalBounds());
+			if (strokeBoundsSelected)
+				drawBounds(this.getBounds({ internal: true, stroke: true }));
 		}
 	},
 
@@ -5223,6 +5403,13 @@ var Group = Item.extend({
 			this.addChildren(Array.isArray(arg) ? arg : arguments);
 	},
 
+	_getStyles: function() {
+		var children = this._children;
+		return children.length > 0 ? children.map(function(child) {
+			return child._style;
+		}) : null;
+	},
+
 	_changed: function _changed(flags) {
 		_changed.base.call(this, flags);
 		if (flags & 2050) {
@@ -5254,6 +5441,21 @@ var Group = Item.extend({
 		var child = this.getFirstChild();
 		if (child)
 			child.setClipMask(clipped);
+	},
+
+	ungroup: function() {
+		if (!this._parent)
+			return null;
+		var children = this._children.slice(),
+			clipItem = this._getClipItem(),
+			matrix = this._matrix;
+		if (clipItem)
+			clipItem.setClipMask(false);
+		if (!matrix.isIdentity()) {
+			for (var i = 0, l = children.length; i < l; i++)
+				children[i].transform(matrix);
+		}
+		return this.replaceWith.apply(this, children) ? children : null;
 	},
 
 	isIsolated: function() {
@@ -5312,6 +5514,7 @@ var Group = Item.extend({
 
 var Layer = Group.extend({
 	_class: 'Layer',
+	_textWrapVersion: 0,
 
 	initialize: function Layer() {
 		Group.apply(this, arguments);
@@ -10041,11 +10244,10 @@ var Path = PathItem.extend({
 }),
 new function() {
 
-	function drawHandles(ctx, segments, matrix, size) {
-		if (size <= 0) return;
-
-		var half = size / 2,
-			miniSize = size - 2,
+	function drawHandles(ctx, segments, matrix, handleSize, segmentSize) {
+		var handleHalf = handleSize / 2,
+			half = segmentSize / 2,
+			miniSize = segmentSize - 2,
 			miniHalf = half - 1,
 			coords = new Array(6),
 			pX, pY;
@@ -10053,13 +10255,13 @@ new function() {
 		function drawHandle(index) {
 			var hX = coords[index],
 				hY = coords[index + 1];
-			if (pX != hX || pY != hY) {
+			if (handleSize > 0 && (pX != hX || pY != hY)) {
 				ctx.beginPath();
 				ctx.moveTo(pX, pY);
 				ctx.lineTo(hX, hY);
 				ctx.stroke();
 				ctx.beginPath();
-				ctx.arc(hX, hY, half, 0, Math.PI * 2, true);
+				ctx.arc(hX, hY, handleHalf, 0, Math.PI * 2, true);
 				ctx.fill();
 			}
 		}
@@ -10074,7 +10276,9 @@ new function() {
 				drawHandle(2);
 			if (selection & 4)
 				drawHandle(4);
-			ctx.fillRect(pX - half, pY - half, size, size);
+			if (segmentSize <= 0)
+				continue;
+			ctx.fillRect(pX - half, pY - half, segmentSize, segmentSize);
 			if (miniSize > 0 && !(selection & 1)) {
 				var fillStyle = ctx.fillStyle;
 				ctx.fillStyle = '#ffffff';
@@ -10200,7 +10404,9 @@ new function() {
 			ctx.beginPath();
 			drawSegments(ctx, this, matrix);
 			ctx.stroke();
-			drawHandles(ctx, this._segments, matrix, paper.settings.handleSize);
+			var settings = paper.settings;
+			drawHandles(ctx, this._segments, matrix, settings.handleSize,
+					Base.pick(settings.segmentSize, settings.handleSize));
 		}
 	};
 },
@@ -10554,13 +10760,23 @@ statics: {
 				radius * Math.sqrt(b * b + d * d)];
 	},
 
+	_getStrokeNormal: function(curve, time, radius, matrix, strokeMatrix) {
+		var mx = matrix ? matrix._shiftless() : new Matrix(),
+			inverse = strokeMatrix && strokeMatrix.inverted(),
+			tangent = curve.getTangentAtTime(time).transform(
+					inverse ? inverse.append(mx) : mx);
+		return new Point(tangent.y, -tangent.x).normalize(radius);
+	},
+
 	_addBevelJoin: function(segment, join, radius, miterLimit, matrix,
 			strokeMatrix, addPoint, isArea) {
 		var curve2 = segment.getCurve(),
 			curve1 = curve2.getPrevious(),
 			point = curve2.getPoint1().transform(matrix),
-			normal1 = curve1.getNormalAtTime(1).multiply(radius),
-			normal2 = curve2.getNormalAtTime(0).multiply(radius),
+			normal1 = Path._getStrokeNormal(curve1, 1, radius, matrix,
+					strokeMatrix),
+			normal2 = Path._getStrokeNormal(curve2, 0, radius, matrix,
+					strokeMatrix),
 			angle = normal1.getDirectedAngle(normal2);
 		if (angle < 0 || angle >= 180) {
 			normal1 = normal1.negate();
@@ -10586,8 +10802,9 @@ statics: {
 			addPoint, isArea) {
 		var point = segment._point.transform(matrix),
 			loc = segment.getLocation(),
-			vector = loc.getNormal()
-					.multiply(loc.getTime() === 0 ? radius : -radius),
+			time = loc.getTime(),
+			vector = Path._getStrokeNormal(loc.getCurve(), time,
+					time === 0 ? radius : -radius, matrix, strokeMatrix),
 			normal = vector.transform(strokeMatrix);
 		if (cap === 'square') {
 			if (isArea) {
@@ -12234,6 +12451,7 @@ var PathFlattener = Base.extend({
 						curve: curve,
 						index: index,
 						time: t2,
+						isStraight: Curve.isStraight(curve)
 					});
 				}
 			}
@@ -12268,11 +12486,17 @@ var PathFlattener = Base.extend({
 				this.index = i;
 				var prev = parts[i - 1],
 					prevTime = prev && prev.index === part.index ? prev.time : 0,
-					prevOffset = prev ? prev.offset : 0;
+					prevOffset = prev ? prev.offset : 0,
+					factor = (offset - prevOffset) / (part.offset - prevOffset);
+				if (part.isStraight) {
+					var v = part.curve;
+					factor = Curve.getTimeOf(v, new Point(
+							v[0] + (v[6] - v[0]) * factor,
+							v[1] + (v[7] - v[1]) * factor));
+				}
 				return {
 					index: part.index,
-					time: prevTime + (part.time - prevTime)
-						* (offset - prevOffset) / (part.offset - prevOffset)
+					time: prevTime + (part.time - prevTime) * factor
 				};
 			}
 		}
@@ -12520,38 +12744,536 @@ var TextItem = Item.extend({
 	_applyMatrix: false,
 	_canApplyMatrix: false,
 	_serializeFields: {
-		content: null
+		content: null,
+		orientation: 'horizontal'
 	},
+	_orientation: 'horizontal',
 	_boundsOptions: { handle: false },
-
 	initialize: function TextItem(arg) {
-		this._content = '';
-		this._lines = [];
+		this._story = new TextStory([this]);
 		var hasProps = arg && Base.isPlainObject(arg)
 				&& arg.x === undefined && arg.y === undefined;
 		this._initialize(hasProps && arg, !hasProps && Point.read(arguments));
 	},
 
+	_serialize: function _serialize(options, dictionary) {
+		var json = _serialize.base.call(this, options, dictionary),
+			props = json[1],
+			story = this._story,
+			runs = story.getRuns(),
+			paragraphs = story._paragraphs,
+			keys = story._paragraphKeys;
+		if (runs.length > 1) {
+			props.runs = runs.map(function(run) {
+				var json = run.toJSON();
+				delete json.start;
+				delete json.end;
+				for (var key in keys)
+					delete json[key];
+				return json;
+			});
+			delete props.content;
+		}
+		if (paragraphs.some(function(style) {
+			return !style.equals(paragraphs[0]);
+		})) {
+			props.paragraphs = paragraphs.map(function(style) {
+				var json = {};
+				for (var key in keys) {
+					var value = style[key];
+					if (!Base.equals(value, style._defaults[key]))
+						json[key] = Base.serialize(value);
+				}
+				return json;
+			});
+		}
+		return json;
+	},
+
 	_equals: function(item) {
-		return this._content === item._content;
+		var story1 = this._story,
+			story2 = item._story,
+			runs1 = story1._getRuns(),
+			runs2 = story2._getRuns(),
+			paragraphs1 = story1._paragraphs,
+			paragraphs2 = story2._paragraphs;
+		return story1._content === story2._content
+				&& runs1.length === runs2.length
+				&& runs1.every(function(run, i) {
+					var other = runs2[i];
+					return run.end === other.end
+							&& run.style.equals(other.style);
+				})
+				&& paragraphs1.length === paragraphs2.length
+				&& paragraphs1.every(function(style, i) {
+					return style.equals(paragraphs2[i]);
+				});
 	},
 
-	copyContent: function(source) {
-		this.setContent(source._content);
+	_changed: function _changed(flags) {
+		_changed.base.call(this, flags);
+		if (flags & (8 | 128)) {
+			this._layout = this._fontMetrics = null;
+			var next = this.getNextTextItem();
+			if (next)
+				next._changed(9);
+		}
 	},
 
-	getContent: function() {
-		return this._content;
-	},
-
-	setContent: function(content) {
-		this._content = '' + content;
-		this._lines = this._content.split(/\r\n|\n|\r/mg);
+	copyContent: function copyContent(source) {
+		copyContent.base.call(this, source);
+		this._story = source._story._clone([this]);
+		this._orientation = source._orientation;
 		this._changed(521);
 	},
 
+	_getStyles: function(style, key) {
+		var story = this._story;
+		return !(key in story._itemKeys)
+				? key in story._paragraphKeys
+					? story._paragraphs
+					: story._runs.map(function(run) {
+						return run.style;
+					})
+				: null;
+	},
+
+	getOrientation: function() {
+		return this._orientation;
+	},
+
+	setOrientation: function(orientation) {
+		if (orientation !== this._orientation) {
+			this._orientation = orientation;
+			this._changed(9);
+		}
+	},
+
+	getTextPath: function() {
+		return this._children && this._children[0] || null;
+	},
+
+	setTextPath: function(path) {
+		this.removeChildren();
+		if (path)
+			this.addChild(path);
+		this._changed(9);
+	},
+
+	getChildren: function() {
+		return null;
+	},
+
+	getFirstChild: function() {
+		return null;
+	},
+
+	getLastChild: function() {
+		return null;
+	},
+
+	_hitTestChildren: function() {
+		return null;
+	},
+
+	getStory: function() {
+		return this._story;
+	},
+
+	link: function(next) {
+		var story = this._story,
+			other = next._story;
+		if (other === story)
+			return false;
+		var items = story._items,
+			joined = other._items;
+		story._append(other);
+		items.splice.apply(items,
+				[items.indexOf(this) + 1, 0].concat(joined));
+		for (var i = 0, l = joined.length; i < l; i++)
+			joined[i]._story = story;
+		story._changed(521);
+		return true;
+	},
+
+	isLinked: function() {
+		return this._story._items.length > 1;
+	},
+
+	unlink: function(which) {
+		var story = this._story,
+			items = story._items,
+			index = items.indexOf(this);
+		which = which || 'both';
+		if (items.length > 1 && !(which === 'before' && index === 0
+				|| which === 'after' && index === items.length - 1)) {
+			if (which === 'both') {
+				var start = this.getVisibleRange()._start,
+					own = new TextStory([this]);
+				own._runs[0].style = new Style(
+						story._getRangeStyles('fontSize', start, start)[0],
+						own);
+				items.splice(index, 1);
+				this._story = own;
+				story._changed(521);
+				this._changed(521);
+			} else {
+				var at = which === 'before' ? index : index + 1,
+					start = items[at].getVisibleRange()._start,
+					moved = items.splice(at, items.length - at),
+					rest = story._extract(start, moved);
+				for (var i = 0, l = moved.length; i < l; i++)
+					moved[i]._story = rest;
+				story._changed(521);
+				rest._changed(521);
+			}
+			return true;
+		}
+		return false;
+	},
+
+	getNextTextItem: function() {
+		var items = this._story._items;
+		return items[items.indexOf(this) + 1] || null;
+	},
+
+	getPreviousTextItem: function() {
+		var items = this._story._items;
+		return items[items.indexOf(this) - 1] || null;
+	},
+
+	getVisibleRange: function() {
+		var range = this._getVisibleRange();
+		return new TextRange(this._story, range[0], range[1]);
+	},
+
+	_getVisibleRange: function() {
+		this._getLayout();
+		return [this._getStart(), this._visibleEnd];
+	},
+
+	_getLayout: function() {
+		return this._layout || (this._layout = this._layOut());
+	},
+
+	_layOut: function() {
+	},
+
+	_getStart: function() {
+		var previous = this.getPreviousTextItem();
+		return previous ? previous._getVisibleRange()[1] : 0;
+	},
+
 	isEmpty: function() {
-		return !this._content;
+		return !this._story._content;
+	},
+
+	_measure: function(start, end, byLetter) {
+		var view = this.getView(),
+			story = this._story,
+			content = story._content,
+			runs = story._runs,
+			letters = null,
+			index = 0,
+			pieces = [],
+			total = 0,
+			lineHeight = 0,
+			ascent = 0,
+			descent = 0,
+			group = '',
+			groupWidth = 0,
+			previous = null;
+
+		function advance(piece, text) {
+			if (!(previous && previous.font === piece.font
+					&& previous.tracking === piece.tracking
+					&& previous.scale.equals(piece.scale)
+					&& previous.y === piece.y)) {
+				group = '';
+				groupWidth = 0;
+			}
+			var before = groupWidth;
+			group += text;
+			groupWidth = view.getTextWidth(piece.font, [group], piece.tracking)
+					* piece.scale.x;
+			return groupWidth - before;
+		}
+
+		function add(piece, text, from, to, extra) {
+			var shown = piece.capitals ? text.toUpperCase() : text,
+				width = advance(piece, shown) + extra;
+			pieces.push(previous = Base.set({}, piece, {
+				content: shown,
+				start: from,
+				end: to,
+				x: total,
+				width: width
+			}));
+			total += width;
+		}
+
+		for (var i = 0, l = runs.length, pos = 0; i < l; i++) {
+			var run = runs[i],
+				next = pos + run.length,
+				from = Math.max(pos, start),
+				to = Math.min(next, end);
+			if (from < to || start === end && from === to && !lineHeight) {
+				var style = run.style,
+					piece = this._getPiece(style),
+					kerning = style.getLetterKerning();
+				if (byLetter || kerning != null || piece.rotation) {
+					letters = letters || story._getLetters();
+					while (index < letters.length
+							&& letters[index]._start < to) {
+						var letter = letters[index++];
+						if (letter._start >= from) {
+							if (kerning != null) {
+								previous = null;
+							}
+							add(piece, letter.getContent(), letter._start,
+									letter._end,
+									(kerning || 0) / 1000 * piece.size);
+						}
+					}
+				} else {
+					add(piece, content.slice(from, to), from, to, 0);
+				}
+				lineHeight = Math.max(lineHeight, piece.lineHeight);
+				ascent = Math.max(ascent, piece.ascent - piece.y);
+				descent = Math.max(descent, piece.descent + piece.y);
+			}
+			pos = next;
+		}
+		return {
+			pieces: pieces,
+			start: start,
+			end: end,
+			x: 0,
+			y: 0,
+			width: total,
+			lineHeight: lineHeight,
+			ascent: ascent,
+			descent: descent
+		};
+	},
+
+	getLines: function() {
+		var that = this,
+			story = this._story;
+		return this._getLayout().map(function(line) {
+			var range = new TextRange(story, line.start, line.end);
+			range.baseline = new Line(new Point(line.x, line.y),
+					new Point(line.x + line.width, line.y));
+			range.bounds = that._getBox(line, line.x, line.y);
+			return range;
+		});
+	},
+
+	_getPiece: function(style) {
+		var size = style._getFontSize(),
+			font = style._getCanvasFont(),
+			position = style.getBaselinePosition(),
+			scale = Point.read([style.getLetterScaling()]),
+			cache = this._fontMetrics || (this._fontMetrics = {}),
+			metrics = cache[font] || (cache[font] =
+					this.getView().getFontMetrics(font)
+					|| { ascent: 0.75 * size, descent: 0.25 * size });
+		return {
+			style: style,
+			font: font,
+			tracking: style._getCanvasLetterSpacing(),
+			size: size,
+			ascent: metrics.ascent * scale.y,
+			descent: metrics.descent * scale.y,
+			lineHeight: style._getLineHeight(),
+			y: -style.getBaselineShift() - (
+					position === 'superscript' ? 1
+					: position === 'subscript' ? -1 : 0
+				) * size * style._scriptShift,
+			scale: scale,
+			rotation: style.getLetterRotation(),
+			capitals: style.getCapitals() === 'all'
+		};
+	},
+
+	_getBox: function(entry, x, y) {
+		var leading = (entry.lineHeight - entry.ascent - entry.descent) / 2;
+		return new Rectangle(x, y - entry.ascent - leading, entry.width,
+				entry.lineHeight);
+	},
+
+	_indent: function(paragraph, isFirst, left, right) {
+		var isRightToLeft = paragraph.getDirection() === 'rtl',
+			start = paragraph.getStartIndent()
+					+ (isFirst ? paragraph.getFirstLineIndent() : 0),
+			end = paragraph.getEndIndent();
+		return [left + (isRightToLeft ? end : start),
+				right - (isRightToLeft ? start : end)];
+	},
+
+	_place: function(line, paragraph, isLast, room) {
+		var justification = paragraph.getJustification(),
+			justifyLast = paragraph.getJustifyLast(),
+			side = this._getSide(justification === 'justify' && isLast
+					&& justifyLast !== 'all' ? justifyLast : justification,
+					paragraph.getDirection()),
+			left = room[0],
+			right = room[1];
+		if (side === 'justify' || side === 'all') {
+			this._justify(line, right - left);
+			this._shift(line, left, 0);
+		} else {
+			this._shift(line, side === 'right' ? right - line.width
+					: side === 'center' ? (left + right - line.width) / 2
+					: left, 0);
+		}
+	},
+
+	_justify: function(line, width) {
+		var pieces = line.pieces,
+			content = this._story._content,
+			spaces = (content.slice(pieces.length ? pieces[0].start : 0,
+					pieces.length ? pieces[pieces.length - 1].end : 0)
+					.match(/\s+/g) || []).length;
+		if (spaces && width > line.width) {
+			var extra = (width - line.width) / spaces,
+				moved = 0,
+				result = [];
+			for (var i = 0, l = pieces.length; i < l; i++) {
+				var piece = pieces[i],
+					parts = piece.content.split(/(\s+)/),
+					from = piece.start,
+					x = piece.x;
+				if (parts.length === 1) {
+					result.push(Base.set({}, piece, { x: x + moved }));
+				} else {
+					for (var j = 0, m = parts.length; j < m; j++) {
+						var part = parts[j];
+						if (part) {
+							var advance = this._measure(from,
+									from + part.length).width;
+							if (/^\s+$/.test(part)) {
+								moved += extra;
+							} else {
+								result.push(Base.set({}, piece, {
+									content: part,
+									start: from,
+									end: from + part.length,
+									x: x + moved,
+									width: advance
+								}));
+							}
+							x += advance;
+							from += part.length;
+						}
+					}
+				}
+			}
+			line.pieces = result;
+			line.width = width;
+		}
+	},
+
+	_shift: function(line, x, y) {
+		var pieces = line.pieces;
+		line.x = (line.x || 0) + x;
+		line.y += y;
+		for (var i = 0, l = pieces.length; i < l; i++)
+			pieces[i].x += x;
+	},
+
+	_getSide: function(justification, direction) {
+		var isRightToLeft = direction === 'rtl';
+		return justification === 'start'
+				? isRightToLeft ? 'right' : 'left'
+				: justification === 'end'
+					? isRightToLeft ? 'left' : 'right'
+					: justification;
+	},
+
+	_draw: function(ctx, param, viewMatrix) {
+		if (param.dontFinish || param.clip) {
+			var rect = this.getInternalBounds();
+			if (!param.dontStart)
+				ctx.beginPath();
+			ctx.rect(rect.x, rect.y, rect.width, rect.height);
+		} else if (this._story._content) {
+			var lines = this._getLayout(),
+				shadowColor = ctx.shadowColor,
+				scale = !this._style.getStrokeScaling()
+						&& viewMatrix._getMeanScale();
+			ctx.textAlign = 'left';
+			for (var i = 0, l = lines.length; i < l; i++) {
+				var line = lines[i],
+					pieces = line.pieces;
+				for (var j = 0, m = pieces.length; j < m; j++) {
+					var piece = pieces[j],
+						style = piece.style,
+						hasFill = style.hasFill(),
+						hasStroke = style.hasStroke(),
+						size = piece.size,
+						x = piece.dx || 0;
+					this._setStyles(ctx, param, viewMatrix, null, style);
+					if (hasStroke && scale) {
+						ctx.lineWidth /= scale;
+						if ('setLineDash' in ctx) {
+							ctx.setLineDash(ctx.getLineDash().map(
+								function(dash) {
+									return dash / scale;
+								}));
+							ctx.lineDashOffset /= scale;
+						}
+					}
+					ctx.save();
+					ctx.translate(piece.x, line.y + piece.y);
+					if (piece.rotation)
+						ctx.rotate(piece.rotation * Math.PI / 180);
+					if (hasFill) {
+						var thickness = size / 15;
+						if (style.getUnderline())
+							ctx.fillRect(x, size / 8, piece.width, thickness);
+						if (style.getStrikethrough()) {
+							ctx.fillRect(x, -size * 0.3, piece.width,
+									thickness);
+						}
+					}
+					ctx.scale(piece.scale.x, piece.scale.y);
+					x /= piece.scale.x;
+					ctx.font = piece.font;
+					ctx.letterSpacing = piece.tracking;
+					ctx.shadowColor = shadowColor;
+					if (hasFill) {
+						ctx.fillText(piece.content, x, 0);
+						ctx.shadowColor = 'rgba(0,0,0,0)';
+					}
+					if (hasStroke)
+						ctx.strokeText(piece.content, x, 0);
+					ctx.restore();
+				}
+			}
+		}
+	},
+
+	_hitTestSelf: function(point, options) {
+		if (options.fill) {
+			var lines = this._getLayout();
+			for (var i = 0, l = lines.length; i < l; i++) {
+				var line = lines[i],
+					pieces = line.pieces;
+				for (var j = 0, m = pieces.length; j < m; j++) {
+					var piece = pieces[j],
+						local = point.subtract(piece.x, line.y + piece.y)
+								.rotate(-piece.rotation),
+						rect = this._getBox(piece, piece.dx || 0, 0),
+						closest = local.clamp(rect.getTopLeft(true),
+								rect.getBottomRight(true));
+					if (piece.style.getFillColor() && local.subtract(closest)
+							.divide(options._tolerancePadding)
+							.getLength() <= 1)
+						return new HitResult('fill', this);
+				}
+			}
+		}
 	},
 
 	getCharacterStyle: '#getStyle',
@@ -12560,6 +13282,17 @@ var TextItem = Item.extend({
 	getParagraphStyle: '#getStyle',
 	setParagraphStyle: '#setStyle'
 });
+
+TextItem.inject(Base.each(['getContent', 'setContent', 'replace', 'range',
+		'getRuns', 'setRuns', 'getParagraphs', 'setParagraphs', 'getWords',
+		'getLetters'],
+	function(name) {
+		this[name] = function() {
+			var story = this._story;
+			return story[name].apply(story, arguments);
+		};
+	}, { beans: true }
+));
 
 var PointText = TextItem.extend({
 	_class: 'PointText',
@@ -12578,77 +13311,1147 @@ var PointText = TextItem.extend({
 		this.translate(point.subtract(this._matrix.getTranslation()));
 	},
 
-	_draw: function(ctx, param, viewMatrix) {
-		if (param.dontFinish || param.clip) {
-			var rect = this.getInternalBounds();
-			if (!param.dontStart)
-				ctx.beginPath();
-			ctx.rect(rect.x, rect.y, rect.width, rect.height);
-		} else if (this._content) {
-			this._setStyles(ctx, param, viewMatrix);
-			var lines = this._lines,
-				style = this._style,
-				hasFill = style.hasFill(),
-				hasStroke = style.hasStroke(),
-				leading = style.getLeading(),
-				shadowColor = ctx.shadowColor;
-			if (hasStroke && !style.getStrokeScaling()) {
-				var scale = viewMatrix._getMeanScale();
-				ctx.lineWidth /= scale;
-				if ('setLineDash' in ctx) {
-					ctx.setLineDash(ctx.getLineDash().map(function(dash) {
-						return dash / scale;
-					}));
-					ctx.lineDashOffset /= scale;
-				}
+	_layOut: function() {
+		var story = this._story,
+			length = story._content.length,
+			paragraphs = new TextRange(story, this._getStart(), length)
+					.getParagraphs(),
+			lines = [],
+			y = 0,
+			spaceAfter = 0;
+		for (var i = 0, l = paragraphs.length; i < l; i++) {
+			var range = paragraphs[i],
+				paragraph = story._getParagraph(range._start).style,
+				line = this._measure(range._start, range._end);
+			if (i > 0) {
+				y += line.lineHeight + Math.max(spaceAfter,
+						paragraph.getSpaceBefore());
 			}
-			ctx.font = style.getFontStyle();
-			ctx.textAlign = style.getJustification();
-			ctx.letterSpacing = style.getTrackingStyle();
-			for (var i = 0, l = lines.length; i < l; i++) {
-				ctx.shadowColor = shadowColor;
-				var line = lines[i];
-				if (hasFill) {
-					ctx.fillText(line, 0, 0);
-					ctx.shadowColor = 'rgba(0,0,0,0)';
-				}
-				if (hasStroke)
-					ctx.strokeText(line, 0, 0);
-				ctx.translate(0, leading);
-			}
+			spaceAfter = paragraph.getSpaceAfter();
+			line.y = y;
+			this._place(line, paragraph, true,
+					this._indent(paragraph, true, 0, 0));
+			lines.push(line);
 		}
+		this._visibleEnd = length;
+		return lines;
 	},
 
 	_getBounds: function(matrix, options) {
-		var style = this._style,
-			lines = this._lines,
-			numLines = lines.length,
-			justification = style.getJustification(),
-			leading = style.getLeading(),
-			width = this.getView().getTextWidth(style.getFontStyle(), lines,
-					style.getTrackingStyle()),
-			x = 0;
-		if (justification !== 'left')
-			x -= width / (justification === 'center' ? 2: 1);
-		var rect = new Rectangle(x,
-					numLines ? - 0.75 * leading : 0,
-					width, numLines * leading);
-		if (options.stroke && style.hasStroke())
-			rect = rect.expand(style.getStrokeWidth());
-		return matrix ? matrix._transformBounds(rect, rect) : rect;
-	},
-
-	_hitTestSelf: function(point, options) {
-		if (options.fill && this.getFillColor()) {
-			var bounds = this.getInternalBounds(),
-				closest = point.clamp(bounds.getTopLeft(true),
-						bounds.getBottomRight(true));
-			if (point.subtract(closest).divide(options._tolerancePadding)
-					.getLength() <= 1)
-				return new HitResult('fill', this);
+		var lines = this._getLayout(),
+			rect = new Rectangle(),
+			strokeWidth = 0;
+		for (var i = 0, l = lines.length; i < l; i++) {
+			var line = lines[i],
+				box = this._getBox(line, line.x, line.y);
+			rect = i ? rect.unite(box) : box;
+			for (var j = 0, m = line.pieces.length; j < m; j++) {
+				var style = line.pieces[j].style;
+				if (style.hasStroke())
+					strokeWidth = Math.max(strokeWidth, style.getStrokeWidth());
+			}
 		}
+		if (options.stroke && strokeWidth)
+			rect = rect.expand(strokeWidth);
+		return matrix ? matrix._transformBounds(rect, rect) : rect;
 	}
 });
+
+var PathText = TextItem.extend({
+	_class: 'PathText',
+	_serializeFields: {
+		textPath: null,
+		startOffset: 0,
+		endOffset: null,
+		alignment: 'baseline',
+		spacing: 0
+	},
+	_startOffset: 0,
+	_endOffset: null,
+	_alignment: 'baseline',
+	_spacing: 0,
+
+	initialize: function PathText(path, orientation) {
+		var hasProps = Base.isPlainObject(path);
+		this._children = [];
+		TextItem.call(this, hasProps ? path : null);
+		if (!hasProps) {
+			this.setTextPath(path);
+			if (orientation)
+				this.setOrientation(orientation);
+		}
+	},
+
+	copyContent: function copyContent(source) {
+		copyContent.base.call(this, source);
+		this._startOffset = source._startOffset;
+		this._endOffset = source._endOffset;
+		this._alignment = source._alignment;
+		this._spacing = source._spacing;
+	},
+
+	getStartOffset: function() {
+		return this._startOffset;
+	},
+
+	setStartOffset: function(offset) {
+		this._startOffset = offset;
+		this._changed(9);
+	},
+
+	getEndOffset: function() {
+		return this._endOffset;
+	},
+
+	setEndOffset: function(offset) {
+		this._endOffset = offset;
+		this._changed(9);
+	},
+
+	getAlignment: function() {
+		return this._alignment;
+	},
+
+	setAlignment: function(alignment) {
+		this._alignment = alignment;
+		this._changed(9);
+	},
+
+	getSpacing: function() {
+		return this._spacing;
+	},
+
+	setSpacing: function(spacing) {
+		this._spacing = spacing;
+		this._changed(9);
+	},
+
+	_layOut: function() {
+		var path = this.getTextPath(),
+			story = this._story,
+			start = this._getStart(),
+			flatteners = (path ? path._children || [path] : []).map(
+				function(child) {
+					return new PathFlattener(child, 0.25, 32, false,
+							child === path ? path._matrix
+								: path._matrix.appended(child._matrix));
+				}),
+			lengths = flatteners.map(function(flattener) {
+				return flattener.length;
+			}),
+			length = lengths.reduce(function(sum, length) {
+				return sum + length;
+			}, 0),
+			from = Math.max(0, Math.min(this._startOffset, length)),
+			to = this._endOffset == null ? length
+					: Math.max(from, Math.min(this._endOffset, length)),
+			spacing = this._spacing,
+			measured = this._measure(start, story._content.length, true),
+			letters = measured.pieces,
+			pieces = [],
+			width = 0;
+		for (var i = 0, l = letters.length; i < l; i++) {
+			var piece = letters[i];
+			if (width + piece.width > to - from)
+				break;
+			piece.x = width;
+			pieces.push(piece);
+			width += piece.width + spacing;
+		}
+		width -= pieces.length ? spacing : 0;
+		var paragraph = story._getParagraph(start).style,
+			side = this._getSide(paragraph.getJustification(),
+				paragraph.getDirection()),
+			offset = side === 'right' ? to - width
+					: side === 'center' ? from + (to - from - width) / 2
+					: from,
+			alignment = this._alignment,
+			below = alignment === 'ascender' ? measured.ascent
+					: alignment === 'descender' ? -measured.descent
+					: alignment === 'center'
+						? (measured.ascent - measured.descent) / 2
+					: 0;
+		for (var i = 0, l = pieces.length; i < l; i++) {
+			var piece = pieces[i],
+				middle = offset + piece.x + piece.width / 2,
+				index = 0;
+			while (index < lengths.length - 1 && middle > lengths[index]) {
+				middle -= lengths[index];
+				index++;
+			}
+			var flattener = flatteners[index],
+				tangent = flattener.getTangentAt(middle).normalize(),
+				point = flattener.getPointAt(middle).add(
+						tangent.rotate(90).multiply(below + piece.y));
+			piece.x = point.x;
+			piece.y = point.y;
+			piece.dx = -piece.width / 2;
+			piece.rotation += tangent.getAngle();
+		}
+		var last = pieces[pieces.length - 1];
+		this._visibleEnd = last ? last.end : start;
+		return [Base.set(measured, {
+			pieces: pieces,
+			end: this._visibleEnd,
+			width: width
+		})];
+	},
+
+	_getBounds: function(matrix, options) {
+		var pieces = this._getLayout()[0].pieces,
+			bounds = null;
+		for (var i = 0, l = pieces.length; i < l; i++) {
+			var piece = pieces[i],
+				rect = this._getBox(piece, piece.dx, 0),
+				local = new Matrix().translate(piece.x, piece.y)
+						.rotate(piece.rotation);
+			if (matrix)
+				local.prepend(matrix);
+			rect = local._transformBounds(rect, rect);
+			bounds = bounds ? bounds.unite(rect) : rect;
+		}
+		return bounds || new Rectangle();
+	}
+});
+
+var AreaText = TextItem.extend({
+	_class: 'AreaText',
+	_serializeFields: {
+		textPath: null,
+		columns: 1,
+		rows: 1,
+		gutter: 18,
+		inset: 0,
+		verticalAlign: 'top'
+	},
+	_columns: 1,
+	_rows: 1,
+	_gutter: 18,
+	_inset: 0,
+	_verticalAlign: 'top',
+
+	initialize: function AreaText(area, orientation) {
+		var hasProps = Base.isPlainObject(area) && area.width === undefined;
+		this._children = [];
+		TextItem.call(this, hasProps ? area : null);
+		if (!hasProps) {
+			this.setTextPath(area instanceof PathItem ? area
+					: new Path.Rectangle({
+						rectangle: Rectangle.read([area]),
+						insert: false
+					}));
+			if (orientation)
+				this.setOrientation(orientation);
+		}
+	},
+
+	copyContent: function copyContent(source) {
+		copyContent.base.call(this, source);
+		this._columns = source._columns;
+		this._rows = source._rows;
+		this._gutter = source._gutter;
+		this._inset = source._inset;
+		this._verticalAlign = source._verticalAlign;
+	},
+
+	_installEvents: function _installEvents(install) {
+		_installEvents.base.call(this, install);
+		this._layout = null;
+	},
+
+	getColumns: function() {
+		return this._columns;
+	},
+
+	setColumns: function(columns) {
+		this._columns = columns;
+		this._changed(9);
+	},
+
+	getRows: function() {
+		return this._rows;
+	},
+
+	setRows: function(rows) {
+		this._rows = rows;
+		this._changed(9);
+	},
+
+	getGutter: function() {
+		return this._gutter;
+	},
+
+	setGutter: function(gutter) {
+		this._gutter = gutter;
+		this._changed(9);
+	},
+
+	getInset: function() {
+		return this._inset;
+	},
+
+	setInset: function(inset) {
+		this._inset = inset;
+		this._changed(9);
+	},
+
+	getVerticalAlign: function() {
+		return this._verticalAlign;
+	},
+
+	setVerticalAlign: function(align) {
+		this._verticalAlign = align;
+		this._changed(9);
+	},
+
+	fitHeight: function() {
+		var that = this,
+			path = this.getTextPath();
+		if (path) {
+			var bounds = path.getBounds();
+			if (!bounds.height) {
+				path = new Path.Rectangle({
+					rectangle: new Rectangle(bounds.x, bounds.y, bounds.width,
+							1),
+					insert: false
+				});
+				this.setTextPath(path);
+			}
+			var top = bounds.getTopCenter(),
+				fits = function(height) {
+					path.scale(1, height / path.getBounds().height, top);
+					return that._getVisibleRange()[1]
+							=== that._story._content.length;
+				},
+				low = 0,
+				high = path.getBounds().height,
+				count = 0;
+			while (!fits(high) && count++ < 32) {
+				low = high;
+				high *= 2;
+			}
+			if (count <= 32) {
+				while (high - low > 0.01) {
+					var height = (low + high) / 2;
+					if (fits(height)) {
+						high = height;
+					} else {
+						low = height;
+					}
+				}
+				fits(high);
+			} else {
+				fits(bounds.height || 1);
+			}
+		}
+		return this;
+	},
+
+	_getLayout: function _getLayout() {
+		var layer = this.getLayer(),
+			version = layer && layer._textWrapVersion;
+		if (this._textWrapVersion !== version) {
+			this._textWrapVersion = version;
+			this._layout = null;
+		}
+		return _getLayout.base.call(this);
+	},
+
+	_layOut: function() {
+		var that = this,
+			story = this._story,
+			content = story._content,
+			regions = this._getRegions(),
+			wraps = this._getTextWraps(),
+			offsets = regions.map(function() {
+				return 0;
+			}),
+			state;
+
+		var lay = function(getCut) {
+			var pos = state.pos,
+				region = state.region,
+				y = state.y,
+				paragraph = story._getParagraph(pos),
+				style = paragraph.style,
+				space = pos === paragraph.start && y !== null
+					? Math.max(state.spaceAfter, style.getSpaceBefore())
+					: 0,
+				result = [],
+				isComplete = false;
+			while (regions[region]) {
+				var bounds = regions[region],
+					next = that._measure(pos, Math.min(pos + 1,
+							paragraph.end)),
+					baseline = y === null
+						? bounds.top + offsets[region] + next.ascent
+						: y + next.lineHeight + space;
+				if (!next.lineHeight || next.lineHeight < 0)
+					break;
+				if (baseline + next.descent > bounds.bottom) {
+					region++;
+					y = null;
+					continue;
+				}
+				var spans = that._getSpans(bounds, baseline, next, wraps);
+				if (style.getDirection() === 'rtl')
+					spans.reverse();
+				for (var i = 0, l = spans.length; i < l && !isComplete;
+						i++) {
+					var span = spans[i],
+						line = that._breakLine(pos, paragraph,
+							pos === paragraph.start, span,
+							getCut ? getCut(result.length) : 0,
+							span[1] - span[0] >= bounds.width
+								- 1e-7);
+					if (line) {
+						line.y = baseline;
+						line.region = region;
+						result.push(line);
+						pos = line.end;
+						isComplete = pos === paragraph.end;
+					}
+				}
+				y = baseline;
+				space = 0;
+				if (isComplete)
+					break;
+			}
+			return {
+				lines: result,
+				paragraph: style,
+				isComplete: isComplete,
+				state: {
+					pos: pos,
+					region: region,
+					y: y,
+					spaceAfter: style.getSpaceAfter()
+				}
+			};
+		};
+
+		var search = function(high, precision, isAbove) {
+			var low = 0;
+			while (high - low > precision) {
+				var value = (low + high) / 2;
+				if (isAbove(value)) {
+					high = value;
+				} else {
+					low = value;
+				}
+			}
+			return [low, high];
+		};
+
+		var keeps = function(attempt, count) {
+			return attempt.isComplete && attempt.lines.length === count;
+		};
+
+		var balance = function(count, from) {
+			var cutFrom = function(cut) {
+					return function(index) {
+						return index >= from ? cut : 0;
+					};
+				},
+				widest = regions.reduce(function(width, bounds) {
+					return Math.max(width, bounds.width);
+				}, 0),
+				cut = search(widest, 0.5, function(cut) {
+					return !keeps(lay(cutFrom(cut)), count);
+				})[0];
+			return cut > 0 && lay(cutFrom(cut));
+		};
+
+		var layAll = function() {
+			var layout = [],
+				result,
+				match;
+			state = {
+				pos: that._getStart(),
+				region: 0,
+				y: null,
+				spaceAfter: 0
+			};
+			do {
+				result = lay();
+				var lines = result.lines,
+					count = lines.length,
+					wrap = result.paragraph.getLineWrap();
+				if (result.isComplete && count > 1) {
+					if (wrap === 'balance') {
+						result = balance(count, 0) || result;
+					} else if (wrap === 'pretty' && lines[count - 1].width
+							< lines[count - 2].width / 3) {
+						result = balance(count, Math.max(0, count - 4))
+								|| result;
+					}
+				}
+				layout.push.apply(layout, result.lines);
+				state = result.state;
+				match = result.isComplete
+						&& /^(\r\n|\n|\r)/.exec(content.slice(state.pos));
+				if (match)
+					state.pos += match[0].length;
+			} while (match);
+			return layout;
+		};
+
+		var getLast = function(layout, region) {
+			for (var i = layout.length - 1; i >= 0; i--) {
+				var line = layout[i];
+				if (line.region === region) {
+					return {
+						line: line,
+						free: regions[region].bottom - line.y
+								- line.descent
+					};
+				}
+			}
+			return null;
+		};
+
+		var layout = layAll(),
+			align = this._verticalAlign;
+		if (align !== 'top') {
+			for (var r = 0, l = regions.length; r < l; r++) {
+				var last = getLast(layout, r);
+				if (last && last.free > 0) {
+					var end = last.line.end,
+						getExcess = function(offset) {
+							offsets[r] = offset;
+							var moved = getLast(layAll(), r);
+							return moved && moved.line.end === end
+									? moved.free - (align === 'center'
+										? offset : 0)
+									: null;
+						},
+						excess = getExcess(align === 'center'
+								? last.free / 2 : last.free);
+					if (excess === null || Math.abs(excess) > 0.01) {
+						offsets[r] = search(last.free, 0.01,
+							function(offset) {
+								var excess = getExcess(offset);
+								return excess === null || excess < 0;
+							})[0];
+					}
+					layout = layAll();
+				}
+			}
+		}
+		this._visibleEnd = state.pos;
+		return layout;
+	},
+
+	_getRegions: function() {
+		var path = this.getTextPath(),
+			regions = [];
+		if (path) {
+			var bounds = path.getBounds().expand(-2 * this._inset),
+				gutter = this._gutter,
+				rows = Math.max(1, this._rows),
+				columns = Math.max(1, this._columns),
+				width = (bounds.width - gutter * (columns - 1)) / columns,
+				height = (bounds.height - gutter * (rows - 1)) / rows;
+			for (var row = 0; row < rows; row++) {
+				for (var column = 0; column < columns; column++) {
+					regions.push(new Rectangle(
+							bounds.x + column * (width + gutter),
+							bounds.y + row * (height + gutter),
+							width, height));
+				}
+			}
+		}
+		return regions;
+	},
+
+	_getSpans: function(region, baseline, line, wraps) {
+		var that = this,
+			top = baseline - line.ascent,
+			bottom = baseline + line.descent,
+			middle = (top + bottom) / 2,
+			unite = function(stretches1, stretches2) {
+				var all = stretches1.concat(stretches2).sort(function(a, b) {
+						return a[0] - b[0];
+					}),
+					result = [];
+				for (var i = 0, l = all.length; i < l; i++) {
+					var last = result[result.length - 1],
+						stretch = all[i];
+					if (last && stretch[0] <= last[1]) {
+						last[1] = Math.max(last[1], stretch[1]);
+					} else {
+						result.push(stretch.slice());
+					}
+				}
+				return result;
+			},
+			intersect = function(stretches1, stretches2) {
+				var result = [];
+				for (var i = 0, l = stretches1.length; i < l; i++) {
+					for (var j = 0, m = stretches2.length; j < m; j++) {
+						var left = Math.max(stretches1[i][0], stretches2[j][0]),
+							right = Math.min(stretches1[i][1], stretches2[j][1]);
+						if (right > left)
+							result.push([left, right]);
+					}
+				}
+				return result;
+			},
+			subtract = function(stretches1, stretches2) {
+				return intersect(stretches1, stretches2.reduce(
+					function(outside, stretch) {
+						var last = outside.pop();
+						return outside.concat([[last[0], stretch[0]],
+								[stretch[1], last[1]]]);
+					}, [[-Infinity, Infinity]]));
+			},
+			inside = function(paths, y) {
+				var stretches = [];
+				for (var i = 0, l = paths.length; i < l; i++) {
+					var path = paths[i],
+						bounds = path.getBounds(),
+						xs = path.getIntersections(new Path.Line({
+							from: [bounds.left - 1, y],
+							to: [bounds.right + 1, y],
+							insert: false
+						})).map(function(location) {
+							return location.point.x;
+						}).sort(function(a, b) {
+							return a - b;
+						});
+					for (var j = 0; j + 1 < xs.length; j += 2)
+						stretches.push([xs[j], xs[j + 1]]);
+				}
+				return unite(stretches, []);
+			},
+			spans = [top, middle, bottom].reduce(function(spans, y) {
+				return intersect(spans, inside([that.getTextPath()], y));
+			}, [[region.left, region.right]]);
+		for (var i = 0, l = wraps.length; i < l; i++) {
+			var wrap = wraps[i],
+				offset = wrap.offset,
+				invert = wrap.invert,
+				ys = [top - offset, top, middle, bottom, bottom + offset],
+				covered = ys.reduce(function(covered, y) {
+					var stretches = inside(wrap.paths, y);
+					return covered ? invert
+							? intersect(covered, stretches)
+							: unite(covered, stretches)
+						: stretches;
+				}, null).map(function(stretch) {
+					return invert
+							? [stretch[0] + offset, stretch[1] - offset]
+							: [stretch[0] - offset, stretch[1] + offset];
+				});
+			spans = invert ? intersect(spans, covered)
+					: subtract(spans, unite(covered, []));
+		}
+		return spans;
+	},
+
+	_getTextWraps: function() {
+		var layer = this.getLayer(),
+			items = layer && layer._textWrapItems,
+			toText = this.getGlobalMatrix(true).inverted(),
+			wraps = [];
+
+		var isShown = function(item) {
+			for (; item !== layer; item = item._parent) {
+				if (!item._visible)
+					return false;
+			}
+			return true;
+		};
+
+		var getOutline = function(item, paths) {
+			var matrix = toText.appended(item._parent.getGlobalMatrix(true));
+			if (item instanceof PathItem) {
+				var path = item.clone({ insert: false, deep: true });
+				path.transform(matrix);
+				paths.push(path);
+			} else if (item instanceof Group) {
+				var clipItem = item._getClipItem(),
+					children = clipItem ? [clipItem] : item._children;
+				for (var i = 0, l = children.length; i < l; i++) {
+					if (children[i]._visible)
+						getOutline(children[i], paths);
+				}
+			} else {
+				paths.push(new Path.Rectangle({
+					rectangle: item.getBounds(matrix),
+					insert: false
+				}));
+			}
+			return paths;
+		};
+
+		for (var id in items) {
+			var item = items[id];
+			if (item !== this && item.isAbove(this) && isShown(item)) {
+				wraps.push(Base.set({ paths: getOutline(item, []) },
+						item._textWrap));
+			}
+		}
+		return wraps;
+	},
+
+	_breakLine: function(start, paragraph, isFirst, room, cut, canForce) {
+		var that = this,
+			content = this._story._content,
+			style = paragraph.style,
+			indented = this._indent(style, isFirst, room[0], room[1]),
+			words = /[^\s\u00ad]*\u00ad|\S+\s*|\s+/g,
+			text = content.slice(start, paragraph.end),
+			ends = [],
+			match;
+
+		var measure = function(end) {
+			var line = that._measure(start, start + content.slice(start, end)
+					.replace(/\s+$/, '').length);
+			if (content[end - 1] === '\u00ad') {
+				var last = line.pieces[line.pieces.length - 1],
+					width = that.getView().getTextWidth(last.font, ['-'],
+						last.tracking) * last.scale.x;
+				line.pieces.push(Base.set({}, last, {
+					content: '-',
+					start: end,
+					end: end,
+					x: last.x + last.width,
+					width: width
+				}));
+				line.width += width;
+			}
+			return line;
+		};
+
+		while (match = words.exec(text))
+			ends.push(start + match.index + match[0].length);
+		var width = indented[1] - indented[0] - cut,
+			fits = function(index) {
+				return measure(ends[index]).width <= width;
+			},
+			low = -1,
+			high = 0;
+		while (high < ends.length && fits(high)) {
+			low = high;
+			high = 2 * high + 1;
+		}
+		high = Math.min(high, ends.length);
+		while (high - low > 1) {
+			var middle = (low + high) >> 1;
+			if (fits(middle)) {
+				low = middle;
+			} else {
+				high = middle;
+			}
+		}
+		var end = low >= 0 ? ends[low] : start;
+		if (end === start && ends.length) {
+			if (!canForce)
+				return null;
+			end = ends[0];
+		}
+		var line = measure(end);
+		this._place(line, style, end === paragraph.end, indented);
+		line.end = end;
+		return line;
+	},
+
+	_getBounds: function(matrix, options) {
+		return Item._getBounds(this._children, matrix, options);
+	}
+});
+
+var TextStory = Base.extend({
+	_class: 'TextStory',
+	beans: true,
+	_paragraphKeys: {
+		justification: true, justifyLast: true, justifySpacing: true,
+		startIndent: true, endIndent: true, firstLineIndent: true,
+		spaceBefore: true, spaceAfter: true, hyphenation: true,
+		composer: true, lineWrap: true, tabs: true, direction: true
+	},
+	_itemKeys: {
+		fillRule: true, strokeScaling: true, shadowColor: true,
+		shadowBlur: true, shadowOffset: true, selectedColor: true
+	},
+
+	initialize: function TextStory(items) {
+		this._content = '';
+		this._runs = [{ length: 0, style: new Style(null, this) }];
+		this._paragraphs = [new Style(null, this)];
+		this._items = items || [];
+	},
+
+	getTextItems: function() {
+		return this._items.slice();
+	},
+
+	_clone: function(items) {
+		var story = new TextStory(items);
+		story._content = this._content;
+		story._runs = this._runs.map(function(run) {
+			return { length: run.length, style: new Style(run.style, story) };
+		});
+		story._paragraphs = this._paragraphs.map(function(style) {
+			return new Style(style, story);
+		});
+		return story;
+	},
+
+	_append: function(other) {
+		var that = this,
+			runs = other._runs.map(function(run) {
+				return {
+					length: run.length,
+					style: new Style(run.style, that)
+				};
+			});
+		this._content += other._content;
+		this._runs = this._runs.concat(runs).filter(function(run) {
+			return run.length > 0;
+		});
+		if (!this._runs.length)
+			this._runs = [runs[0]];
+		this._paragraphs = this._paragraphs.concat(
+				other._paragraphs.slice(1).map(function(style) {
+					return new Style(style, that);
+				}));
+	},
+
+	_extract: function(start, items) {
+		var rest = this._clone(items),
+			content = this._content,
+			paragraph = this._paragraphs[
+					this._countBreaks(content.slice(0, start))];
+		rest.replace('', 0, start);
+		rest._paragraphs[0] = new Style(paragraph, rest);
+		this.replace('', start, content.length);
+		return rest;
+	},
+
+	_getStyles: function() {
+	},
+
+	_changed: function(flags) {
+		var items = this._items;
+		for (var i = 0, l = items.length; i < l; i++)
+			items[i]._changed(flags);
+	},
+
+	getContent: function() {
+		return this._content;
+	},
+
+	setContent: function(content) {
+		this.replace(content, 0, this._content.length);
+	},
+
+	replace: function(content, start, end) {
+		if (start && start.start !== undefined) {
+			end = start.end;
+			start = start.start;
+		}
+		var old = this._content,
+			length = old.length,
+			runs = this._runs,
+			paragraphs = this._paragraphs;
+		content = '' + content;
+		start = Math.max(0, Math.min(start, length));
+		end = Math.max(start, Math.min(end, length));
+		var i = this._split(start),
+			j = this._split(end),
+			source = (i < j ? runs[i] : runs[i - 1] || runs[i]).style;
+		runs.splice(i, j - i, {
+			length: content.length,
+			style: new Style(source, this)
+		});
+		this._runs = runs.filter(function(run) {
+			return run.length > 0;
+		});
+		if (!this._runs.length)
+			this._runs = [runs[i]];
+		var first = this._countBreaks(old.slice(0, start)),
+			removed = this._countBreaks(old.slice(start, end)),
+			added = this._countBreaks(content),
+			style = paragraphs[first],
+			inserted = [];
+		for (var k = 0; k < added; k++)
+			inserted.push(new Style(style, this));
+		paragraphs.splice.apply(paragraphs,
+				[first + 1, removed].concat(inserted));
+		this._content = old.slice(0, start) + content + old.slice(end);
+		this._changed(521);
+	},
+
+	_getParagraph: function(pos) {
+		var content = this._content,
+			before = content.slice(0, pos),
+			start = /(\r\n|\n|\r)[^\r\n]*$/.exec(before),
+			end = /\r\n|\n|\r/.exec(content.slice(pos));
+		return {
+			style: this._paragraphs[this._countBreaks(before)],
+			start: start ? start.index + start[1].length : 0,
+			end: end ? pos + end.index : content.length
+		};
+	},
+
+	_countBreaks: function(content) {
+		var matches = content.match(/\r\n|\n|\r/g);
+		return matches ? matches.length : 0;
+	},
+
+	_split: function(index) {
+		var runs = this._runs;
+		for (var i = 0, l = runs.length, start = 0; i < l; i++) {
+			var run = runs[i];
+			if (start === index)
+				return i;
+			if (index < start + run.length) {
+				runs.splice(i + 1, 0, {
+					length: start + run.length - index,
+					style: new Style(run.style, this)
+				});
+				run.length = index - start;
+				return i + 1;
+			}
+			start += run.length;
+		}
+		return runs.length;
+	},
+
+	_getRangeStyles: function(key, start, end, setting) {
+		var runs = this._runs;
+		if (key in this._itemKeys) {
+			return [];
+		} else if (key in this._paragraphKeys) {
+			var content = this._content,
+				first = this._countBreaks(content.slice(0, start)),
+				last = this._countBreaks(
+						content.slice(0, Math.max(start, end - 1)));
+			return this._paragraphs.slice(first, last + 1);
+		} else if (setting) {
+			var i = this._split(start);
+			return runs.slice(i, this._split(end)).map(function(run) {
+				return run.style;
+			});
+		} else {
+			var from = start < end ? start : Math.max(0, start - 1),
+				to = start < end ? end : from + 1,
+				styles = [];
+			for (var i = 0, l = runs.length, pos = 0; i < l; i++) {
+				var run = runs[i],
+					next = pos + run.length;
+				if (from < next && to > pos)
+					styles.push(run.style);
+				pos = next;
+			}
+			return styles.length ? styles : [runs[0].style];
+		}
+	},
+
+	range: function(start, end) {
+		return new TextRange(this, start, end);
+	},
+
+	getRuns: function() {
+		var that = this;
+		return this._getRuns().map(function(run) {
+			return new TextRange(that, run.start, run.end);
+		});
+	},
+
+	_getRuns: function() {
+		var runs = this._runs,
+			joined = [];
+		for (var i = 0, l = runs.length, start = 0, end = 0; i < l; i++) {
+			var run = runs[i],
+				next = runs[i + 1];
+			end += run.length;
+			if (!next || !run.style.equals(next.style)) {
+				joined.push({ start: start, end: end, style: run.style });
+				start = end;
+			}
+		}
+		return joined;
+	},
+
+	setRuns: function(runs) {
+		var that = this;
+		runs = runs.map(function(run) {
+			return run instanceof TextRange ? run.toJSON() : run;
+		});
+		var content = runs.map(function(run) {
+				return run.content || '';
+			}).join('');
+		this.setContent(content);
+		this._runs = runs.map(function(run) {
+			var style = new Style(that._runs[0].style, that);
+			style.set(Base.set({}, run, { content: undefined }));
+			return { length: (run.content || '').length, style: style };
+		}).filter(function(run) {
+			return run.length > 0;
+		});
+		if (!this._runs.length)
+			this._runs = [{ length: 0, style: new Style(null, this) }];
+		this._changed(521);
+	},
+
+	getParagraphs: function() {
+		var ranges = [],
+			breaks = /\r\n|\n|\r/g,
+			content = this._content,
+			start = 0,
+			match;
+		while (match = breaks.exec(content)) {
+			ranges.push(new TextRange(this, start, match.index));
+			start = match.index + match[0].length;
+		}
+		ranges.push(new TextRange(this, start, content.length));
+		return ranges;
+	},
+
+	setParagraphs: function(paragraphs) {
+		var styles = this._paragraphs,
+			keys = this._paragraphKeys;
+		for (var i = 0, l = Math.min(paragraphs.length, styles.length); i < l;
+				i++) {
+			var paragraph = paragraphs[i],
+				style = styles[i];
+			for (var key in keys) {
+				var value = paragraph[key];
+				if (value !== undefined)
+					style[key] = value;
+			}
+		}
+	},
+
+	getWords: function() {
+		return this._segment('word', /\S+/g);
+	},
+
+	getLetters: function() {
+		return this._segment('grapheme', /[\s\S]/g);
+	},
+
+	_getLetters: function() {
+		if (this._lettersOf !== this._content) {
+			this._letters = this.getLetters();
+			this._lettersOf = this._content;
+		}
+		return this._letters;
+	},
+
+	_segment: function(granularity, pattern) {
+		var content = this._content,
+			ranges = [],
+			Segmenter = typeof Intl !== 'undefined' && Intl.Segmenter;
+		if (Segmenter) {
+			var segments = new Segmenter(undefined, {
+					granularity: granularity
+				}).segment(content),
+				iterator = segments[Symbol.iterator](),
+				step;
+			while (!(step = iterator.next()).done) {
+				var segment = step.value;
+				if (granularity !== 'word' || segment.isWordLike) {
+					ranges.push(new TextRange(this, segment.index,
+							segment.index + segment.segment.length));
+				}
+			}
+		} else {
+			var match;
+			while (match = pattern.exec(content)) {
+				ranges.push(new TextRange(this, match.index,
+						match.index + match[0].length));
+			}
+		}
+		return ranges;
+	}
+});
+
+var TextRange = Base.extend({
+	_class: 'TextRange',
+	beans: true,
+
+	initialize: function TextRange(story, start, end) {
+		var length = story._content.length;
+		this._story = story;
+		this._start = Math.max(0, Math.min(start, length));
+		this._end = Math.max(this._start, Math.min(end, length));
+		this._style = new Style(null, this);
+	},
+
+	getStory: function() {
+		return this._story;
+	},
+
+	getStart: function() {
+		return this._start;
+	},
+
+	getEnd: function() {
+		return this._end;
+	},
+
+	getContent: function() {
+		return this._story._content.slice(this._start, this._end);
+	},
+
+	getStyle: function() {
+		return this._style;
+	},
+
+	setStyle: function(style) {
+		this._style.set(style);
+	},
+
+	_getStyles: function(style, key, setting) {
+		return this._story._getRangeStyles(key, this._start, this._end,
+				setting);
+	},
+
+	_changed: function(flags) {
+		this._story._changed(flags);
+	},
+
+	toJSON: function() {
+		var style = this._style,
+			defaults = style._defaults,
+			json = {
+				start: this._start,
+				end: this._end,
+				content: this.getContent()
+			};
+		for (var key in defaults) {
+			var value = style[key];
+			if (value !== undefined && !Base.equals(value, defaults[key]))
+				json[key] = Base.serialize(value);
+		}
+		return json;
+	},
+
+	toString: function() {
+		return this.getContent();
+	}
+}, Base.each(['Runs', 'Paragraphs', 'Words', 'Letters'], function(name) {
+	var get = 'get' + name;
+	this[get] = function() {
+		var story = this._story,
+			start = this._start,
+			end = this._end;
+		return story[get]().filter(function(range) {
+			return range._start < end && range._end > start
+					|| range._start === range._end
+						&& range._start >= start && range._start <= end;
+		}).map(function(range) {
+			return new TextRange(story, Math.max(range._start, start),
+					Math.min(range._end, end));
+		});
+	};
+}, {
+	beans: true
+}));
 
 var Color = Base.extend(new function() {
 	var types = {
@@ -13432,10 +15235,33 @@ var Style = Base.extend(new function() {
 	groupDefaults = Base.set({}, itemDefaults, {
 		fontFamily: 'sans-serif',
 		fontWeight: 'normal',
+		fontStyle: 'normal',
 		fontSize: 12,
-		leading: null,
-		tracking: 0,
-		justification: 'left'
+		fontVariations: null,
+		lineHeight: 'auto',
+		letterTracking: 0,
+		letterKerning: null,
+		baselineShift: 0,
+		baselinePosition: 'normal',
+		letterScaling: 1,
+		letterRotation: 0,
+		capitals: 'normal',
+		underline: false,
+		strikethrough: false,
+		features: null,
+		justification: 'left',
+		justifyLast: 'left',
+		justifySpacing: null,
+		startIndent: 0,
+		endIndent: 0,
+		firstLineIndent: 0,
+		spaceBefore: 0,
+		spaceAfter: 0,
+		hyphenation: false,
+		composer: 'paragraph',
+		lineWrap: 'normal',
+		tabs: null,
+		direction: null
 	}),
 	textDefaults = Base.set({}, groupDefaults, {
 		fillColor: new Color()
@@ -13448,11 +15274,32 @@ var Style = Base.extend(new function() {
 		miterLimit: 193,
 		fontFamily: 9,
 		fontWeight: 9,
+		fontStyle: 9,
 		fontSize: 9,
 		font: 9,
-		leading: 9,
-		tracking: 9,
-		justification: 9
+		fontVariations: 9,
+		lineHeight: 9,
+		letterTracking: 9,
+		letterKerning: 9,
+		baselineShift: 9,
+		baselinePosition: 9,
+		letterScaling: 9,
+		letterRotation: 9,
+		capitals: 9,
+		features: 9,
+		justification: 9,
+		justifyLast: 9,
+		justifySpacing: 9,
+		startIndent: 9,
+		endIndent: 9,
+		firstLineIndent: 9,
+		spaceBefore: 9,
+		spaceAfter: 9,
+		hyphenation: 9,
+		composer: 9,
+		lineWrap: 9,
+		tabs: 9,
+		direction: 9
 	},
 	item = {
 		beans: true
@@ -13467,8 +15314,10 @@ var Style = Base.extend(new function() {
 			this._project = _owner && _owner._project || _project
 					|| paper.project;
 			this._defaults = !_owner || _owner instanceof Group ? groupDefaults
-					: _owner instanceof TextItem ? textDefaults
-					: itemDefaults;
+					: _owner instanceof TextItem || _owner instanceof TextStory
+						|| _owner instanceof TextRange
+						? textDefaults
+						: itemDefaults;
 			if (style)
 				this.set(style);
 		}
@@ -13484,14 +15333,10 @@ var Style = Base.extend(new function() {
 
 		fields[set] = function(value) {
 			var owner = this._owner,
-				children = owner && owner._children,
-				applyToChildren = children && children.length > 0
-					&& !(owner instanceof CompoundPath);
-			if (applyToChildren) {
-				for (var i = 0, l = children.length; i < l; i++)
-					children[i]._style[set](value);
-			}
-			if ((key === 'selectedColor' || !applyToChildren)
+				styles = owner && owner._getStyles(this, key, true);
+			if (styles)
+				Style.apply(styles, key, value);
+			if ((key === 'selectedColor' || !styles)
 					&& key in this._defaults) {
 				var old = this._values[key];
 				if (old !== value) {
@@ -13502,7 +15347,7 @@ var Style = Base.extend(new function() {
 						}
 						if (value && value.constructor === Color) {
 							value = Color._setOwner(value, owner,
-									applyToChildren && set);
+									styles && set);
 						}
 					}
 					this._values[key] = value;
@@ -13514,19 +15359,10 @@ var Style = Base.extend(new function() {
 
 		fields[get] = function(_dontMerge) {
 			var owner = this._owner,
-				children = owner && owner._children,
-				applyToChildren = children && children.length > 0
-					&& !(owner instanceof CompoundPath),
+				styles = owner && owner._getStyles(this, key),
 				value;
-			if (applyToChildren && !_dontMerge) {
-				for (var i = 0, l = children.length; i < l; i++) {
-					var childValue = children[i]._style[get]();
-					if (!i) {
-						value = childValue;
-					} else if (!Base.equals(value, childValue)) {
-						return undefined;
-					}
-				}
+			if (styles && !_dontMerge) {
+				value = Style.merge(styles, key);
 			} else if (key in this._defaults) {
 				var value = this._values[key];
 				if (value === undefined) {
@@ -13543,7 +15379,7 @@ var Style = Base.extend(new function() {
 				}
 			}
 			if (value && isColor) {
-				value = Color._setOwner(value, owner, applyToChildren && set);
+				value = Color._setOwner(value, owner, styles && set);
 			}
 			return value;
 		};
@@ -13567,15 +15403,47 @@ var Style = Base.extend(new function() {
 		fields[set] = item[set] = '#set' + value;
 	});
 
+	fields.getTracking = item.getTracking = '#getLetterTracking';
+	fields.setTracking = item.setTracking = '#setLetterTracking';
+	item.getLeading = function() {
+		return this._style.getLeading();
+	};
+	item.setLeading = function(leading) {
+		this._style.setLeading(leading);
+	};
+
 	Item.inject(item);
+	TextRange.inject(item);
 	return fields;
 }, {
+	statics: {
+		merge: function(styles, key) {
+			var get = 'get' + Base.capitalize(key),
+				value;
+			for (var i = 0, l = styles.length; i < l; i++) {
+				var other = styles[i][get]();
+				if (!i) {
+					value = other;
+				} else if (!Base.equals(value, other)) {
+					return undefined;
+				}
+			}
+			return value;
+		},
+
+		apply: function(styles, key, value) {
+			var set = 'set' + Base.capitalize(key);
+			for (var i = 0, l = styles.length; i < l; i++)
+				styles[i][set](value);
+		}
+	},
+
 	set: function(style) {
 		var isStyle = style instanceof Style,
 			values = isStyle ? style._values : style;
 		if (values) {
 			for (var key in values) {
-				if (key in this._defaults) {
+				if (key in this._defaults || key in this._formerNames) {
 					var value = values[key];
 					this[key] = value && isStyle && value.clone
 							? value.clone() : value;
@@ -13635,31 +15503,658 @@ var Style = Base.extend(new function() {
 		return this._project._view;
 	},
 
-	getFontStyle: function() {
-		var fontSize = this.getFontSize();
-		return this.getFontWeight()
+	_getCanvasFont: function() {
+		var fontSize = this.getFontSize(),
+			fontStyle = this.getFontStyle(),
+			families = this.getFontFamily().split(',').map(function(family) {
+				family = family.trim();
+				return /^(["'].*|[a-z-]+)$/i.test(family) ? family
+						: '"' + family.replace(/["\\]/g, '\\$&') + '"';
+			});
+		// Superscripts and subscripts are set smaller:
+		if (this.getBaselinePosition() !== 'normal' && !isNaN(fontSize))
+			fontSize *= this._scriptSize;
+		// To prevent an obscure iOS 7 crash, we have to convert the size to a
+		// string first before passing it to the regular expression.
+		// The following nonsensical statement would also prevent the bug,
+		// proving that the issue is not the regular expression itself, but
+		// something deeper down in the optimizer:
+		// `if (size === 0) size = 0;`
+		return (fontStyle !== 'normal' ? fontStyle + ' ' : '')
+				+ (this.getCapitals() === 'small' ? 'small-caps ' : '')
+				+ this.getFontWeight()
 				+ ' ' + fontSize + (/[a-z]/i.test(fontSize + '') ? ' ' : 'px ')
-				+ this.getFontFamily();
+				+ families.join(', ');
 	},
 
-	getTrackingStyle: function() {
-		return this.getTracking() / 1000 + 'em';
+	// The size of superscripts and subscripts, and how far they move, of the
+	// font size:
+	_scriptSize: 0.583,
+	_scriptShift: 0.333,
+
+	// The properties that style objects may still set by their former names:
+	_formerNames: { tracking: true, leading: true },
+
+	// The letter tracking as canvas takes it: in thousandths of an em, which
+	// canvas resolves through the font of the context:
+	_getCanvasLetterSpacing: function() {
+		return this.getLetterTracking() / 1000 + 'em';
 	},
 
+	// The font size in pixels, which it can be given in other units:
+	_getFontSize: function() {
+		var fontSize = this.getFontSize();
+		return /pt|em|%|px/.test(fontSize)
+				? this.getView().getPixelSize(fontSize)
+				: fontSize;
+	},
+
+	// The line height in pixels: automatic ('auto', 1.2, or another factor)
+	// of the font size, or fixed, with units as the font size takes them:
+	_getLineHeight: function() {
+		var lineHeight = this.getLineHeight();
+		return lineHeight === 'auto' ? 1.2 * this._getFontSize()
+				: typeof lineHeight === 'string'
+					? this.getView().getPixelSize(lineHeight)
+					: lineHeight * this._getFontSize();
+	},
+
+	/**
+	 * The line height as a fixed length, in pixels, as Paper.js had it before
+	 * #lineHeight: setting a number makes it fixed, as `'18px'`.
+	 *
+	 * @bean
+	 * @type Number
+	 * @deprecated use {@link #lineHeight} instead.
+	 */
+	getLeading: function() {
+		return this.getLineHeight() === undefined ? undefined
+				: this._getLineHeight();
+	},
+
+	setLeading: function(leading) {
+		this.setLineHeight(leading == null ? 'auto'
+				: typeof leading === 'number' ? leading + 'px'
+				: leading);
+	},
+
+	/**
+	 * @bean
+	 * @type String
+	 * @deprecated use {@link #fontFamily} instead.
+	 */
 	getFont: '#getFontFamily',
 	setFont: '#setFontFamily',
 
-	getLeading: function getLeading() {
-		var leading = getLeading.base.call(this),
-			fontSize = this.getFontSize();
-		if (/pt|em|%|px/.test(fontSize))
-			fontSize = this.getView().getPixelSize(fontSize);
-		return leading != null ? leading : fontSize * 1.2;
-	}
+	// DOCS: why isn't the example code showing up?
+	/**
+	 * Style objects don't need to be created directly. Just pass an object to
+	 * {@link Item#style} or {@link Project#currentStyle}, it will be converted
+	 * to a Style object internally.
+	 *
+	 * @name Style#initialize
+	 * @param {Object} style
+	 */
 
+	/**
+	 * {@grouptitle Stroke Style}
+	 *
+	 * The color of the stroke.
+	 *
+	 * @name Style#strokeColor
+	 * @property
+	 * @type ?Color
+	 *
+	 * @example {@paperscript}
+	 * // Setting the stroke color of a path:
+	 *
+	 * // Create a circle shaped path at { x: 80, y: 50 }
+	 * // with a radius of 35:
+	 * var circle = new Path.Circle(new Point(80, 50), 35);
+	 *
+	 * // Set its stroke color to RGB red:
+	 * circle.strokeColor = new Color(1, 0, 0);
+	 */
+
+	/**
+	 * The width of the stroke.
+	 *
+	 * @name Style#strokeWidth
+	 * @property
+	 * @type Number
+	 * @default 1
+	 *
+	 * @example {@paperscript}
+	 * // Setting an item's stroke width:
+	 *
+	 * // Create a circle shaped path at { x: 80, y: 50 }
+	 * // with a radius of 35:
+	 * var circle = new Path.Circle(new Point(80, 50), 35);
+	 *
+	 * // Set its stroke color to black:
+	 * circle.strokeColor = 'black';
+	 *
+	 * // Set its stroke width to 10:
+	 * circle.strokeWidth = 10;
+	 */
+
+	/**
+	 * The shape to be used at the beginning and end of open {@link Path} items,
+	 * when they have a stroke.
+	 *
+	 * @name Style#strokeCap
+	 * @property
+	 * @type String
+	 * @values 'round', 'square', 'butt'
+	 * @default 'butt'
+	 *
+	 * @example {@paperscript height=200}
+	 * // A look at the different stroke caps:
+	 *
+	 * var line = new Path(new Point(80, 50), new Point(420, 50));
+	 * line.strokeColor = 'black';
+	 * line.strokeWidth = 20;
+	 *
+	 * // Select the path, so we can see where the stroke is formed:
+	 * line.selected = true;
+	 *
+	 * // Set the stroke cap of the line to be round:
+	 * line.strokeCap = 'round';
+	 *
+	 * // Copy the path and set its stroke cap to be square:
+	 * var line2 = line.clone();
+	 * line2.position.y += 50;
+	 * line2.strokeCap = 'square';
+	 *
+	 * // Make another copy and set its stroke cap to be butt:
+	 * var line2 = line.clone();
+	 * line2.position.y += 100;
+	 * line2.strokeCap = 'butt';
+	 */
+
+	/**
+	 * The shape to be used at the segments and corners of {@link Path} items
+	 * when they have a stroke.
+	 *
+	 * @name Style#strokeJoin
+	 * @property
+	 * @type String
+	 * @values 'miter', 'round', 'bevel'
+	 * @default 'miter'
+	 *
+	 * @example {@paperscript height=120}
+	 * // A look at the different stroke joins:
+	 * var path = new Path();
+	 * path.add(new Point(80, 100));
+	 * path.add(new Point(120, 40));
+	 * path.add(new Point(160, 100));
+	 * path.strokeColor = 'black';
+	 * path.strokeWidth = 20;
+	 *
+	 * // Select the path, so we can see where the stroke is formed:
+	 * path.selected = true;
+	 *
+	 * var path2 = path.clone();
+	 * path2.position.x += path2.bounds.width * 1.5;
+	 * path2.strokeJoin = 'round';
+	 *
+	 * var path3 = path2.clone();
+	 * path3.position.x += path3.bounds.width * 1.5;
+	 * path3.strokeJoin = 'bevel';
+	 */
+
+	/**
+	 * Specifies whether the stroke is to be drawn taking the current affine
+	 * transformation into account (the default behavior), or whether it should
+	 * appear as a non-scaling stroke. On text, non-scaling strokes are exact for
+	 * uniform scaling only, as the glyphs are always stroked through the
+	 * transformation.
+	 *
+	 * @name Style#strokeScaling
+	 * @property
+	 * @type Boolean
+	 * @default true
+	 */
+
+	/**
+	 * The dash offset of the stroke.
+	 *
+	 * @name Style#dashOffset
+	 * @property
+	 * @type Number
+	 * @default 0
+	 */
+
+	/**
+	 * Specifies an array containing the dash and gap lengths of the stroke.
+	 *
+	 * @example {@paperscript}
+	 * var path = new Path.Circle(new Point(80, 50), 40);
+	 * path.strokeWidth = 2;
+	 * path.strokeColor = 'black';
+	 *
+	 * // Set the dashed stroke to [10pt dash, 4pt gap]:
+	 * path.dashArray = [10, 4];
+	 *
+	 * @name Style#dashArray
+	 * @property
+	 * @type Number[]
+	 * @default []
+	 */
+
+	/**
+	 * The miter limit of the stroke. When two line segments meet at a sharp
+	 * angle and miter joins have been specified for {@link #strokeJoin}, it is
+	 * possible for the miter to extend far beyond the {@link #strokeWidth} of
+	 * the path. The miterLimit imposes a limit on the ratio of the miter length
+	 * to the {@link #strokeWidth}.
+	 *
+	 * @name Style#miterLimit
+	 * @property
+	 * @default 10
+	 * @type Number
+	 */
+
+	/**
+	 * {@grouptitle Fill Style}
+	 *
+	 * The fill color.
+	 *
+	 * @name Style#fillColor
+	 * @property
+	 * @type ?Color
+	 *
+	 * @example {@paperscript}
+	 * // Setting the fill color of a path to red:
+	 *
+	 * // Create a circle shaped path at { x: 80, y: 50 }
+	 * // with a radius of 35:
+	 * var circle = new Path.Circle(new Point(80, 50), 35);
+	 *
+	 * // Set the fill color of the circle to RGB red:
+	 * circle.fillColor = new Color(1, 0, 0);
+	 */
+
+	/**
+	 * The fill-rule with which the shape gets filled. Please note that only
+	 * modern browsers support fill-rules other than `'nonzero'`.
+	 *
+	 * @name Style#fillRule
+	 * @property
+	 * @type String
+	 * @values 'nonzero', 'evenodd'
+	 * @default 'nonzero'
+	 */
+
+	/**
+	 * {@grouptitle Shadow Style}
+	 *
+	 * The shadow color.
+	 *
+	 * @property
+	 * @name Style#shadowColor
+	 * @type ?Color
+	 *
+	 * @example {@paperscript}
+	 * // Creating a circle with a black shadow:
+	 *
+	 * var circle = new Path.Circle({
+	 *     center: [80, 50],
+	 *     radius: 35,
+	 *     fillColor: 'white',
+	 *     // Set the shadow color of the circle to RGB black:
+	 *     shadowColor: new Color(0, 0, 0),
+	 *     // Set the shadow blur radius to 12:
+	 *     shadowBlur: 12,
+	 *     // Offset the shadow by { x: 5, y: 5 }
+	 *     shadowOffset: new Point(5, 5)
+	 * });
+	 */
+
+	/**
+	 * The shadow's blur radius.
+	 *
+	 * @property
+	 * @name Style#shadowBlur
+	 * @type Number
+	 * @default 0
+	 */
+
+	/**
+	 * The shadow's offset.
+	 *
+	 * @property
+	 * @name Style#shadowOffset
+	 * @type Point
+	 * @default 0
+	 */
+
+	/**
+	 * {@grouptitle Selection Style}
+	 *
+	 * The color the item is highlighted with when selected. If the item does
+	 * not specify its own color, the color defined by its layer is used instead.
+	 *
+	 * @name Style#selectedColor
+	 * @property
+	 * @type ?Color
+	 */
+
+	/**
+	 * {@grouptitle Character Style}
+	 *
+	 * The font-family to be used in text content.
+	 *
+	 * @name Style#fontFamily
+	 * @type String
+	 * @default 'sans-serif'
+	 */
+
+	/**
+	 *
+	 * The font-weight to be used in text content.
+	 *
+	 * @name Style#fontWeight
+	 * @type String|Number
+	 * @default 'normal'
+	 */
+
+	/**
+	 * The font size of text content, as a number in pixels, or as a string with
+	 * optional units `'px'`, `'pt'` and `'em'`.
+	 *
+	 * @name Style#fontSize
+	 * @type Number|String
+	 * @default 10
+	 */
+
+	/**
+	 *
+	 * The font-family to be used in text content, as one string.
+	 *
+	 * @name Style#font
+	 * @type String
+	 * @default 'sans-serif'
+	 * @deprecated use {@link #fontFamily} instead.
+	 */
+
+	/**
+	 * The line height of text content: the distance from one line's baseline
+	 * to the next. Automatic, as `'auto'` (1.2) or another factor of the
+	 * letters' font size, each line moving down by its largest letters'; or
+	 * fixed, as a length with units as the font size takes them (`'18px'`,
+	 * `'12pt'`).
+	 *
+	 * @name Style#lineHeight
+	 * @type Number|String
+	 * @default 'auto'
+	 */
+
+	/**
+	 * The letter tracking of text content: the space added after each letter,
+	 * along the line, in thousandths of an em, as in Adobe Illustrator and
+	 * InDesign. A tracking of 100 adds a tenth of the font size. Also
+	 * `tracking`, its former name.
+	 *
+	 * @name Style#letterTracking
+	 * @type Number
+	 * @default 0
+	 */
+
+	/**
+	 * @name Style#tracking
+	 * @type Number
+	 * @deprecated use {@link #letterTracking} instead.
+	 */
+
+	/**
+	 * The letter kerning of text content: the space added after a letter,
+	 * along the line, in thousandths of an em, in place of the font's own
+	 * kerning pair; `null` for the font's kerning.
+	 *
+	 * @name Style#letterKerning
+	 * @type Number
+	 * @default null
+	 */
+
+	/**
+	 * The font style of text content, as in CSS: upright or slanted. Together
+	 * with the {@link #fontWeight}, it says what a font's style name says, e.g.
+	 * `'Bold Italic'`.
+	 *
+	 * @name Style#fontStyle
+	 * @type String
+	 * @values 'normal', 'italic', 'oblique'
+	 * @default 'normal'
+	 */
+
+	/**
+	 * The settings of a variable font's axes, by their tags: `{ wght: 600,
+	 * wdth: 80 }`. Kept for hosts that lay text out with its fonts; canvas
+	 * doesn't draw them.
+	 *
+	 * @name Style#fontVariations
+	 * @type Object
+	 * @default null
+	 */
+
+	/**
+	 * How far the letters move up from the baseline, in pixels.
+	 *
+	 * @name Style#baselineShift
+	 * @type Number
+	 * @default 0
+	 */
+
+	/**
+	 * Whether the letters are set as superscripts or subscripts: smaller, and
+	 * above or below the baseline.
+	 *
+	 * @name Style#baselinePosition
+	 * @type String
+	 * @values 'normal', 'superscript', 'subscript'
+	 * @default 'normal'
+	 */
+
+	/**
+	 * How much the letters are scaled, as {@link Item#scaling}: one factor for
+	 * both directions, or a point with the horizontal and vertical ones.
+	 *
+	 * @name Style#letterScaling
+	 * @type Number|Point
+	 * @default 1
+	 */
+
+	/**
+	 * The rotation of each letter about its origin on the baseline, in degrees.
+	 *
+	 * @name Style#letterRotation
+	 * @type Number
+	 * @default 0
+	 */
+
+	/**
+	 * Whether the letters are set as capitals, or as small capitals.
+	 *
+	 * @name Style#capitals
+	 * @type String
+	 * @values 'normal', 'all', 'small'
+	 * @default 'normal'
+	 */
+
+	/**
+	 * Whether the letters are underlined.
+	 *
+	 * @name Style#underline
+	 * @type Boolean
+	 * @default false
+	 */
+
+	/**
+	 * Whether the letters are struck through.
+	 *
+	 * @name Style#strikethrough
+	 * @type Boolean
+	 * @default false
+	 */
+
+	/**
+	 * The OpenType features to turn on (`'dlig'`) or off (`'-liga'`). Kept for
+	 * hosts that lay text out with its fonts; canvas doesn't draw them.
+	 *
+	 * @name Style#features
+	 * @type String[]
+	 * @default null
+	 */
+
+	/**
+	 * {@grouptitle Paragraph Style}
+	 *
+	 * The justification of text paragraphs.
+	 *
+	 * @name Style#justification
+	 * @type String
+	 * @values 'left', 'right', 'center', 'start', 'end', 'justify'
+	 * @default 'left'
+	 */
+
+	/**
+	 * How the last line of a justified paragraph is aligned; `'all'` justifies
+	 * it too.
+	 *
+	 * @name Style#justifyLast
+	 * @type String
+	 * @values 'left', 'right', 'center', 'start', 'end', 'all'
+	 * @default 'left'
+	 */
+
+	/**
+	 * How far justification may change the spacing, each as `[minimum, desired,
+	 * maximum]` in percent: `{ word: [80, 100, 133], letter: [0, 0, 0], glyph:
+	 * [100, 100, 100] }`; `null` for those. Kept for hosts: canvas text
+	 * justifies by the word spacing alone.
+	 *
+	 * @name Style#justifySpacing
+	 * @type Object
+	 * @default null
+	 */
+
+	/**
+	 * The indent where the paragraph's lines start: left in left-to-right text,
+	 * right in right-to-left text.
+	 *
+	 * @name Style#startIndent
+	 * @type Number
+	 * @default 0
+	 */
+
+	/**
+	 * The indent where the paragraph's lines end.
+	 *
+	 * @name Style#endIndent
+	 * @type Number
+	 * @default 0
+	 */
+
+	/**
+	 * The indent of the paragraph's first line, added to its start indent.
+	 *
+	 * @name Style#firstLineIndent
+	 * @type Number
+	 * @default 0
+	 */
+
+	/**
+	 * The space above the paragraph. Between two paragraphs, the larger of this
+	 * one's and the space after the one before it is used.
+	 *
+	 * @name Style#spaceBefore
+	 * @type Number
+	 * @default 0
+	 */
+
+	/**
+	 * The space below the paragraph.
+	 *
+	 * @name Style#spaceAfter
+	 * @type Number
+	 * @default 0
+	 */
+
+	/**
+	 * Whether words are hyphenated at the ends of lines, and how: `true`, or `{
+	 * wordsLongerThan, afterFirst, beforeLast, limit, zone, capitalized }`.
+	 * Kept for hosts: canvas text breaks only at soft hyphens.
+	 *
+	 * @name Style#hyphenation
+	 * @type Boolean|Object
+	 * @default false
+	 */
+
+	/**
+	 * How lines are broken: one line at a time, or all of the paragraph's lines
+	 * together, for the most even spacing. Kept for hosts: canvas text breaks
+	 * one line at a time.
+	 *
+	 * @name Style#composer
+	 * @type String
+	 * @values 'line', 'paragraph'
+	 * @default 'paragraph'
+	 */
+
+	/**
+	 * How the lines of a paragraph in an area are evened out: `'normal'`
+	 * fills each line as far as it goes, `'balance'` makes them all about as
+	 * long, and `'pretty'` balances the last four lines when the last one is
+	 * shorter than a third of the one before. Both keep the paragraph's number
+	 * of lines.
+	 *
+	 * @name Style#lineWrap
+	 * @type String
+	 * @values 'normal', 'balance', 'pretty'
+	 * @default 'normal'
+	 */
+
+	/**
+	 * The paragraph's tab stops: `[{ position, align, leader }]`, with `align`
+	 * one of `'left'`, `'center'`, `'right'` and `'decimal'`. Kept for hosts:
+	 * canvas text doesn't set tabs yet.
+	 *
+	 * @name Style#tabs
+	 * @type Object[]
+	 * @default null
+	 */
+
+	/**
+	 * The direction the paragraph's lines run in, which `'start'` and `'end'`
+	 * follow; `null` for left to right.
+	 *
+	 * @name Style#direction
+	 * @type String
+	 * @values 'ltr', 'rtl'
+	 * @default null
+	 */
 });
 
+/*
+ * Paper.js - The Swiss Army Knife of Vector Graphics Scripting.
+ * http://paperjs.org/
+ *
+ * Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey
+ * http://juerglehni.com/ & https://puckey.studio/
+ *
+ * Distributed under the MIT license. See LICENSE file for details.
+ *
+ * All rights reserved.
+ */
+
+/**
+ * @name DomElement
+ * @namespace
+ * @private
+ */
 var DomElement = new function() {
+	// Handles both getting and setting of vendor prefix values
 	function handlePrefix(el, name, set, value) {
 		var prefixes = ['', 'webkit', 'moz', 'Moz', 'ms', 'o'],
 			suffix = name[0].toUpperCase() + name.substring(1);
@@ -13677,8 +16172,9 @@ var DomElement = new function() {
 		}
 	}
 
-	return {
+	return /** @lends DomElement */{
 		getStyles: function(el) {
+			// If el is a document (nodeType == 9), use it directly
 			var doc = el && el.nodeType !== 9 ? el.ownerDocument : el,
 				view = doc && doc.defaultView;
 			return view && view.getComputedStyle(el, '');
@@ -13690,6 +16186,9 @@ var DomElement = new function() {
 				html = doc.documentElement,
 				rect;
 			try {
+				// On IE, for nodes that are not inside the DOM, this throws an
+				// exception. Emulate the behavior of all other browsers, which
+				// return a rectangle of 0 dimensions.
 				rect = el.getBoundingClientRect();
 			} catch (e) {
 				rect = { left: 0, top: 0, width: 0, height: 0 };
@@ -13722,6 +16221,10 @@ var DomElement = new function() {
 			return DomElement.getBounds(el, true).getSize();
 		},
 
+		/**
+		 * Returns the horizontal and vertical sums of the element's padding
+		 * and border widths, or with `start`, only the left and top ones.
+		 */
 		getInsets: function(el, start) {
 			var style = DomElement.getStyles(el);
 			function get(side) {
@@ -13734,20 +16237,35 @@ var DomElement = new function() {
 						get('Top') + get('Bottom'));
 		},
 
+		/**
+		 * Checks if element is invisible (display: none, ...).
+		 */
 		isInvisible: function(el) {
 			return DomElement.getSize(el).equals(new Size(0, 0));
 		},
 
+		/**
+		 * Checks if element is visible in current viewport.
+		 */
 		isInView: function(el) {
+			// See if the viewport bounds intersect with the windows rectangle
+			// which always starts at 0, 0
 			return !DomElement.isInvisible(el)
 					&& DomElement.getViewportBounds(el).intersects(
 						DomElement.getBounds(el, true));
 		},
 
+		/**
+		 * Checks if element is inside the DOM.
+		 */
 		isInserted: function(el) {
 			return document.body.contains(el);
 		},
 
+		/**
+		 * Gets the given property from the element, trying out all browser
+		 * prefix variants.
+		 */
 		getPrefixed: function(el, name) {
 			return el && handlePrefix(el, name);
 		},
@@ -13763,14 +16281,39 @@ var DomElement = new function() {
 	};
 };
 
-var DomEvent = {
+/*
+ * Paper.js - The Swiss Army Knife of Vector Graphics Scripting.
+ * http://paperjs.org/
+ *
+ * Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey
+ * http://juerglehni.com/ & https://puckey.studio/
+ *
+ * Distributed under the MIT license. See LICENSE file for details.
+ *
+ * All rights reserved.
+ */
+
+/**
+ * @name DomEvent
+ * @namespace
+ * @private
+ */
+var DomEvent = /** @lends DomEvent */{
 	add: function(el, events) {
+		// Do not fail if el is not defined, that way we can keep the code that
+		// should not fail in web-workers to a minimum.
 		if (el) {
 			for (var type in events) {
 				var func = events[type],
 					parts = type.split(/[\s,]+/g);
 				for (var i = 0, l = parts.length; i < l; i++) {
 					var name = parts[i];
+					// For touchstart/touchmove events on document, we need to
+					// explicitly declare that the event is not passive (can be
+					// prevented).  Otherwise chrome browser would ignore
+					// `event.preventDefault()` calls and omit warnings.
+					// See #1501 and:
+					// https://www.chromestatus.com/features/5093566007214080
 					var options = (
 						el === document
 						&& (name === 'touchstart' || name === 'touchmove')
@@ -13782,6 +16325,7 @@ var DomEvent = {
 	},
 
 	remove: function(el, events) {
+		// See DomEvent.add() for an explanation of this check:
 		if (el) {
 			for (var type in events) {
 				var func = events[type],
@@ -13803,6 +16347,8 @@ var DomEvent = {
 		var touches = event.targetTouches,
 			pos = event;
 		if (touches) {
+			// Prefer the first touch on the target, also when it just ended, so
+			// that touches elsewhere don't take over its drag (#1875):
 			pos = find(event.touches) || find(event.changedTouches)
 					|| (touches.length ? touches[0] : event.changedTouches[0]);
 		}
@@ -13821,6 +16367,7 @@ var DomEvent = {
 	},
 
 	getOffset: function(event, target) {
+		// Remove target offsets from page coordinates
 		target = target || DomEvent.getTarget(event);
 		return DomEvent.getPoint(event, target).subtract(
 				DomElement.getOffset(target));
@@ -13834,33 +16381,79 @@ DomEvent.requestAnimationFrame = new function() {
 		timer;
 
 	function handleCallbacks() {
+		// Make a local references to the current callbacks array and set
+		// callbacks to a new empty array, so it can collect the functions for
+		// the new requests.
 		var functions = callbacks;
 		callbacks = [];
+		// Call the collected callback functions.
 		for (var i = 0, l = functions.length; i < l; i++)
 			functions[i]();
+		// Now see if the above calls have collected new callbacks. Keep
+		// requesting new frames as long as we have callbacks.
 		requested = nativeRequest && callbacks.length;
 		if (requested) {
 			nativeRequest(handleCallbacks);
 		} else if (timer && !callbacks.length) {
+			// Stop the interval timer of the fallback when there's nothing
+			// left to do, so it doesn't keep hosts running. The next request
+			// starts it again:
 			clearInterval(timer);
 			timer = null;
 		}
 	}
 
 	return function(callback) {
+		// Add to the list of callbacks to be called in the next animation
+		// frame.
 		callbacks.push(callback);
 		if (nativeRequest) {
+			// Handle animation natively. We only need to request the frame
+			// once for all collected callbacks.
 			if (!requested) {
 				nativeRequest(handleCallbacks);
 				requested = true;
 			}
 		} else if (!timer) {
+			// Install interval timer that checks all callbacks. This
+			// results in faster animations than repeatedly installing
+			// timeout timers.
 			timer = setInterval(handleCallbacks, 1000 / 60);
 		}
 	};
 };
 
-var View = Base.extend(Emitter, {
+/*
+ * Paper.js - The Swiss Army Knife of Vector Graphics Scripting.
+ * http://paperjs.org/
+ *
+ * Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey
+ * http://juerglehni.com/ & https://puckey.studio/
+ *
+ * Distributed under the MIT license. See LICENSE file for details.
+ *
+ * All rights reserved.
+ */
+
+/**
+ * @name View
+ *
+ * @class The View object wraps an HTML element and handles drawing and user
+ * interaction through mouse and keyboard for it. It offer means to scroll the
+ * view, find the currently visible bounds in project coordinates, or the
+ * center, both useful for constructing artwork that should appear centered on
+ * screen.
+ *
+ * If the canvas element has a `resize` or `data-paper-resize` attribute, the
+ * view adjusts its size to the size of the element whenever the window is
+ * resized. The element itself needs to be sized through CSS, e.g. with
+ * `html, body { height: 100%; }` and `canvas[resize] { width: 100%; height:
+ * 100%; }` for a canvas that fills the window. Without such CSS, the view does
+ * not follow the window, and on HiDPI screens it grows with each resize.
+ * Without the attribute, the view sets the element's CSS width and height to
+ * its own size, see {@link #viewSize}.
+ */
+var View = Base.extend(Emitter, /** @lends View# */{
 	_class: 'View',
 
 	initialize: function View(project, element) {
@@ -13870,18 +16463,28 @@ var View = Base.extend(Emitter, {
 		}
 
 		function getCanvasSize() {
+			// Try the CSS size first, since that will help handling previously
+			// scaled canvases (e.g. when dealing with pixel-ratio), without the
+			// padding and border (#1160, #2033), and without the transforms of
+			// ancestors, which only scale the canvas on screen:
 			var size = new Size(element.offsetWidth, element.offsetHeight);
 			return size.isNaN() || size.isZero()
+					// If the element is invisible, we cannot directly access
+					// element.width / height, because they would appear 0.
+					// Reading the attributes should still work.
 					? new Size(getSize('width'), getSize('height'))
 					: size.subtract(DomElement.getInsets(element));
 		}
 
 		var size;
 		if (window && element) {
+			// Generate an id for this view / element if it does not have one
 			this._id = element.getAttribute('id');
 			if (this._id == null)
 				element.setAttribute('id', this._id = 'paper-view-' + View._id++);
+			// Install event handlers
 			DomEvent.add(element, this._viewEvents);
+			// Borrowed from Hammer.js:
 			var none = 'none';
 			DomElement.setPrefixed(element.style, {
 				userDrag: none,
@@ -13891,6 +16494,8 @@ var View = Base.extend(Emitter, {
 				tapHighlightColor: 'rgba(0,0,0,0)'
 			});
 
+			// If the element has the resize attribute, listen to resize events
+			// and update its coordinate space accordingly
 			if (PaperScope.hasAttribute(element, 'resize')) {
 				var that = this;
 				DomEvent.add(window, this._windowEvents = {
@@ -13905,6 +16510,7 @@ var View = Base.extend(Emitter, {
 			if (PaperScope.hasAttribute(element, 'stats')
 					&& typeof Stats !== 'undefined') {
 				this._stats = new Stats();
+				// Align top-left to the element
 				var stats = this._stats.domElement,
 					style = stats.style,
 					offset = DomElement.getOffset(element);
@@ -13914,41 +16520,65 @@ var View = Base.extend(Emitter, {
 				document.body.appendChild(stats);
 			}
 		} else {
+			// For web-workers: Allow calling of `paper.setup(new Size(x, y));`
 			size = new Size(element);
 			element = null;
 		}
+		// Store reference to the currently active global paper scope, and the
+		// active project, which will be represented by this view
 		this._project = project;
 		this._scope = project._scope;
 		this._element = element;
+		// Sub-classes may set _pixelRatio first
 		if (!this._pixelRatio)
 			this._pixelRatio = window && window.devicePixelRatio || 1;
+		// Set canvas size even if we just determined the size from it, since
+		// it might have been set to a % size, in which case it would use some
+		// default internal size (300x150 on WebKit) and scale up the pixels.
+		// We also need this call here for HiDPI support.
 		this._setElementSize(size.width, size.height);
 		this._viewSize = size;
+		// Keep track of views internally
 		View._views.push(this);
+		// Link this id to our view
 		View._viewsById[this._id] = this;
 		(this._matrix = new Matrix())._owner = this;
+		// Make sure the first view is focused for keyboard input straight away
 		if (!View._focused)
 			View._focused = this;
+		// Items that need the onFrame handler called on them
 		this._frameItems = {};
 		this._frameItemCount = 0;
+		// Count the installed native and virtual item events,
+		// see #_countItemEvent():
 		this._itemEvents = { native: {}, virtual: {} };
+		// Do not set _autoUpdate on Node.js by default:
 		this._autoUpdate = !paper.agent.node;
 		this._needsUpdate = false;
 	},
 
+	/**
+	 * Removes this view from the project and frees the associated element.
+	 */
 	remove: function() {
 		if (!this._project)
 			return false;
+		// Clear focus if removed view had it
 		if (View._focused === this)
 			View._focused = null;
+		// Remove view from internal structures
 		View._views.splice(View._views.indexOf(this), 1);
 		delete View._viewsById[this._id];
+		// Unlink from project
 		var project = this._project;
 		if (project._view === this)
 			project._view = null;
+		// Uninstall event handlers again for this view.
 		DomEvent.remove(this._element, this._viewEvents);
 		DomEvent.remove(window, this._windowEvents);
 		this._element = this._project = null;
+		// Remove all onFrame handlers.
+		// TODO: Shouldn't we remove all other event handlers, automatically
 		this.off('frame');
 		this._animate = false;
 		this._frameItems = {};
@@ -13972,10 +16602,23 @@ var View = Base.extend(Emitter, {
 		}
 	),
 
+	// These are default values for event related properties on the prototype.
+	// Writing item._count++ does not change the defaults, it creates / updates
+	// the property on the instance. Useful!
 	_animate: false,
 	_time: 0,
 	_count: 0,
 
+	/**
+	 * Controls whether the view is automatically updated in the next animation
+	 * frame on changes, or whether you prefer to manually call
+	 * {@link #update()} or {@link #requestUpdate()} after changes.
+	 * Note that this is `true` by default, except for Node.js, where manual
+	 * updates make more sense.
+	 *
+	 * @bean
+	 * @type Boolean
+	 */
 	getAutoUpdate: function() {
 		return this._autoUpdate;
 	},
@@ -13986,21 +16629,52 @@ var View = Base.extend(Emitter, {
 			this.requestUpdate();
 	},
 
+	/**
+	 * Updates the view if there are changes. Note that when using built-in
+	 * event handlers for interaction, animation and load events, this method is
+	 * invoked for you automatically at the end.
+	 *
+	 * @param {Boolean} [force=false] whether to redraw the view even if nothing
+	 * has changed, e.g. after a web font used by text items has finished
+	 * loading
+	 * @return {Boolean} {@true if the view was updated}
+	 */
 	update: function(force) {
 	},
 
+	/**
+	 * Updates the view if there are changes.
+	 *
+	 * @deprecated use {@link #update()} instead.
+	 */
+	// NOTE: We cannot use draw: '#update'` as that would not work on CanvasView
 	draw: function() {
 		this.update();
 	},
 
+	/**
+	 * Requests an update of the view if there are changes through the browser's
+	 * requestAnimationFrame() mechanism for smooth animation. Note that when
+	 * using built-in event handlers for interaction, animation and load events,
+	 * updates are automatically invoked for you automatically at the end.
+	 */
 	requestUpdate: function() {
 		if (!this._requested) {
 			var that = this;
 			DomEvent.requestAnimationFrame(function() {
 				that._requested = false;
+				// Only handle the frame and request the next one if we don't
+				// need to stop, e.g.  due to a call to pause(), or a request
+				// for a single redraw.
 				if (that._animate) {
+					// Request next update before handling the current frame
 					that.requestUpdate();
 					var element = that._element;
+					// Only keep animating if we're allowed to, based on whether
+					// the document is visible and the setting of keepalive. We
+					// keep requesting frame regardless though, so the animation
+					// picks up again as soon as the view is visible. Views
+					// without an element, as in web workers, always animate.
 					if (!element
 							|| (!DomElement.getPrefixed(document, 'hidden')
 							|| PaperScope.getAttribute(element, 'keepalive')
@@ -14008,6 +16682,10 @@ var View = Base.extend(Emitter, {
 						that._handleFrame();
 					}
 				}
+				// Even if we're not animating, update the view now since this
+				// might have been a request for a single redraw after a change.
+				// NOTE: If nothing has changed (e.g. _handleFrame() wasn't
+				// called above), then this does not actually do anything.
 				if (that._autoUpdate)
 					that.update();
 			});
@@ -14015,22 +16693,36 @@ var View = Base.extend(Emitter, {
 		}
 	},
 
+	/**
+	 * Makes all animation play by adding the view to the request animation
+	 * loop.
+	 */
 	play: function() {
 		this._animate = true;
+		// Request a frame handler straight away to initialize the
+		// sequence of onFrame calls.
 		this.requestUpdate();
 	},
 
+	/**
+	 * Makes all animation pause by removing the view from the request animation
+	 * loop.
+	 */
 	pause: function() {
 		this._animate = false;
 	},
 
 	_handleFrame: function() {
+		// Set the global paper object to the current scope
 		paper = this._scope;
 		var now = Date.now() / 1000,
 			delta = this._last ? now - this._last : 0;
 		this._last = now;
+		// Use new Base() to convert into a Base object, for #toString()
 		this.emit('frame', new Base({
+			// Time elapsed since last frame in seconds:
 			delta: delta,
+			// Total since first frame in seconds:
 			time: this._time += delta,
 			count: this._count++
 		}));
@@ -14043,6 +16735,7 @@ var View = Base.extend(Emitter, {
 		if (animate) {
 			items[item._id] = {
 				item: item,
+				// Additional information for the event callback
 				time: 0,
 				count: 0
 			};
@@ -14051,52 +16744,104 @@ var View = Base.extend(Emitter, {
 		} else {
 			delete items[item._id];
 			if (--this._frameItemCount === 0) {
+				// If this is the last one, just stop animating straight away.
 				this.off('frame', this._handleFrameItems);
 			}
 		}
 	},
 
+	// Handles _frameItems and fires the 'frame' event on them.
 	_handleFrameItems: function(event) {
 		for (var i in this._frameItems) {
 			var entry = this._frameItems[i];
 			entry.item.emit('frame', new Base(event, {
+				// Time since first call of frame() in seconds:
 				time: entry.time += event.delta,
 				count: entry.count++
 			}));
 		}
 	},
 
+	/**
+	 * Private notifier that is called whenever a change occurs in this view.
+	 * Used only by Matrix for now.
+	 */
 	_changed: function() {
+		// The only one calling View._changed() is Matrix, so it can only mean
+		// one thing:
 		this._project._changed(4097);
+		// Force recalculation of these values next time they are requested.
 		this._bounds = this._decomposed = undefined;
 	},
 
+	/**
+	 * The underlying native element.
+	 *
+	 * @bean
+	 * @type HTMLCanvasElement
+	 */
 	getElement: function() {
 		return this._element;
 	},
 
+	/**
+	 * The project that this view displays.
+	 *
+	 * @bean
+	 * @type Project
+	 */
 	getProject: function() {
 		return this._project;
 	},
 
+	/**
+	 * The scope that this view belongs to.
+	 *
+	 * @bean
+	 * @type PaperScope
+	 */
 	getScope: function() {
 		return this._scope;
 	},
 
+	/**
+	 * The ratio between physical pixels and device-independent pixels (DIPs)
+	 * of the underlying canvas / device.
+	 * It is `1` for normal displays, and `2` or more for
+	 * high-resolution displays.
+	 *
+	 * @bean
+	 * @type Number
+	 */
 	getPixelRatio: function() {
 		return this._pixelRatio;
 	},
 
+	/**
+	 * The resolution of the underlying canvas / device in pixel per inch (DPI).
+	 * It is `72` for normal displays, and `144` for high-resolution
+	 * displays with a pixel-ratio of `2`.
+	 *
+	 * @bean
+	 * @type Number
+	 */
 	getResolution: function() {
 		return this._pixelRatio * 72;
 	},
 
+	/**
+	 * The size of the view. Changing the view's size will resize it's
+	 * underlying element.
+	 *
+	 * @bean
+	 * @type Size
+	 */
 	getViewSize: function() {
 		var size = this._viewSize;
 		return new LinkedSize(size.width, size.height, this, 'setViewSize');
 	},
 
-	setViewSize: function() {
+	setViewSize: function(/* size */) {
 		var size = Size.read(arguments),
 			delta = size.subtract(this._viewSize);
 		if (delta.isZero())
@@ -14104,12 +16849,18 @@ var View = Base.extend(Emitter, {
 		this._setElementSize(size.width, size.height);
 		this._viewSize.set(size);
 		this._changed();
+		// Emit resize event on any size changes.
 		this.emit('resize', { size: size, delta: delta });
 		if (this._autoUpdate) {
+			// Update right away, don't wait for the next animation frame as
+			// otherwise the view would flicker during resizes, see #1126
 			this.update();
 		}
 	},
 
+	/**
+	 * Private method, overridden in CanvasView for HiDPI support.
+	 */
 	_setElementSize: function(width, height) {
 		var element = this._element;
 		if (element) {
@@ -14120,6 +16871,16 @@ var View = Base.extend(Emitter, {
 		}
 	},
 
+	/**
+	 * The bounds of the currently visible area in project coordinates.
+	 * Setting them fits the view to the given rectangle, as
+	 * {@link #fitBounds(rectangle)} does. Since the view keeps its aspect
+	 * ratio, the bounds read back can be larger than the rectangle in one
+	 * direction.
+	 *
+	 * @bean
+	 * @type Rectangle
+	 */
 	getBounds: function() {
 		if (!this._bounds)
 			this._bounds = this._matrix.inverted()._transformBounds(
@@ -14127,28 +16888,50 @@ var View = Base.extend(Emitter, {
 		return this._bounds;
 	},
 
-	setBounds: function() {
+	setBounds: function(/* rect */) {
 		this.fitBounds(Rectangle.read(arguments));
 	},
 
+	/**
+	 * The size of the visible area in project coordinates.
+	 *
+	 * @bean
+	 * @type Size
+	 */
 	getSize: function() {
 		return this.getBounds().getSize();
 	},
 
+	/**
+	 * Checks whether the view is currently visible within the current browser
+	 * viewport.
+	 *
+	 * @return {Boolean} {@true if the view is visible}
+	 */
 	isVisible: function() {
 		return DomElement.isInView(this._element);
 	},
 
+	/**
+	 * Checks whether the view is inserted into the browser DOM.
+	 *
+	 * @return {Boolean}  {@true if the view is inserted}
+	 */
 	isInserted: function() {
 		return DomElement.isInserted(this._element);
 	},
 
+	// Text is measured with a canvas context: the view's own, or one from the
+	// CanvasProvider, which also works in workers with an OffscreenCanvas.
+	// Without either, sizes are read as pixels, and text has no width.
 	getPixelSize: function(size) {
 		var agent = paper.agent,
 			element = this._element,
 			ctx,
 			pixels;
 		if (element && agent && agent.firefox) {
+			// Firefox doesn't convert context.font sizes to pixels, so use the
+			// DOM there, which still doesn't work in workers:
 			var parent = element.parentNode,
 				temp = document.createElement('div');
 			temp.style.fontSize = size;
@@ -14176,6 +16959,7 @@ var View = Base.extend(Emitter, {
 				prevLetterSpacing = ctx.letterSpacing;
 			ctx.font = font;
 			ctx.letterSpacing = letterSpacing;
+			// Measure the real width of the text:
 			for (var i = 0, l = lines.length; i < l; i++)
 				width = Math.max(width, ctx.measureText(lines[i]).width);
 			ctx.font = prevFont;
@@ -14184,47 +16968,102 @@ var View = Base.extend(Emitter, {
 				CanvasProvider.release(ctx);
 		}
 		return width;
+	},
+
+	getFontMetrics: function(font) {
+		var ctx = this._context || CanvasProvider.getContext(1, 1),
+			metrics = null;
+		if (ctx) {
+			var prevFont = ctx.font;
+			ctx.font = font;
+			// Browsers tell the font's own ascent and descent, node-canvas
+			// those of its em box:
+			var measured = ctx.measureText('H'),
+				ascent = measured.fontBoundingBoxAscent,
+				descent = measured.fontBoundingBoxDescent;
+			if (ascent === undefined) {
+				ascent = measured.emHeightAscent;
+				descent = measured.emHeightDescent;
+			}
+			if (ascent !== undefined)
+				metrics = { ascent: ascent, descent: descent };
+			ctx.font = prevFont;
+			if (ctx !== this._context)
+				CanvasProvider.release(ctx);
+		}
+		return metrics;
 	}
 }, Base.each(['rotate', 'scale', 'shear', 'skew'], function(key) {
 	var rotate = key === 'rotate';
-	this[key] = function() {
+	this[key] = function(/* value, center */) {
 		var args = arguments,
 			value = (rotate ? Base : Point).read(args),
 			center = Point.read(args, 0, { readNull: true });
 		return this.transform(new Matrix()[key](value,
 				center || this.getCenter(true)));
 	};
-}, {
+}, /** @lends View# */{
 	_decompose: function() {
 		return this._decomposed || (this._decomposed = this._matrix.decompose());
 	},
 
-	translate: function() {
+	/**
+	 * {@grouptitle Transform Functions}
+	 *
+	 * Translates (scrolls) the view by the given offset vector.
+	 *
+	 * @param {Point} delta the offset to translate the view by
+	 */
+	translate: function(/* delta */) {
 		var mx = new Matrix();
 		return this.transform(mx.translate.apply(mx, arguments));
 	},
 
+	/**
+	 * The center of the visible area in project coordinates.
+	 *
+	 * @bean
+	 * @type Point
+	 */
 	getCenter: function() {
 		return this.getBounds().getCenter();
 	},
 
-	setCenter: function() {
+	setCenter: function(/* center */) {
 		var center = Point.read(arguments);
 		this.translate(this.getCenter().subtract(center));
 	},
 
+	/**
+	 * The view's zoom factor by which the project coordinates are magnified.
+	 * Setting it to a value that isn't a positive number has no effect.
+	 *
+	 * @bean
+	 * @type Number
+	 * @see #scaling
+	 */
 	getZoom: function() {
 		var scaling = this._decompose().scaling;
+		// Use average since it can be non-uniform, and ignore mirroring.
 		return (Math.abs(scaling.x) + Math.abs(scaling.y)) / 2;
 	},
 
 	setZoom: function(zoom) {
+		// Zooming to 0 can't be undone and leaves the view's matrix without an
+		// inverse (#1433):
 		if (zoom > 0 && isFinite(zoom)) {
 			this.transform(new Matrix().scale(zoom / this.getZoom(),
 				this.getCenter()));
 		}
 	},
 
+	/**
+	 * The current rotation angle of the view, as described by its
+	 * {@link #matrix}.
+	 *
+	 * @bean
+	 * @type Number
+	 */
 	getRotation: function() {
 		return this._decompose().rotation;
 	},
@@ -14232,45 +17071,177 @@ var View = Base.extend(Emitter, {
 	setRotation: function(rotation) {
 		var current = this.getRotation();
 		if (current != null && rotation != null) {
+			// Rotate around the center in view coordinates, so the rotation
+			// adds to the decomposed one, also on mirrored views (#1893):
 			this._matrix.prepend(new Matrix().rotate(rotation - current,
 					this.projectToView(this.getCenter())));
 		}
 	},
 
+	/**
+	 * The current scale factor of the view, as described by its
+	 * {@link #matrix}.
+	 *
+	 * @bean
+	 * @type Point
+	 * @see #zoom
+	 */
 	getScaling: function() {
 		var scaling = this._decompose().scaling;
 		return new LinkedPoint(scaling.x, scaling.y, this, 'setScaling');
 	},
 
-	setScaling: function() {
+	setScaling: function(/* scaling */) {
 		var current = this.getScaling(),
+			// Clone existing points since we're caching internally.
 			scaling = Point.read(arguments, 0, { clone: true, readNull: true });
 		if (current && scaling) {
 			this.scale(scaling.x / current.x, scaling.y / current.y);
 		}
 	},
 
+	/**
+	 * The view's transformation matrix, defining the view onto the project's
+	 * contents (position, zoom level, rotation, etc).
+	 *
+	 * @bean
+	 * @type Matrix
+	 */
 	getMatrix: function() {
 		return this._matrix;
 	},
 
 	setMatrix: function() {
+		// Use Matrix#initialize to easily copy over values.
+		// NOTE: calling initialize() also calls #_changed() for us, through its
+		// call to #set() / #reset(), and this also handles _applyMatrix for us.
 		var matrix = this._matrix;
 		matrix.set.apply(matrix, arguments);
 	},
 
+	/**
+	 * Rotates the view by a given angle around the given center point.
+	 *
+	 * Angles are oriented clockwise and measured in degrees.
+	 *
+	 * @name View#rotate
+	 * @function
+	 * @param {Number} angle the rotation angle
+	 * @param {Point} [center={@link View#center}]
+	 * @see Matrix#rotate(angle[, center])
+	 */
+
+	/**
+	 * Scales the view by the given value from its center point, or optionally
+	 * from a supplied point.
+	 *
+	 * @name View#scale
+	 * @function
+	 * @param {Number} scale the scale factor
+	 * @param {Point} [center={@link View#center}]
+	 */
+	/**
+	 * Scales the view by the given values from its center point, or optionally
+	 * from a supplied point.
+	 *
+	 * @name View#scale
+	 * @function
+	 * @param {Number} hor the horizontal scale factor
+	 * @param {Number} ver the vertical scale factor
+	 * @param {Point} [center={@link View#center}]
+	 */
+
+	/**
+	 * Shears the view by the given value from its center point, or optionally
+	 * by a supplied point.
+	 *
+	 * @name View#shear
+	 * @function
+	 * @param {Point} shear the horizontal and vertical shear factors as a point
+	 * @param {Point} [center={@link View#center}]
+	 * @see Matrix#shear(shear[, center])
+	 */
+	/**
+	 * Shears the view by the given values from its center point, or optionally
+	 * by a supplied point.
+	 *
+	 * @name View#shear
+	 * @function
+	 * @param {Number} hor the horizontal shear factor
+	 * @param {Number} ver the vertical shear factor
+	 * @param {Point} [center={@link View#center}]
+	 * @see Matrix#shear(hor, ver[, center])
+	 */
+
+	/**
+	 * Skews the view by the given angles from its center point, or optionally
+	 * by a supplied point.
+	 *
+	 * @name View#skew
+	 * @function
+	 * @param {Point} skew the horizontal and vertical skew angles in degrees
+	 * @param {Point} [center={@link View#center}]
+	 * @see Matrix#shear(skew[, center])
+	 */
+	/**
+	 * Skews the view by the given angles from its center point, or optionally
+	 * by a supplied point.
+	 *
+	 * @name View#skew
+	 * @function
+	 * @param {Number} hor the horizontal skew angle in degrees
+	 * @param {Number} ver the vertical sskew angle in degrees
+	 * @param {Point} [center={@link View#center}]
+	 * @see Matrix#shear(hor, ver[, center])
+	 */
+
+	/**
+	 * Transform the view.
+	 *
+	 * @param {Matrix} matrix the matrix by which the view shall be transformed
+	 */
 	transform: function(matrix) {
 		this._matrix.append(matrix);
 	},
 
+	/**
+	 * Transform the view so that the specified rectangle is centered in it
+	 * and fitted to it as described by `fit`, keeping the view's rotation and
+	 * mirroring.
+	 *
+	 * @param {Rectangle} rectangle the rectangle to fit, in project
+	 * coordinates
+	 * @param {String} [fit='contain'] how to fit the rectangle, as in CSS's
+	 * `object-fit`: `'contain'` shows all of it, and `'cover'` fills the
+	 * whole view with it, cropping the parts that don't fit
+	 *
+	 * @example {@paperscript height=100}
+	 * // Fitting the view to the bounds of an item:
+	 *
+	 * // Create a circle shaped path around the top left corner of the view:
+	 * var path = new Path.Circle({
+	 *     center: [0, 0],
+	 *     radius: 50,
+	 *     fillColor: 'orange'
+	 * });
+	 *
+	 * // Make the view show the whole circle:
+	 * view.fitBounds(path.bounds);
+	 */
 	fitBounds: function(rectangle, fit) {
 		rectangle = Rectangle.read(arguments);
 		fit = Base.read(arguments);
+		// Compare the rectangle with the view in view coordinates, so that
+		// rotated views show all of it as well, and scale both axes of the view
+		// to the same amount, so that the rectangle keeps its aspect ratio,
+		// also if the view was stretched before:
 		var matrix = this._matrix,
 			size = this._viewSize,
 			bounds = matrix._transformBounds(rectangle),
 			scaleX = new Point(matrix._a, matrix._c).getLength(),
 			scaleY = new Point(matrix._b, matrix._d).getLength(),
+			// Empty sides of the rectangle give ratios of Infinity, which can't
+			// scale the view, so only use the others:
 			ratios = [
 				size.width / bounds.width * scaleX,
 				size.height / bounds.height * scaleY
@@ -14282,29 +17253,69 @@ var View = Base.extend(Emitter, {
 			var amount = fit === 'cover'
 					? Math.max.apply(Math, ratios)
 					: Math.min.apply(Math, ratios);
+			// Scale around the view's center in view coordinates, along the
+			// view's own axes:
 			matrix.prepend(new Matrix().scale(
 					new Point(amount / scaleX, amount / scaleY),
 					size.divide(2)));
 		}
 	},
 
-	scrollBy: function() {
+	/**
+	 * Scrolls the view by the given vector.
+	 *
+	 * @param {Point} point
+	 * @deprecated use {@link #translate(delta)} instead (using opposite
+	 *     direction).
+	 */
+	scrollBy: function(/* point */) {
 		this.translate(Point.read(arguments).negate());
 	}
-}), {
+}), /** @lends View# */{
+	// TODO: getInvalidBounds
+	// TODO: invalidate(rect)
+	// TODO: style: artwork / preview / raster / opaque / ink
+	// TODO: getShowGrid
+	// TODO: getMousePoint
+	// TODO: projectToView(rect)
 
-	projectToView: function() {
+	/**
+	 * Converts the passed point from project coordinate space to view
+	 * coordinate space, which is measured in browser pixels in relation to the
+	 * position of the view element.
+	 *
+	 * @param {Point} point the point in project coordinates to be converted
+	 * @return {Point} the point converted into view coordinates
+	 */
+	projectToView: function(/* point */) {
 		return this._matrix._transformPoint(Point.read(arguments));
 	},
 
-	viewToProject: function() {
+	/**
+	 * Converts the passed point from view coordinate space to project
+	 * coordinate space.
+	 *
+	 * @param {Point} point the point in view coordinates to be converted
+	 * @return {Point} the point converted into project coordinates
+	 */
+	viewToProject: function(/* point */) {
 		return this._matrix._inverseTransform(Point.read(arguments));
 	},
 
+	/**
+	 * Determines and returns the event location in project coordinate space.
+	 *
+	 * @param {Event} event the native event object for which to determine the
+	 *     location.
+	 * @return {Point} the event point in project coordinates.
+	 */
 	getEventPoint: function(event) {
 		var element = this._element,
 			offset = DomEvent.getOffset(event, element),
 			size = DomElement.getSize(element);
+		// Map the offset on screen, with CSS sizes and transforms applied, to
+		// the content box in view coordinates (#549, #1729). Elements that
+		// aren't rendered have no size to map from:
 		if (!size.isZero()) {
 			var cssSize = new Size(element.offsetWidth, element.offsetHeight);
 			offset = offset.multiply(cssSize.divide(size))
@@ -14315,6 +17326,342 @@ var View = Base.extend(Emitter, {
 		return this.viewToProject(offset);
 	},
 
+	/**
+	 * {@grouptitle Event Handlers}
+	 * Handler function to be called on each frame of an animation.
+	 * The function receives an event object which contains information about
+	 * the frame event:
+	 *
+	 * @option event.count {Number} the number of times the frame event was
+	 * fired
+	 * @option event.time {Number} the total amount of time passed since the
+	 * first frame event in seconds
+	 * @option event.delta {Number} the time passed in seconds since the last
+	 * frame event
+	 *
+	 * @name View#onFrame
+	 * @property
+	 * @type ?Function
+	 * @see Item#onFrame
+	 *
+	 * @example {@paperscript}
+	 * // Creating an animation:
+	 *
+	 * // Create a rectangle shaped path with its top left point at:
+	 * // {x: 50, y: 25} and a size of {width: 50, height: 50}
+	 * var path = new Path.Rectangle(new Point(50, 25), new Size(50, 50));
+	 * path.fillColor = 'black';
+	 *
+	 * view.onFrame = function(event) {
+	 *     // Every frame, rotate the path by 3 degrees:
+	 *     path.rotate(3);
+	 * }
+	 */
+
+	/**
+	 * Handler function that is called whenever a view is resized.
+	 *
+	 * @name View#onResize
+	 * @property
+	 * @type ?Function
+	 *
+	 * @example
+	 * // Repositioning items when a view is resized:
+	 *
+	 * // Create a circle shaped path in the center of the view:
+	 * var path = new Path.Circle(view.bounds.center, 30);
+	 * path.fillColor = 'red';
+	 *
+	 * view.onResize = function(event) {
+	 *     // Whenever the view is resized, move the path to its center:
+	 *     path.position = view.center;
+	 * }
+	 */
+
+	/**
+	 * The function to be called when the mouse button is pushed down on the
+	 * view. The function receives a {@link MouseEvent} object which contains
+	 * information about the mouse event.
+	 * Note that such mouse events bubble up the scene graph hierarchy, reaching
+	 * the view at the end, unless they are stopped before with {@link
+	 * Event#stopPropagation()} or by returning `false` from a handler.
+	 *
+	 * @name View#onMouseDown
+	 * @property
+	 * @type ?Function
+	 * @see Item#onMouseDown
+	 */
+
+	/**
+	 * The function to be called when the mouse position changes while the mouse
+	 * is being dragged over the view. The function receives a {@link
+	 * MouseEvent} object which contains information about the mouse event.
+	 * Note that such mouse events bubble up the scene graph hierarchy, reaching
+	 * the view at the end, unless they are stopped before with {@link
+	 * Event#stopPropagation()} or by returning `false` from a handler.
+	 *
+	 * @name View#onMouseDrag
+	 * @property
+	 * @type ?Function
+	 * @see Item#onMouseDrag
+	 */
+
+	/**
+	 * The function to be called when the mouse button is released over the item.
+	 * The function receives a {@link MouseEvent} object which contains
+	 * information about the mouse event.
+	 *
+	 * @name View#onMouseUp
+	 * @property
+	 * @type ?Function
+	 * @see Item#onMouseUp
+	 */
+
+	/**
+	 * The function to be called when the mouse clicks on the view. The function
+	 * receives a {@link MouseEvent} object which contains information about the
+	 * mouse event.
+	 * Note that such mouse events bubble up the scene graph hierarchy, reaching
+	 * the view at the end, unless they are stopped before with {@link
+	 * Event#stopPropagation()} or by returning `false` from a handler.
+	 *
+	 * @name View#onClick
+	 * @property
+	 * @type ?Function
+	 * @see Item#onClick
+	 */
+
+	/**
+	 * The function to be called when the mouse double clicks on the view. The
+	 * function receives a {@link MouseEvent} object which contains information
+	 * about the mouse event.
+	 * Note that such mouse events bubble up the scene graph hierarchy, reaching
+	 * the view at the end, unless they are stopped before with {@link
+	 * Event#stopPropagation()} or by returning `false` from a handler.
+	 *
+	 * @name View#onDoubleClick
+	 * @property
+	 * @type ?Function
+	 * @see Item#onDoubleClick
+	 */
+
+	/**
+	 * The function to be called repeatedly while the mouse moves over the
+	 * view. The function receives a {@link MouseEvent} object which contains
+	 * information about the mouse event.
+	 * Note that such mouse events bubble up the scene graph hierarchy, reaching
+	 * the view at the end, unless they are stopped before with {@link
+	 * Event#stopPropagation()} or by returning `false` from a handler.
+	 *
+	 * @name View#onMouseMove
+	 * @property
+	 * @type ?Function
+	 * @see Item#onMouseMove
+	 */
+
+	/**
+	 * The function to be called when the mouse moves over the view. This
+	 * function will only be called again, once the mouse moved outside of the
+	 * view first. The function receives a {@link MouseEvent} object which
+	 * contains information about the mouse event.
+	 * Note that such mouse events bubble up the scene graph hierarchy, reaching
+	 * the view at the end, unless they are stopped before with {@link
+	 * Event#stopPropagation()} or by returning `false` from a handler.
+	 *
+	 * @name View#onMouseEnter
+	 * @property
+	 * @type ?Function
+	 * @see Item#onMouseEnter
+	 */
+
+	/**
+	 * The function to be called when the mouse moves out of the view.
+	 * The function receives a {@link MouseEvent} object which contains
+	 * information about the mouse event.
+	 * Note that such mouse events bubble up the scene graph hierarchy, reaching
+	 * the view at the end, unless they are stopped before with {@link
+	 * Event#stopPropagation()} or by returning `false` from a handler.
+	 *
+	 * @name View#onMouseLeave
+	 * @property
+	 * @type ?Function
+	 * @see View#onMouseLeave
+	 */
+
+	/**
+	 * The function to be called when the user presses a key on the keyboard.
+	 * The function receives a {@link KeyEvent} object which contains
+	 * information about the keyboard event.
+	 *
+	 * If the function returns `false`, the keyboard event will be prevented
+	 * from bubbling up. This can be used for example to stop the window from
+	 * scrolling, when you need the user to interact with arrow keys.
+	 *
+	 * @name View#onKeyDown
+	 * @property
+	 * @type ?Function
+	 *
+	 * @example {@paperscript}
+	 * // Scaling a path whenever the user presses the space bar:
+	 *
+	 * // Create a circle shaped path:
+	 * var path = new Path.Circle({
+	 *     center: new Point(50, 50),
+	 *     radius: 30,
+	 *     fillColor: 'red'
+	 * });
+	 *
+	 * view.onKeyDown = function(event) {
+	 *     if (event.key == 'space') {
+	 *         // Scale the path by 110%:
+	 *         path.scale(1.1);
+	 *
+	 *         // Prevent the key event from bubbling
+	 *         return false;
+	 *     }
+	 * }
+	 */
+
+	/**
+	 * The function to be called when the user releases a key on the keyboard.
+	 * The function receives a {@link KeyEvent} object which contains
+	 * information about the keyboard event.
+	 *
+	 * If the function returns `false`, the keyboard event will be prevented
+	 * from bubbling up. This can be used for example to stop the window from
+	 * scrolling, when you need the user to interact with arrow keys.
+	 *
+	 * @name View#onKeyUp
+	 * @property
+	 * @type ?Function
+	 *
+	 * @example
+	 * view.onKeyUp = function(event) {
+	 *     if (event.key == 'space') {
+	 *         console.log('The spacebar was released!');
+	 *     }
+	 * }
+	 */
+
+	/**
+	 * {@grouptitle Event Handling}
+	 *
+	 * Attach an event handler to the view.
+	 *
+	 * @name View#on
+	 * @function
+	 * @param {String} type the type of event: {@values 'frame', 'resize',
+	 *     'mousedown', 'mouseup', 'mousedrag', 'click', 'doubleclick',
+	 *     'mousemove', 'mouseenter', 'mouseleave'}
+	 * @param {Function} function the function to be called when the event
+	 *     occurs, receiving a {@link MouseEvent} or {@link Event} object as its
+	 *     sole argument
+	 * @return {View} this view itself, so calls can be chained
+	 *
+	 * @example {@paperscript}
+	 * // Create a rectangle shaped path with its top left point at:
+	 * // {x: 50, y: 25} and a size of {width: 50, height: 50}
+	 * var path = new Path.Rectangle(new Point(50, 25), new Size(50, 50));
+	 * path.fillColor = 'black';
+	 *
+	 * var frameHandler = function(event) {
+	 *     // Every frame, rotate the path by 3 degrees:
+	 *     path.rotate(3);
+	 * };
+	 *
+	 * view.on('frame', frameHandler);
+	 */
+	/**
+	 * Attach one or more event handlers to the view.
+	 *
+	 * @name View#on
+	 * @function
+	 * @param {Object} param an object literal containing one or more of the
+	 *     following properties: {@values frame, resize}
+	 * @return {View} this view itself, so calls can be chained
+	 *
+	 * @example {@paperscript}
+	 * // Create a rectangle shaped path with its top left point at:
+	 * // {x: 50, y: 25} and a size of {width: 50, height: 50}
+	 * var path = new Path.Rectangle(new Point(50, 25), new Size(50, 50));
+	 * path.fillColor = 'black';
+	 *
+	 * var frameHandler = function(event) {
+	 *     // Every frame, rotate the path by 3 degrees:
+	 *     path.rotate(3);
+	 * };
+	 *
+	 * view.on({
+	 *     frame: frameHandler
+	 * });
+	 */
+
+	/**
+	 * Detach an event handler from the view.
+	 *
+	 * @name View#off
+	 * @function
+	 * @param {String} type the event type: {@values 'frame', 'resize',
+	 *     'mousedown', 'mouseup', 'mousedrag', 'click', 'doubleclick',
+	 *     'mousemove', 'mouseenter', 'mouseleave'}
+	 * @param {Function} function the function to be detached
+	 * @return {View} this view itself, so calls can be chained
+	 *
+	 * @example {@paperscript}
+	 * // Create a rectangle shaped path with its top left point at:
+	 * // {x: 50, y: 25} and a size of {width: 50, height: 50}
+	 * var path = new Path.Rectangle(new Point(50, 25), new Size(50, 50));
+	 * path.fillColor = 'black';
+	 *
+	 * var frameHandler = function(event) {
+	 *     // Every frame, rotate the path by 3 degrees:
+	 *     path.rotate(3);
+	 * };
+	 *
+	 * view.on({
+	 *     frame: frameHandler
+	 * });
+	 *
+	 * // When the user presses the mouse,
+	 * // detach the frame handler from the view:
+	 * function onMouseDown(event) {
+	 *     view.off('frame');
+	 * }
+	 */
+	/**
+	 * Detach one or more event handlers from the view.
+	 *
+	 * @name View#off
+	 * @function
+	 * @param {Object} param an object literal containing one or more of the
+	 *     following properties: {@values frame, resize}
+	 * @return {View} this view itself, so calls can be chained
+	 */
+
+	/**
+	 * Emit an event on the view.
+	 *
+	 * @name View#emit
+	 * @function
+	 * @param {String} type the event type: {@values 'frame', 'resize',
+	 *     'mousedown', 'mouseup', 'mousedrag', 'click', 'doubleclick',
+	 *     'mousemove', 'mouseenter', 'mouseleave'}
+	 * @param {Object} event an object literal containing properties describing
+	 * the event
+	 * @return {Boolean} {@true if the event had listeners}
+	 */
+
+	/**
+	 * Check if the view has one or more event handlers of the specified type.
+	 *
+	 * @name View#responds
+	 * @function
+	 * @param {String} type the event type: {@values 'frame', 'resize',
+	 *     'mousedown', 'mouseup', 'mousedrag', 'click', 'doubleclick',
+	 *     'mousemove', 'mouseenter', 'mouseleave'}
+	 * @return {Boolean} {@true if the view has one or more event handlers of
+	 * the specified type}
+	 */
 }, {
 	statics: {
 		_views: [],
@@ -14324,19 +17671,29 @@ var View = Base.extend(Emitter, {
 		create: function(project, element) {
 			if (document && typeof element === 'string')
 				element = document.getElementById(element);
+			// Factory to provide the right View subclass for a given element.
+			// Produces only CanvasView or View items (for workers) for now:
 			var ctor = window ? CanvasView : View;
 			return new ctor(project, element);
 		}
 	}
 },
-new function() {
+new function() { // Injection scope for mouse and key event handling
+	/**
+	 * Native event handling, coordinate conversion, focus handling and
+	 * delegation to view and tool objects. The handling is shared by the DOM
+	 * events in the browser, and #dispatchMouseEvent() and #dispatchKeyEvent()
+	 * for hosts without a DOM, such as workers.
+	 */
 	var prevFocus,
 		tempFocus,
-		dragging = false,
-		mouseDown = false;
+		dragging = false, // mousedown that started on a view.
+		mouseDown = false; // mousedown anywhere.
 
 	function getView(event) {
+		// Get the view from the current event target.
 		var target = DomEvent.getTarget(event);
+		// Some node do not have the getAttribute method, e.g. SVG nodes.
 		return target.getAttribute && View._viewsById[
 				target.getAttribute('id')];
 	}
@@ -14344,6 +17701,7 @@ new function() {
 	function updateFocus() {
 		var view = View._focused;
 		if (!view || !view.isVisible()) {
+			// Find the first visible view
 			for (var i = 0, l = View._views.length; i < l; i++) {
 				if ((view = View._views[i]).isVisible()) {
 					View._focused = tempFocus = view;
@@ -14357,12 +17715,16 @@ new function() {
 		view._handleMouseEvent('mousemove', event, point);
 	}
 
+	// The DOM events, which install themselves on the elements of views, see
+	// _viewEvents, and on the document:
 	var viewEvents = {};
 
 	if (window) {
+		// Touch handling inspired by Hammer.js
 		var navigator = window.navigator,
 			mousedown, mousemove, mouseup;
 		if (navigator.pointerEnabled || navigator.msPointerEnabled) {
+			// HTML5 / MS pointer events
 			mousedown = 'pointerdown MSPointerDown';
 			mousemove = 'pointermove MSPointerMove';
 			mouseup = 'pointerup pointercancel MSPointerUp MSPointerCancel';
@@ -14370,8 +17732,11 @@ new function() {
 			mousedown = 'touchstart';
 			mousemove = 'touchmove';
 			mouseup = 'touchend touchcancel';
+			// Do not add mouse events on mobile and tablet devices
 			if (!('ontouchstart' in window && navigator.userAgent.match(
 					/mobile|tablet|ip(ad|hone|od)|android|silk/i))) {
+				// For non pointer events browsers and mixed browsers, like
+				// chrome on Windows8 touch laptop.
 				mousedown += ' mousedown';
 				mousemove += ' mousemove';
 				mouseup += ' mouseup';
@@ -14379,7 +17744,10 @@ new function() {
 		}
 
 		var docEvents = {
+			// NOTE: mouseleave does not seem to work on document in IE:
 			mouseout: function(event) {
+				// When the moues leaves the document, fire one last mousemove
+				// event, to give items the change to receive a mouseleave, etc.
 				var view = View._focused,
 					target = DomEvent.getRelatedTarget(event);
 				if (view && (!target || target.nodeName === 'HTML'))
@@ -14389,7 +17757,13 @@ new function() {
 			scroll: updateFocus
 		};
 
+		// mousemove and mouseup events need to be installed on document, not
+		// the view element, since we want to catch the end of drag events even
+		// outside our view. Only the mousedown events are installed on the
+		// view, as defined by _viewEvents below.
 		viewEvents[mousedown] = function(event) {
+			// Get the view from the event, and store a reference to the view
+			// that should receive keyboard input.
 			var view = View._focused = getView(event);
 			if (!dragging) {
 				dragging = true;
@@ -14400,9 +17774,15 @@ new function() {
 		docEvents[mousemove] = function(event) {
 			var view = View._focused;
 			if (!mouseDown) {
+				// See if we can get the view from the current event target, and
+				// handle the mouse move over it.
 				var target = getView(event);
 				if (target) {
 					if (view !== target) {
+						// Temporarily focus this view without making it sticky,
+						// so Key events are handled too during the mouse over.
+						// As we switch view, fire one last mousemove in the old
+						// view, to let items receive receive a mouseleave, etc.
 						if (view)
 							handleMouseMove(view, event);
 						if (!prevFocus)
@@ -14410,6 +17790,8 @@ new function() {
 						view = View._focused = tempFocus = target;
 					}
 				} else if (tempFocus && tempFocus === view) {
+					// Clear temporary focus again and switch back to previous
+					// focus but only if it is still valid (still in the DOM).
 					if (prevFocus && !prevFocus.isInserted())
 						prevFocus = null;
 					view = View._focused = prevFocus;
@@ -14422,6 +17804,10 @@ new function() {
 		};
 
 		docEvents[mousedown] = function() {
+			// In order to not switch views during scroll dragging on touch
+			// devices, we need to know if the mouse was clicked anywhere on the
+			// document (see docEvents[mousemove]) The rest happens in
+			// viewEvents[mousedown].
 			mouseDown = true;
 		};
 
@@ -14439,12 +17825,22 @@ new function() {
 		});
 	}
 
+	/**
+	 * Higher level event handling, hit-testing, and emitting of normal mouse
+	 * events along with "virtual" events such as mouseenter, mouseleave,
+	 * mousedrag, click, doubleclick, on both the hit-test item and the view,
+	 * with support for bubbling (event-propagation).
+	 */
+
 	var called = false,
 		prevented = false,
+		// Event fallbacks for "virutal" events, e.g. if an item doesn't respond
+		// to doubleclick, fall back to click:
 		fallbacks = {
 			doubleclick: 'click',
 			mousedrag: 'mousemove'
 		},
+		// Various variables required by #_handleMouseEvent()
 		wasInView = false,
 		overView,
 		downPoint,
@@ -14456,22 +17852,28 @@ new function() {
 		clickTime,
 		dblClick;
 
+	// Returns true if event was prevented, false otherwise.
 	function emitMouseEvent(obj, target, type, event, point, prevPoint,
 			stopItem) {
 		var stopped = false,
 			mouseEvent;
 
+		// Returns true if the event was stopped, false otherwise.
 		function emit(obj, type) {
 			if (obj.responds(type)) {
+				// Only produce the event object if we really need it, and then
+				// reuse it if we're bubbling.
 				if (!mouseEvent) {
 					mouseEvent = new MouseEvent(type, event, point,
 							target || obj,
+							// Calculate delta if prevPoint was passed
 							prevPoint ? point.subtract(prevPoint) : null);
 				}
 				if (obj.emit(type, mouseEvent)) {
 					called = true;
 					if (mouseEvent.prevented)
 						prevented = true;
+					// Bail out if propagation is stopped
 					if (mouseEvent.stopped)
 						return stopped = true;
 				}
@@ -14482,6 +17884,7 @@ new function() {
 			}
 		}
 
+		// Bubble up the parents and emit this event until we're told to stop.
 		while (obj && obj !== stopItem) {
 			if (emit(obj, type))
 				break;
@@ -14490,24 +17893,47 @@ new function() {
 		return stopped;
 	}
 
+	// Returns true if event was stopped, false otherwise.
 	function emitMouseEvents(view, hitItem, type, event, point, prevPoint) {
+		// Before handling events, process removeOn() calls for cleanup.
+		// NOTE: As soon as there is one event handler receiving mousedrag
+		// events, non of the removeOnMove() items will be removed while the
+		// user is dragging.
 		view._project.removeOn(type);
+		// Set called and prevented to false, so they will reflect if the
+		// following calls to emitMouseEvent() have called a handler, and if
+		// and of the handlers called event.preventDefault()
 		prevented = called = false;
+		// First handle the drag-item and its parents, through bubbling.
 		return (dragItem && emitMouseEvent(dragItem, null, type, event,
 					point, prevPoint)
+			// Next handle the hit-item, if it's different from the drag-item
+			// and not a descendant of it (in which case it would already have
+			// received an event in the call above). Translate mousedrag to
+			// mousemove, since drag is handled above.
 			|| hitItem && hitItem !== dragItem
 				&& !hitItem.isDescendant(dragItem)
 				&& emitMouseEvent(hitItem, null, type === 'mousedrag' ?
 					'mousemove' : type, event, point, prevPoint, dragItem)
+			// Lastly handle the mouse events on the view, if we're still here.
 			|| emitMouseEvent(view, dragItem || hitItem || view, type, event,
 					point, prevPoint));
 	}
 
+	/**
+	 * Lookup defining which native events are required by which item events.
+	 * Required by code that is counting the amount of required natives events.
+	 * The mapping is native -> virtual.
+	 */
+	// Stands in for the DOM event in #dispatchMouseEvent() and
+	// #dispatchKeyEvent(), with what the handling reads from it. Hosts can
+	// pass the state of the modifier keys, see Key.modifiers:
 	function createEvent(type, options) {
 		if (options.modifiers)
 			Key.modifiers.set(options.modifiers);
 		return {
 			type: type,
+			// options.timeStamp in milliseconds is deprecated:
 			timeStamp: options.time != null ? options.time * 1000
 					: options.timeStamp != null ? options.timeStamp
 					: Date.now(),
@@ -14522,6 +17948,7 @@ new function() {
 	}
 
 	var itemEventsMap = {
+		// mouseup too, as the press needs the item for needsUp():
 		mousedown: {
 			mousedown: 1,
 			mouseup: 1,
@@ -14543,13 +17970,37 @@ new function() {
 		}
 	};
 
-	return {
+	return /** @lends View# */{
 		_viewEvents: viewEvents,
 
+		/**
+		 * Handles a mouse event that the host provides, for hosts without a
+		 * DOM, such as workers, or with their own event source. It runs the
+		 * same handling as the DOM's mouse events: the active tool's handlers,
+		 * with {@link Tool#minDistance} and the like, then those of the items
+		 * under the point and of the view, including the events that Paper.js
+		 * derives itself: `'mousedrag'`, `'click'`, `'doubleclick'`,
+		 * `'mouseenter'` and `'mouseleave'`. Points outside the view's bounds
+		 * are handled too, since the host decides which events belong to its
+		 * drawing surface.
+		 *
+		 * @option [options.modifiers] {Object} the state of the modifier keys,
+		 *     see {@link Key#modifiers}
+		 * @option [options.button=0] {Number} the mouse button
+		 * @option [options.time=Date.now() / 1000] {Number} the time of the
+		 *     event in seconds, see {@link Event#time}
+		 *
+		 * @param {String} type the type of the event: {@values 'mousedown',
+		 *     'mousemove', 'mouseup'}
+		 * @param {Point} point the location of the mouse in project coordinates
+		 * @param {Object} [options] the details of the event
+		 * @return {Boolean} {@true if a handler prevented the event's default}
+		 */
 		dispatchMouseEvent: function(type, point, options) {
 			if (!/^mouse(down|move|up)$/.test(type))
 				throw new Error('Unknown mouse event type: \'' + type + '\'.');
 			var event = createEvent(type, options || {});
+			// Track presses and drags as the DOM events do:
 			if (type === 'mousedown') {
 				View._focused = this;
 				mouseDown = dragging = true;
@@ -14560,6 +18011,25 @@ new function() {
 			return event.defaultPrevented;
 		},
 
+		/**
+		 * Handles a key event that the host provides, for hosts without a DOM,
+		 * such as workers, or with their own event source. It updates
+		 * {@link Key#modifiers} and {@link Key#isDown(key)}, and calls the
+		 * view's and the active tool's handlers, as the DOM's key events do.
+		 *
+		 * @option [options.character] {String} the character that the key
+		 *     produces. By default, keydown takes the key itself if it is a
+		 *     single character, and keyup the character of its keydown
+		 * @option [options.modifiers] {Object} the state of the modifier keys,
+		 *     see {@link Key#modifiers}
+		 * @option [options.time=Date.now() / 1000] {Number} the time of the
+		 *     event in seconds, see {@link Event#time}
+		 *
+		 * @param {String} type the type of the event: {@values 'keydown',
+		 *     'keyup'}
+		 * @param {String} key the key, as in {@link KeyEvent#key}
+		 * @param {Object} [options] the details of the event
+		 */
 		dispatchKeyEvent: function(type, key, options) {
 			if (!/^key(down|up)$/.test(type))
 				throw new Error('Unknown key event type: \'' + type + '\'.');
@@ -14568,8 +18038,15 @@ new function() {
 					createEvent(type, options), this);
 		},
 
+		/**
+		 * Private method to handle mouse events, and delegate to items and
+		 * tools.
+		 */
 		_handleMouseEvent: function(type, event, point, dispatched) {
 			var itemEvents = this._itemEvents,
+				// Look up hitItems, which tells us whether a given native mouse
+				// event requires an item hit-test or not, before changing type
+				// to the virtual value (e.g. mousemove -> mousedrag):
 				hitItems = itemEvents.native[type],
 				nativeMove = type === 'mousemove',
 				tool = this._scope.tool,
@@ -14580,6 +18057,10 @@ new function() {
 						|| tool && tool.responds(type);
 			}
 
+			// Whether the press needs its default prevented for the events
+			// that follow it: the view's or the tool's mouseup, or those of the
+			// hit item and its ancestors. Presses elsewhere are left to the
+			// browser, so touches can scroll the page (#1930):
 			function needsUp(hitItem) {
 				if (view.responds('mouseup')
 						|| tool && tool.responds('mouseup'))
@@ -14593,6 +18074,9 @@ new function() {
 				return false;
 			}
 
+			// DOM events know the state of the modifier keys, also of those
+			// pressed or released while the page didn't have the focus, so no
+			// key event told us about them (#1140):
 			if (event.shiftKey !== undefined) {
 				Key.modifiers.set({
 					shift: event.shiftKey,
@@ -14601,27 +18085,42 @@ new function() {
 					meta: event.metaKey
 				});
 			}
+			// If it's a native mousemove event but the mouse is down, and at
+			// least one of the events responds to mousedrag, convert to it.
+			// NOTE: emitMouseEvent(), as well as Tool#_handleMouseEvent() fall
+			// back to mousemove if the objects don't respond to mousedrag.
 			if (nativeMove && dragging && responds('mousedrag'))
 				type = 'mousedrag';
 			if (!point)
 				point = this.getEventPoint(event);
 
+			// The moves come from the whole document, so outside of drags, the
+			// pointer is only over the view when no other element covers it,
+			// such as a menu (#992). Its own element and its ancestors don't:
 			var target = DomEvent.getTarget(event),
 				isCovered = nativeMove && !dragging && target
 						&& target.nodeType === 1
 						&& !target.contains(this._element),
 				inView = dispatched
 						|| !isCovered && this.getBounds().contains(point),
+				// Run the hit-test on items first, but only if we're required
+				// to do so for this given mouse event, see hitItems and
+				// #_countItemEvent():
 				hit = hitItems && inView && view._project.hitTest(point, {
-					tolerance: 0,
+					tolerance: view._scope.settings.hitTolerance,
 					fill: true,
 					stroke: true
 				}),
 				hitItem = hit && hit.item || null,
+				// Keep track if view event should be handled, so we can use it
+				// to decide if tool._handleMouseEvent() shall be called after.
 				handle = false,
 				mouse = {};
+			// Create a simple lookup object to quickly check for different
+			// mouse event types.
 			mouse[type.substr(5)] = true;
 
+			// Handle mouseenter / leave between items and views first.
 			if (hitItems && hitItem !== overItem) {
 				if (overItem) {
 					emitMouseEvent(overItem, null, 'mouseleave', event, point);
@@ -14631,27 +18130,46 @@ new function() {
 				}
 				overItem = hitItem;
 			}
+			// Handle mouseenter / leave on the view.
 			if (wasInView ^ inView) {
 				emitMouseEvent(this, null, inView ? 'mouseenter' : 'mouseleave',
 						event, point);
 				overView = inView ? this : null;
-				handle = true;
+				handle = true; // To include the leaving move.
 			}
+			// Now handle the mousemove / mousedrag event.
+			// Always call the view's mouse handlers first, as required by
+			// CanvasView, and then handle the active tool after, if any.
+			// mousedrag is allowed to leave the view and still triggers events,
+			// but do not trigger two subsequent even with the same location.
 			if ((inView || mouse.drag) && !point.equals(lastPoint)) {
+				// Handle mousemove even if this is not actually a mousemove
+				// event but the mouse has moved since the last event.
 				emitMouseEvents(this, hitItem, nativeMove ? type : 'mousemove',
 						event, point, lastPoint);
 				handle = true;
 			}
 			wasInView = inView;
+			// Now handle mousedown / mouseup
+			// We emit mousedown only when in the view, and mouseup regardless,
+			// as long as the mousedown event was inside.
 			if (mouse.down && inView || mouse.up && downPoint) {
 				emitMouseEvents(this, hitItem, type, event, point, downPoint);
 				if (mouse.down) {
+					// See if we're clicking again on the same item, within the
+					// double-click time and distance, measured from mousedown
+					// to mousedown like native dblclick events, but not for a
+					// third click. Firefox uses 300ms as the max time
+					// difference:
 					var time = Date.now();
 					dblClick = !dblClick && hitItem === clickItem
 						&& time - clickTime < 300
 						&& point.getDistance(downPoint) < 3;
 					downItem = clickItem = hitItem;
 					clickTime = time;
+					// Only start dragging if the mousedown event has not
+					// prevented the default, and if the hitItem or any of its
+					// parents actually respond to mousedrag events.
 					if (!prevented && hitItem) {
 						var item = hitItem;
 						while (item && !item.responds('mousedrag'))
@@ -14661,21 +18179,39 @@ new function() {
 					}
 					downPoint = point;
 				} else if (mouse.up) {
+					// Emulate click / doubleclick, but only on the hit-item,
+					// not the view.
 					if (!prevented && hitItem === downItem) {
 						emitMouseEvents(this, hitItem, dblClick ? 'doubleclick'
 								: 'click', event, point, downPoint);
 					}
 					downItem = dragItem = null;
 				}
+				// Clear wasInView so we're not accidentally handling mousedrag
+				// events that started outside the view as mousemove events on
+				// the view (needed to handle touch scrolling correctly).
 				wasInView = false;
 				handle = true;
 			}
 			lastPoint = point;
+			// Now finally call the tool events, but filter mouse move events
+			// to only be fired if we're inside the view or if we just left it.
+			// Prevent default if at least one handler was called, and none of
+			// them enforces default, to prevent scrolling on touch devices.
 			if (handle && tool) {
 				called = tool._handleMouseEvent(type, event, point, mouse)
 					|| called;
 			}
 
+			// Now call `preventDefault()`, if any of these conditions are met:
+			// - If any of the handlers were called, except for mousemove events
+			//   which can call `preventDefault()` explicitly or return `false`.
+			// - If this is a unhandled mousedown event, but what follows needs
+			//   it, see needsUp().
+			//
+			// Some events are not cancelable anyway (like during a scroll
+			// inertia on mobile) so trying to prevent default in those case
+			// would result in no effect and an error.
 			if (
 				event.cancelable !== false
 				&& (called && !mouse.move || mouse.down && needsUp(hitItem))
@@ -14684,6 +18220,9 @@ new function() {
 			}
 		},
 
+		/**
+		 * Private method to handle key events.
+		 */
 		_handleKeyEvent: function(type, event, key, character) {
 			var scope = this._scope,
 				tool = scope.tool,
@@ -14691,18 +18230,24 @@ new function() {
 
 			function emit(obj) {
 				if (obj.responds(type)) {
+					// Update global reference to this scope.
 					paper = scope;
+					// Only produce the event object if we really need it.
 					obj.emit(type, keyEvent = keyEvent
 							|| new KeyEvent(type, event, key, character));
 				}
 			}
 
+			// Call the onKeyDown or onKeyUp handler if present
 			emit(this);
 			if (tool && tool.responds(type))
 				emit(tool);
 		},
 
 		_countItemEvent: function(type, sign) {
+			// If the view requires counting of installed mouse events,
+			// change the event counters now according to itemEventsMap
+			// (defined in the code further above).
 			var itemEvents = this._itemEvents,
 				native = itemEvents.native,
 				virtual = itemEvents.virtual;
@@ -14710,12 +18255,23 @@ new function() {
 				native[key] = (native[key] || 0)
 						+ (itemEventsMap[key][type] || 0) * sign;
 			}
+			// Also update the count of virtual events installed.
 			virtual[type] = (virtual[type] || 0) + sign;
 		},
 
 		statics: {
+			/**
+			 * Loops through all views and sets the focus on the first
+			 * active one.
+			 */
 			updateFocus: updateFocus,
 
+			/**
+			 * Clear all events handling state information. Made for testing
+			 * purpose, to have a way to start with a fresh state before each
+			 * test.
+			 * @private
+			 */
 			_resetState: function() {
 				dragging = mouseDown = called = wasInView = false;
 				prevFocus = tempFocus = overView = downPoint = lastPoint =
@@ -14726,11 +18282,43 @@ new function() {
 	};
 });
 
-var CanvasView = View.extend({
+/*
+ * Paper.js - The Swiss Army Knife of Vector Graphics Scripting.
+ * http://paperjs.org/
+ *
+ * Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey
+ * http://juerglehni.com/ & https://puckey.studio/
+ *
+ * Distributed under the MIT license. See LICENSE file for details.
+ *
+ * All rights reserved.
+ */
+
+/**
+ * @name CanvasView
+ * @class
+ * @private
+ */
+var CanvasView = View.extend(/** @lends CanvasView# */{
 	_class: 'CanvasView',
 
+	/**
+	 * Creates a view object that wraps a canvas element.
+	 *
+	 * @name CanvasView#initialize
+	 * @param {HTMLCanvasElement} canvas the Canvas object that this view should
+	 *     wrap
+	 */
+	/**
+	 * Creates a view object that wraps a newly created canvas element.
+	 *
+	 * @name CanvasView#initialize
+	 * @param {Size} size the size of the canvas to be created
+	 */
 	initialize: function CanvasView(project, canvas) {
+		// Handle canvas argument
 		if (!(canvas instanceof window.HTMLCanvasElement)) {
+			// See if the arguments describe the view size:
 			var size = Size.read(arguments, 1);
 			if (size.isZero())
 				throw new Error(
@@ -14739,15 +18327,20 @@ var CanvasView = View.extend({
 			canvas = CanvasProvider.getCanvas(size);
 		}
 		var ctx = this._context = canvas.getContext('2d');
+		// Save context right away, and restore in #remove(). Also restore() and
+		// save() again in _setElementSize() to prevent accumulation of scaling.
 		ctx.save();
 		this._pixelRatio = 1;
 		if (!/^off|false$/.test(PaperScope.getAttribute(canvas, 'hidpi'))) {
+			// Hi-DPI Canvas support based on:
+			// https://www.html5rocks.com/en/tutorials/canvas/hidpi/
 			var deviceRatio = window.devicePixelRatio || 1,
 				backingStoreRatio = DomElement.getPrefixed(ctx,
 						'backingStorePixelRatio') || 1;
 			this._pixelRatio = deviceRatio / backingStoreRatio;
 		}
 		View.call(this, project, canvas);
+		// We can't be sure the canvas is clear
 		this._needsUpdate = true;
 	},
 
@@ -14759,8 +18352,13 @@ var CanvasView = View.extend({
 	_setElementSize: function _setElementSize(width, height) {
 		var pixelRatio = this._pixelRatio,
 			element = this._element;
+		// Upscale the canvas if the pixel ratio is more than 1.
 		_setElementSize.base.call(this, width * pixelRatio, height * pixelRatio);
+		// Set the size of non-resizable canvases through their style, as they
+		// would appear too big on HiDPI screens otherwise. Also at a pixel
+		// ratio of 1, so they behave the same on every screen (#2088):
 		if (!PaperScope.hasAttribute(element, 'resize')) {
+			// With border-box sizing, the style includes padding and border:
 			var style = element.style,
 				insets = DomElement.getStyles(element).boxSizing
 					=== 'border-box'
@@ -14770,6 +18368,8 @@ var CanvasView = View.extend({
 			style.height = (height + insets.height) + 'px';
 		}
 		if (pixelRatio !== 1) {
+			// Scale the context to counter the fact that we've manually scaled
+			// our canvas element.
 			var ctx = this._context;
 			ctx.restore();
 			ctx.save();
@@ -14781,6 +18381,20 @@ var CanvasView = View.extend({
 		return this._context;
 	},
 
+	/**
+	 * Converts the provide size in any of the units allowed in the browser to
+	 * pixels.
+	 */
+	/**
+	 * Updates the view if there are changes. Note that when using built-in
+	 * event handlers for interaction, animation and load events, this method is
+	 * invoked for you automatically at the end.
+	 *
+	 * @param {Boolean} [force=false] whether to redraw the view even if nothing
+	 * has changed, e.g. after a web font used by text items has finished
+	 * loading
+	 * @return {Boolean} {@true if the view was updated}
+	 */
 	update: function(force) {
 		if (!this._needsUpdate && !force)
 			return false;
@@ -14795,7 +18409,26 @@ var CanvasView = View.extend({
 	}
 });
 
-var Event = Base.extend({
+/*
+ * Paper.js - The Swiss Army Knife of Vector Graphics Scripting.
+ * http://paperjs.org/
+ *
+ * Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey
+ * http://juerglehni.com/ & https://puckey.studio/
+ *
+ * Distributed under the MIT license. See LICENSE file for details.
+ *
+ * All rights reserved.
+ */
+
+/**
+ * @name Event
+ *
+ * @class The Event object is the base class for any of the other event types,
+ * such as {@link MouseEvent}, {@link ToolEvent} and {@link KeyEvent}.
+ */
+/* global Event: true */
+var Event = Base.extend(/** @lends Event# */{
 	_class: 'Event',
 
 	initialize: function Event(event) {
@@ -14806,35 +18439,96 @@ var Event = Base.extend({
 	prevented: false,
 	stopped: false,
 
+	/**
+	 * Cancels the event if it is cancelable, without stopping further
+	 * propagation of the event.
+	 */
 	preventDefault: function() {
 		this.prevented = true;
 		this.event.preventDefault();
 	},
 
+	/**
+	 * Prevents further propagation of the current event.
+	 */
 	stopPropagation: function() {
 		this.stopped = true;
 		this.event.stopPropagation();
 	},
 
+	/**
+	 * Cancels the event if it is cancelable, and stops stopping further
+	 * propagation of the event. This is has the same effect as calling both
+	 * {@link #stopPropagation()} and {@link #preventDefault()}.
+	 *
+	 * Any handler can also return `false` to indicate that `stop()` should be
+	 * called right after.
+	 */
 	stop: function() {
 		this.stopPropagation();
 		this.preventDefault();
 	},
 
+	/**
+	 * The time at which the event was created, in seconds, as the times of
+	 * frame events are. Browsers count from the page's time origin, as
+	 * `performance.now()` does, while
+	 * {@link View#dispatchMouseEvent(type, point[, options])} and
+	 * {@link View#dispatchKeyEvent(type, key[, options])} use `Date.now()`
+	 * unless the host passes a time, so only compare the times of events from
+	 * the same source.
+	 *
+	 * @bean
+	 * @type Number
+	 */
 	getTime: function() {
 		return this.event.timeStamp / 1000;
 	},
 
+	/**
+	 * @bean
+	 * @type Number
+	 * @deprecated use {@link #time} instead, which is in seconds.
+	 */
 	getTimeStamp: function() {
 		return this.event.timeStamp;
 	},
 
+	/**
+	 * The current state of the keyboard modifiers.
+	 *
+	 * @bean
+	 * @type object
+	 * @see Key.modifiers
+	 */
 	getModifiers: function() {
 		return Key.modifiers;
 	}
 });
 
-var KeyEvent = Event.extend({
+/*
+ * Paper.js - The Swiss Army Knife of Vector Graphics Scripting.
+ * http://paperjs.org/
+ *
+ * Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey
+ * http://juerglehni.com/ & https://puckey.studio/
+ *
+ * Distributed under the MIT license. See LICENSE file for details.
+ *
+ * All rights reserved.
+ */
+
+/**
+ * @name KeyEvent
+ *
+ * @class The KeyEvent object is received by the {@link Tool}'s keyboard
+ * handlers {@link Tool#onKeyDown}, {@link Tool#onKeyUp}. The KeyEvent object is
+ * the only parameter passed to these functions and contains information about
+ * the keyboard event.
+ *
+ * @extends Event
+ */
+var KeyEvent = Event.extend(/** @lends KeyEvent# */{
 	_class: 'KeyEvent',
 
 	initialize: function KeyEvent(type, event, key, character) {
@@ -14844,6 +18538,36 @@ var KeyEvent = Event.extend({
 		this.character = character;
 	},
 
+	/**
+	 * The type of mouse event.
+	 *
+	 * @name KeyEvent#type
+	 * @type String
+	 * @values 'keydown', 'keyup'
+	 */
+
+	/**
+	 * The character representation of the key that caused this key event,
+	 * taking into account the current key-modifiers (e.g. shift, control,
+	 * caps-lock, etc.)
+	 *
+	 * @name KeyEvent#character
+	 * @type String
+	 */
+
+	/**
+	 * The key that caused this key event, either as a lower-case character or
+	 * special key descriptor.
+	 *
+	 * @name KeyEvent#key
+	 * @type String
+	 * @values 'enter', 'space', 'shift', 'control', 'alt', 'meta', 'caps-lock',
+	 *     'left', 'up', 'right', 'down', 'escape', 'delete', ...
+	 */
+
+	/**
+	 * @return {String} a string representation of the key event
+	 */
 	toString: function() {
 		return "{ type: '" + this.type
 				+ "', key: '" + this.key
@@ -14853,11 +18577,28 @@ var KeyEvent = Event.extend({
 	}
 });
 
+/*
+ * Paper.js - The Swiss Army Knife of Vector Graphics Scripting.
+ * http://paperjs.org/
+ *
+ * Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey
+ * http://juerglehni.com/ & https://puckey.studio/
+ *
+ * Distributed under the MIT license. See LICENSE file for details.
+ *
+ * All rights reserved.
+ */
+
+/**
+ * @name Key
+ * @namespace
+ */
 var Key = new function() {
 	var keyLookup = {
+			// Unify different key identifier naming schemes, e.g. on Gecko, IE:
 			'\t': 'tab',
 			' ': 'space',
-			'\xA0': 'space',
+			'\xA0': 'space', // Option + Space on macOS = non-breaking space.
 			'\b': 'backspace',
 			'\x7f': 'delete',
 			'Spacebar': 'space',
@@ -14866,31 +18607,44 @@ var Key = new function() {
 			'Esc': 'escape'
 		},
 
+		// To find corresponding characters for special keys in keydown events:
 		charLookup = {
 			'tab': '\t',
 			'space': ' ',
 			'enter': '\r'
 		},
 
-		keyMap = {},
-		charMap = {},
-		metaFixMap,
-		downKey,
+		// Only keypress reliable gets char-codes that are actually representing
+		// characters with all modifiers taken into account across all browsers.
+		// So we need to perform a little trickery here to use these codes with
+		// onKeyDown/Up:
+		// - keydown is used to handle modifiers and special keys such as
+		//   arrows, space, control, etc, for which events are fired right away.
+		// - keypress fires the actual onKeyDown event for all other keys.
+		// - keyup handles the onKeyUp events for both.
+		keyMap = {}, // Map for currently pressed keys
+		charMap = {}, // key -> char mappings for pressed keys
+		metaFixMap, // Keys that will not receive keyup events due to Mac bug
+		downKey, // The key from the keydown event, if it wasn't handled already
 
+		// Use new Base() to convert into a Base object, for #toString()
 		modifiers = new Base({
 			shift: false,
 			control: false,
-			alt: false,
-			meta: false,
+			alt: false, // WAS: option
+			meta: false, // WAS: command
 			capsLock: false,
 			space: false
 		}).inject({
+			// Short-cut to modifiers.alt for backward compatibility
 			option: {
 				get: function() {
 					return this.alt;
 				}
 			},
 
+			// Platform independent short-cut to modifiers.control / meta,
+			// based on whichever key is used for commands.
 			command: {
 				get: function() {
 					var agent = paper && paper.agent;
@@ -14902,15 +18656,22 @@ var Key = new function() {
 	function getKey(event) {
 		var key = event.key || event.keyIdentifier;
 		key = /^U\+/.test(key)
+				// Expand keyIdentifier Unicode format.
 				? String.fromCharCode(parseInt(key.substr(2), 16))
+				// Use short version for arrow keys: ArrowLeft -> Left
 				: /^Arrow[A-Z]/.test(key) ? key.substr(5)
+				// This is far from ideal, but what else can we do?
 				: key === 'Unidentified'  || key === undefined
 					? String.fromCharCode(event.keyCode)
 					: key;
 		return keyLookup[key] ||
+				// Hyphenate camel-cased special keys, lower-case normal ones:
 				(key.length > 1 ? Base.hyphenate(key) : key.toLowerCase());
 	}
 
+	// View#dispatchKeyEvent() passes its view. For the DOM's key events, the
+	// focused view may have been hidden since the last mouse event, while
+	// another one became visible (#1953), and only visible views get them:
 	function handleKey(down, key, character, event, view) {
 		if (!view) {
 			View.updateFocus();
@@ -14918,23 +18679,36 @@ var Key = new function() {
 			if (view && !view.isVisible())
 				view = null;
 		}
+		// View#dispatchKeyEvent() can leave out the character, which keyup
+		// takes from keydown, as the DOM's keyup events do below:
 		if (character == null)
 			character = down ? key.length > 1 ? '' : key : charMap[key] || '';
 		var name;
 		keyMap[key] = down;
+		// Link the key from keydown with the character form keypress, so keyup
+		// can retrieve the character again.
+		// Use delete instead of setting to null, so charMap only contains keys
+		// that are currently pressed, allowing the use of `key in charMap`
+		// checks and enumeration over pressed keys, e.g. in the blur event.
 		if (down) {
 			charMap[key] = character;
 		} else {
 			delete charMap[key];
 		}
+		// Detect modifiers and mark them as pressed / released
 		if (key.length > 1 && (name = Base.camelize(key)) in modifiers) {
 			modifiers[name] = down;
 			var agent = paper && paper.agent;
 			if (name === 'meta' && agent && agent.mac) {
+				// Fix a strange behavior on Mac where no keyup events are
+				// received for any keys pressed while the meta key is down.
+				// Keep track of the normal keys being pressed and trigger keyup
+				// events for all these keys when meta is released:
 				if (down) {
 					metaFixMap = {};
 				} else {
 					for (var k in metaFixMap) {
+						// Make sure it wasn't released already in the meantime:
 						if (k in charMap)
 							handleKey(false, k, metaFixMap[k], event, view);
 					}
@@ -14942,6 +18716,7 @@ var Key = new function() {
 				}
 			}
 		} else if (down && metaFixMap) {
+			// A normal key, add it to metaFixMap if that's defined.
 			metaFixMap[key] = character;
 		}
 		if (view) {
@@ -14953,11 +18728,17 @@ var Key = new function() {
 	DomEvent.add(document, {
 		keydown: function(event) {
 			var key = getKey(event);
+			// Directly handle any special keys (key.length > 1) in keydown, as
+			// not all of them will receive keypress events. Neither do keys
+			// pressed with control, alt or meta in modern browsers.
 			if (key.length > 1 || event.ctrlKey || event.altKey
 					|| event.metaKey) {
 				handleKey(true, key,
 						charLookup[key] || (key.length > 1 ? '' : key), event);
 			} else {
+				// If it wasn't handled yet, store the downKey so keypress can
+				// compare and handle buggy edge cases, known to happen in
+				// Chrome on Ubuntu.
 				downKey = key;
 			}
 		},
@@ -14966,9 +18747,14 @@ var Key = new function() {
 			if (downKey) {
 				var key = getKey(event),
 					code = event.charCode,
+					// Try event.charCode if its above 32 and fall back onto the
+					// key value if it's a single character, empty otherwise.
 					character = code >= 32 ? String.fromCharCode(code)
 						: key.length > 1 ? '' : key;
 				if (key !== downKey) {
+					// This shouldn't happen, but it does in Chrome on Ubuntu.
+					// In these cases, character is actually the key we want!
+					// See #881
 					key = character.toLowerCase();
 				}
 				handleKey(true, key, character, event);
@@ -14985,23 +18771,93 @@ var Key = new function() {
 
 	DomEvent.add(window, {
 		blur: function(event) {
+			// Emit key-up events for all currently pressed keys.
 			for (var key in charMap)
 				handleKey(false, key, charMap[key], event);
 		}
 	});
 
-	return {
+	return /** @lends Key */{
 		_handleKey: handleKey,
 
+		/**
+		 * The current state of the keyboard modifiers.
+		 *
+		 * @property
+		 * @type Object
+		 *
+		 * @option modifiers.shift {Boolean} {@true if the shift key is
+		 *     pressed}.
+		 * @option modifiers.control {Boolean} {@true if the control key is
+		 *     pressed}.
+		 * @option modifiers.alt {Boolean} {@true if the alt/option key is
+		 *     pressed}.
+		 * @option modifiers.meta {Boolean} {@true if the meta/windows/command
+		 *     key is pressed}.
+		 * @option modifiers.capsLock {Boolean} {@true if the caps-lock key is
+		 *     active}.
+		 * @option modifiers.space {Boolean} {@true if the space key is
+		 *     pressed}.
+		 * @option modifiers.option {Boolean} {@true if the alt/option key is
+		 *     pressed}. This is the same as `modifiers.alt`
+		 * @option modifiers.command {Boolean} {@true if the meta key is pressed
+		 *     on Mac, or the control key is pressed on Windows and Linux}.
+		 */
 		modifiers: modifiers,
 
+		/**
+		 * Checks whether the specified key is pressed.
+		 *
+		 * @param {String} key any character or special key descriptor:
+		 *     {@values 'enter', 'space', 'shift', 'control', 'alt', 'meta',
+		 *     'caps-lock', 'left', 'up', 'right', 'down', 'escape', 'delete',
+		 *     ...}
+		 * @return {Boolean} {@true if the key is pressed}
+		 *
+		 * @example
+		 * // Whenever the user clicks, create a circle shaped path. If the
+		 * // 'a' key is pressed, fill it with red, otherwise fill it with blue:
+		 * function onMouseDown(event) {
+		 *     var path = new Path.Circle(event.point, 10);
+		 *     if (Key.isDown('a')) {
+		 *         path.fillColor = 'red';
+		 *     } else {
+		 *         path.fillColor = 'blue';
+		 *     }
+		 * }
+		 */
 		isDown: function(key) {
 			return !!keyMap[key];
 		}
 	};
 };
 
-var MouseEvent = Event.extend({
+/*
+ * Paper.js - The Swiss Army Knife of Vector Graphics Scripting.
+ * http://paperjs.org/
+ *
+ * Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey
+ * http://juerglehni.com/ & https://puckey.studio/
+ *
+ * Distributed under the MIT license. See LICENSE file for details.
+ *
+ * All rights reserved.
+ */
+
+/**
+ * @name MouseEvent
+ *
+ * @class The MouseEvent object is received by the {@link Item}'s mouse event
+ * handlers {@link Item#onMouseDown}, {@link Item#onMouseDrag},
+ * {@link Item#onMouseMove}, {@link Item#onMouseUp}, {@link Item#onClick},
+ * {@link Item#onDoubleClick}, {@link Item#onMouseEnter} and
+ * {@link Item#onMouseLeave}. The MouseEvent object is the only parameter passed
+ * to these functions and contains information about the mouse event.
+ *
+ * @extends Event
+ */
+/* global MouseEvent: true */
+var MouseEvent = Event.extend(/** @lends MouseEvent# */{
 	_class: 'MouseEvent',
 
 	initialize: function MouseEvent(type, event, point, target, delta) {
@@ -15012,6 +18868,51 @@ var MouseEvent = Event.extend({
 		this.delta = delta;
 	},
 
+	/**
+	 * The type of mouse event.
+	 *
+	 * @name MouseEvent#type
+	 * @type String
+	 * @values 'mousedown', 'mouseup', 'mousedrag', 'click', 'doubleclick',
+	 *     'mousemove', 'mouseenter', 'mouseleave'
+	 */
+
+	/**
+	 * The position of the mouse in project coordinates when the event was
+	 * fired.
+	 *
+	 * @name MouseEvent#point
+	 * @type Point
+	 */
+
+	/**
+	 * The item that dispatched the event. It is different from
+	 * {@link #currentTarget} when the event handler is called during
+	 * the bubbling phase of the event.
+	 *
+	 * @name MouseEvent#target
+	 * @type Item
+	 */
+
+	/**
+	 * The current target for the event, as the event traverses the scene graph.
+	 * It always refers to the element the event handler has been attached to as
+	 * opposed to {@link #target} which identifies the element on
+	 * which the event occurred.
+	 *
+	 * @name MouseEvent#currentTarget
+	 * @type Item
+	 */
+
+	// DOCS: document MouseEvent#delta
+	/**
+	 * @name MouseEvent#delta
+	 * @type Point
+	 */
+
+	/**
+	 * @return {String} a string representation of the mouse event
+	 */
 	toString: function() {
 		return "{ type: '" + this.type
 				+ "', point: " + this.point
@@ -15022,8 +18923,32 @@ var MouseEvent = Event.extend({
 	}
 });
 
-var ToolEvent = Event.extend({
+/*
+ * Paper.js - The Swiss Army Knife of Vector Graphics Scripting.
+ * http://paperjs.org/
+ *
+ * Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey
+ * http://juerglehni.com/ & https://puckey.studio/
+ *
+ * Distributed under the MIT license. See LICENSE file for details.
+ *
+ * All rights reserved.
+ */
+
+/**
+ * @name ToolEvent
+ *
+ * @class ToolEvent The ToolEvent object is received by the {@link Tool}'s mouse
+ * event handlers {@link Tool#onMouseDown}, {@link Tool#onMouseDrag},
+ * {@link Tool#onMouseMove} and {@link Tool#onMouseUp}. The ToolEvent
+ * object is the only parameter passed to these functions and contains
+ * information about the mouse event.
+ *
+ * @extends Event
+ */
+var ToolEvent = Event.extend(/** @lends ToolEvent# */{
 	_class: 'ToolEvent',
+	// Have ToolEvent#item fall back to returning null, not undefined.
 	_item: null,
 
 	initialize: function ToolEvent(tool, type, event) {
@@ -15032,10 +18957,47 @@ var ToolEvent = Event.extend({
 		this.event = event;
 	},
 
+	/**
+	 * Convenience method to allow local overrides of point values.
+	 * See application below.
+	 */
 	_choosePoint: function(point, toolPoint) {
 		return point ? point : toolPoint ? toolPoint.clone() : null;
 	},
 
+	/**
+	 * The type of tool event.
+	 *
+	 * @name ToolEvent#type
+	 * @type String
+	 * @values 'mousedown', 'mouseup', 'mousemove', 'mousedrag'
+	 */
+
+	/**
+	 * The tool that fired the event.
+	 *
+	 * @name ToolEvent#tool
+	 * @type Tool
+	 */
+
+	/**
+	 * The position of the mouse in project coordinates when the event was
+	 * fired.
+	 *
+	 * @example
+	 * function onMouseDrag(event) {
+	 *     // the position of the mouse when it is dragged
+	 *     console.log(event.point);
+	 * }
+	 *
+	 * function onMouseUp(event) {
+	 *     // the position of the mouse when it is released
+	 *     console.log(event.point);
+	 * }
+	 *
+	 * @bean
+	 * @type Point
+	 */
 	getPoint: function() {
 		return this._choosePoint(this._point, this.tool._point);
 	},
@@ -15044,6 +19006,13 @@ var ToolEvent = Event.extend({
 		this._point = point;
 	},
 
+	/**
+	 * The position of the mouse in project coordinates when the previous
+	 * event was fired.
+	 *
+	 * @bean
+	 * @type Point
+	 */
 	getLastPoint: function() {
 		return this._choosePoint(this._lastPoint, this.tool._lastPoint);
 	},
@@ -15052,6 +19021,13 @@ var ToolEvent = Event.extend({
 		this._lastPoint = lastPoint;
 	},
 
+	/**
+	 * The position of the mouse in project coordinates when the mouse button
+	 * was last clicked.
+	 *
+	 * @bean
+	 * @type Point
+	 */
 	getDownPoint: function() {
 		return this._choosePoint(this._downPoint, this.tool._downPoint);
 	},
@@ -15060,8 +19036,19 @@ var ToolEvent = Event.extend({
 		this._downPoint = downPoint;
 	},
 
+	/**
+	 * The point in the middle between {@link #lastPoint} and
+	 * {@link #point}. This is a useful position to use when creating
+	 * artwork based on the moving direction of the mouse, as returned by
+	 * {@link #delta}.
+	 *
+	 * @bean
+	 * @type Point
+	 */
 	getMiddlePoint: function() {
+		// For explanations, see getDelta()
 		if (!this._middlePoint && this.tool._lastPoint) {
+			// (point + lastPoint) / 2
 			return this.tool._point.add(this.tool._lastPoint).divide(2);
 		}
 		return this._middlePoint;
@@ -15071,7 +19058,20 @@ var ToolEvent = Event.extend({
 		this._middlePoint = middlePoint;
 	},
 
+	/**
+	 * The difference between the current position and the last position of the
+	 * mouse when the event was fired. In case of the mouseup event, the
+	 * difference to the mousedown position is returned.
+	 *
+	 * @bean
+	 * @type Point
+	 */
 	getDelta: function() {
+		// Do not put the calculated delta into delta, since this only reserved
+		// for overriding event.delta.
+		// Instead, keep calculating the delta each time, so the result can be
+		// directly modified by the script without changing the internal values.
+		// We could cache this and use clone, but this is almost as fast...
 		return !this._delta && this.tool._lastPoint
 				? this.tool._point.subtract(this.tool._lastPoint)
 				: this._delta;
@@ -15081,6 +19081,18 @@ var ToolEvent = Event.extend({
 		this._delta = delta;
 	},
 
+	/**
+	 * The velocity of the mouse, in points per second: the distance it moved
+	 * since the last tool event, divided by the time between them, so it
+	 * points in the direction of the move, and its length is the speed. It
+	 * stays even when the system misses a mouse report. The events that
+	 * {@link Tool#maxDistance} adds along one move share its velocity, and the
+	 * repeats of {@link Tool#eventInterval} have none. On mousedown, and when
+	 * no time passed, it's zero.
+	 *
+	 * @bean
+	 * @type Point
+	 */
 	getVelocity: function() {
 		return this._velocity || this.tool._velocity.clone();
 	},
@@ -15089,6 +19101,16 @@ var ToolEvent = Event.extend({
 		this._velocity = velocity;
 	},
 
+	/**
+	 * The time since the last tool event, in seconds, measured between the
+	 * reports of the mouse as {@link #velocity} is: the events that
+	 * {@link Tool#maxDistance} adds along one move share it, and the repeats
+	 * of {@link Tool#eventInterval} have the interval. It's zero on the first
+	 * event.
+	 *
+	 * @bean
+	 * @type Number
+	 */
 	getElapsed: function() {
 		return this._elapsed != null ? this._elapsed : this.tool._elapsed;
 	},
@@ -15097,7 +19119,15 @@ var ToolEvent = Event.extend({
 		this._elapsed = elapsed;
 	},
 
+	/**
+	 * The number of times the mouse event was fired.
+	 *
+	 * @bean
+	 * @type Number
+	 */
 	getCount: function() {
+		// Return downCount for both mouse down and up, since
+		// the count is the same.
 		return this.tool[/^mouse(down|up)$/.test(this.type)
 				? '_downCount' : '_moveCount'];
 	},
@@ -15107,11 +19137,22 @@ var ToolEvent = Event.extend({
 				? '_downCount' : '_moveCount'] = count;
 	},
 
+	/**
+	 * The item at the position of the mouse (if any).
+	 *
+	 * If the item is contained within one or more {@link Group} or
+	 * {@link CompoundPath} items, the most top level group or compound path
+	 * that it is contained within is returned.
+	 *
+	 * @bean
+	 * @type Item
+	 */
 	getItem: function() {
 		if (!this._item) {
 			var result = this.tool._scope.project.hitTest(this.getPoint());
 			if (result) {
 				var item = result.item,
+					// Find group parent, but exclude layers
 					parent = item._parent;
 				while (/^(Group|CompoundPath)$/.test(parent._class)) {
 					item = parent;
@@ -15127,6 +19168,9 @@ var ToolEvent = Event.extend({
 		this._item = item;
 	},
 
+	/**
+	 * @return {String} a string representation of the tool event
+	 */
 	toString: function() {
 		return '{ type: ' + this.type
 				+ ', point: ' + this.getPoint()
@@ -15136,21 +19180,99 @@ var ToolEvent = Event.extend({
 	}
 });
 
-var Tool = PaperScopeItem.extend({
+/*
+ * Paper.js - The Swiss Army Knife of Vector Graphics Scripting.
+ * http://paperjs.org/
+ *
+ * Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey
+ * http://juerglehni.com/ & https://puckey.studio/
+ *
+ * Distributed under the MIT license. See LICENSE file for details.
+ *
+ * All rights reserved.
+ */
+
+/**
+ * @name Tool
+ *
+ * @class The Tool object refers to a script that the user can interact with by
+ *     using the mouse and keyboard and can be accessed through the global
+ *     `tool` variable. All its properties are also available in the paper
+ *     scope.
+ *
+ * The global `tool` variable only exists in scripts that contain mouse handler
+ * functions ({@link #onMouseMove}, {@link #onMouseDown}, {@link #onMouseDrag},
+ * {@link #onMouseUp}) or a keyboard handler function ({@link #onKeyDown},
+ * {@link #onKeyUp}).
+ *
+ * @classexample {@paperscript height=300}
+ * var path;
+ *
+ * // Only execute onMouseDrag when the mouse
+ * // has moved at least 10 points:
+ * tool.minDistance = 10;
+ *
+ * tool.onMouseDown = function(event) {
+ *     // Create a new path every time the mouse is clicked
+ *     path = new Path();
+ *     path.add(event.point);
+ *     path.strokeColor = 'black';
+ * }
+ *
+ * tool.onMouseDrag = function(event) {
+ *     // Add a point to the path every time the mouse is dragged
+ *     path.add(event.point);
+ * }
+ */
+var Tool = PaperScopeItem.extend(/** @lends Tool# */{
 	_class: 'Tool',
 	_list: 'tools',
+	// TODO: This should be `activeTool` instead?
 	_reference: 'tool',
 	_events: ['onMouseDown', 'onMouseUp', 'onMouseDrag', 'onMouseMove',
 			'onActivate', 'onDeactivate', 'onEditOptions', 'onKeyDown',
 			'onKeyUp'],
 
+	/**
+	 * The scope that this tool belongs to.
+	 *
+	 * @name Tool#scope
+	 * @property
+	 * @type PaperScope
+	 * @readonly
+	 */
+
+	// DOCS: rewrite Tool constructor explanation
 	initialize: function Tool(props) {
 		PaperScopeItem.call(this);
+		// -1 so first event is 0:
 		this._moveCount = -1;
 		this._downCount = -1;
 		this.set(props);
 	},
 
+	/**
+	 * Activates this tool, meaning {@link PaperScope#tool} will
+	 * point to it and it will be the one that receives tool events.
+	 *
+	 * @name Tool#activate
+	 * @function
+	 */
+
+	/**
+	 * Removes this tool from the {@link PaperScope#tools} list.
+	 *
+	 * @name Tool#remove
+	 * @function
+	 */
+
+	/**
+	 * The minimum distance the mouse has to drag before firing the onMouseDrag
+	 * event, since the last onMouseDrag event.
+	 *
+	 * @bean
+	 * @type Number
+	 */
 	getMinDistance: function() {
 		return this._minDistance;
 	},
@@ -15163,6 +19285,13 @@ var Tool = PaperScopeItem.extend({
 		}
 	},
 
+	/**
+	 * The maximum distance the mouse has to drag before firing the onMouseDrag
+	 * event, since the last onMouseDrag event.
+	 *
+	 * @bean
+	 * @type Number
+	 */
 	getMaxDistance: function() {
 		return this._maxDistance;
 	},
@@ -15175,6 +19304,22 @@ var Tool = PaperScopeItem.extend({
 		}
 	},
 
+	/**
+	 * The interval in milliseconds at which the onMouseDrag event fires again
+	 * while the mouse button is held, also when the mouse doesn't move. The
+	 * repeated events are at the last point, with a zero
+	 * {@link ToolEvent#delta}. `null`, the default, or anything up to 0 turns
+	 * it off.
+	 *
+	 * @bean
+	 * @type Number
+	 * @default null
+	 *
+	 * @example
+	 * // Fire the onMouseDrag event 10 times a second, while the mouse button
+	 * // is held:
+	 * tool.eventInterval = 100;
+	 */
 	getEventInterval: function() {
 		return this._eventInterval;
 	},
@@ -15183,6 +19328,11 @@ var Tool = PaperScopeItem.extend({
 		this._eventInterval = interval;
 	},
 
+	// DOCS: document Tool#fixedDistance
+	/**
+	 * @bean
+	 * @type Number
+	 */
 	getFixedDistance: function() {
 		return this._minDistance == this._maxDistance
 			? this._minDistance : null;
@@ -15192,23 +19342,228 @@ var Tool = PaperScopeItem.extend({
 		this._minDistance = this._maxDistance = distance;
 	},
 
+	/**
+	 * {@grouptitle Mouse Event Handlers}
+	 *
+	 * The function to be called when the mouse button is pushed down. The
+	 * function receives a {@link ToolEvent} object which contains information
+	 * about the tool event.
+	 *
+	 * @name Tool#onMouseDown
+	 * @property
+	 * @type ?Function
+	 *
+	 * @example {@paperscript}
+	 * // Creating circle shaped paths where the user presses the mouse button:
+	 * tool.onMouseDown = function(event) {
+	 *     // Create a new circle shaped path with a radius of 10
+	 *     // at the position of the mouse (event.point):
+	 *     var path = new Path.Circle({
+	 *         center: event.point,
+	 *         radius: 10,
+	 *         fillColor: 'black'
+	 *     });
+	 * }
+	 */
+
+	/**
+	 * The function to be called when the mouse position changes while the mouse
+	 * is being dragged. The function receives a {@link ToolEvent} object which
+	 * contains information about the tool event.
+	 *
+	 * @name Tool#onMouseDrag
+	 * @property
+	 * @type ?Function
+	 *
+	 * @example {@paperscript}
+	 * // Draw a line by adding a segment to a path on every mouse drag event:
+	 *
+	 * // Create an empty path:
+	 * var path = new Path({
+	 *     strokeColor: 'black'
+	 * });
+	 *
+	 * tool.onMouseDrag = function(event) {
+	 *     // Add a segment to the path at the position of the mouse:
+	 *     path.add(event.point);
+	 * }
+	 */
+
+	/**
+	 * The function to be called the mouse moves within the project view. The
+	 * function receives a {@link ToolEvent} object which contains information
+	 * about the tool event.
+	 *
+	 * While the mouse button is held down, the tool calls {@link #onMouseDrag}
+	 * instead, if it defines one, and `onMouseMove` only otherwise.
+	 *
+	 * @name Tool#onMouseMove
+	 * @property
+	 * @type ?Function
+	 *
+	 * @example {@paperscript}
+	 * // Moving a path to the position of the mouse:
+	 *
+	 * // Create a circle shaped path with a radius of 10 at {x: 0, y: 0}:
+	 * var path = new Path.Circle({
+	 *     center: [0, 0],
+	 *     radius: 10,
+	 *     fillColor: 'black'
+	 * });
+	 *
+	 * tool.onMouseMove = function(event) {
+	 *     // Whenever the user moves the mouse, move the path
+	 *     // to that position:
+	 *     path.position = event.point;
+	 * }
+	 */
+
+	/**
+	 * The function to be called when the mouse button is released. The function
+	 * receives a {@link ToolEvent} object which contains information about the
+	 * tool event.
+	 *
+	 * @name Tool#onMouseUp
+	 * @property
+	 * @type ?Function
+	 *
+	 * @example {@paperscript}
+	 * // Creating circle shaped paths where the user releases the mouse:
+	 * tool.onMouseUp = function(event) {
+	 *     // Create a new circle shaped path with a radius of 10
+	 *     // at the position of the mouse (event.point):
+	 *     var path = new Path.Circle({
+	 *         center: event.point,
+	 *         radius: 10,
+	 *         fillColor: 'black'
+	 *     });
+	 * }
+	 */
+
+	/**
+	 * {@grouptitle Keyboard Event Handlers}
+	 *
+	 * The function to be called when the user presses a key on the keyboard.
+	 * The function receives a {@link KeyEvent} object which contains
+	 * information about the keyboard event.
+	 *
+	 * If the function returns `false`, the keyboard event will be prevented
+	 * from bubbling up. This can be used for example to stop the window from
+	 * scrolling, when you need the user to interact with arrow keys.
+	 *
+	 * @name Tool#onKeyDown
+	 * @property
+	 * @type ?Function
+	 *
+	 * @example {@paperscript}
+	 * // Scaling a path whenever the user presses the space bar:
+	 *
+	 * // Create a circle shaped path:
+	 *     var path = new Path.Circle({
+	 *         center: new Point(50, 50),
+	 *         radius: 30,
+	 *         fillColor: 'red'
+	 *     });
+	 *
+	 * tool.onKeyDown = function(event) {
+	 *     if (event.key == 'space') {
+	 *         // Scale the path by 110%:
+	 *         path.scale(1.1);
+	 *
+	 *         // Prevent the key event from bubbling
+	 *         return false;
+	 *     }
+	 * }
+	 */
+
+	/**
+	 * The function to be called when the user releases a key on the keyboard.
+	 * The function receives a {@link KeyEvent} object which contains
+	 * information about the keyboard event.
+	 *
+	 * If the function returns `false`, the keyboard event will be prevented
+	 * from bubbling up. This can be used for example to stop the window from
+	 * scrolling, when you need the user to interact with arrow keys.
+	 *
+	 * @name Tool#onKeyUp
+	 * @property
+	 * @type ?Function
+	 *
+	 * @example
+	 * tool.onKeyUp = function(event) {
+	 *     if (event.key == 'space') {
+	 *         console.log('The spacebar was released!');
+	 *     }
+	 * }
+	 */
+
+	/**
+	 * {@grouptitle Activation Event Handlers}
+	 *
+	 * The function to be called when the tool is activated through
+	 * {@link #activate()}. The function receives the previously active tool,
+	 * which is the tool itself when it was already active.
+	 *
+	 * @name Tool#onActivate
+	 * @property
+	 * @type ?Function
+	 *
+	 * @example
+	 * tool.onActivate = function(previous) {
+	 *     if (previous == tool) {
+	 *         console.log('The tool was activated again!');
+	 *     }
+	 * }
+	 */
+
+	/**
+	 * The function to be called when another tool is activated through
+	 * {@link #activate()}, while this one is active.
+	 *
+	 * @name Tool#onDeactivate
+	 * @property
+	 * @type ?Function
+	 */
+
+	/**
+	 * Private method to handle tool-events.
+	 *
+	 * @return {@true if at least one event handler was called}.
+	 */
 	_handleMouseEvent: function(type, event, point, mouse) {
+		// Update global reference to this scope.
 		paper = this._scope;
+		// If there is no mousedrag event installed, fall back to mousemove,
+		// with which we share the actual event handling code anyhow.
 		if (mouse.drag && !this.responds(type))
 			type = 'mousemove';
 		var move = mouse.move || mouse.drag,
 			responds = this.responds(type),
 			called = false,
 			tool = this,
+			// The time and velocity since the last tool event, in seconds and
+			// points per second, measured between the mouse reports, so the
+			// steps that maxDistance interpolates along the way share them:
 			time = event.timeStamp / 1000,
 			elapsed = this._time != null ? time - this._time : 0,
 			velocity = !mouse.down && this._point && elapsed > 0
 					? point.subtract(this._point).divide(elapsed)
 					: new Point();
+		// Updates the internal tool state, taking into account minDistance and
+		// maxDistance and interpolating "fake" events along the moved distance
+		// to respect their settings, if necessary.
+		// Returns true as long as events should be fired, false when the target
+		// is reached.
 		function update(minDistance, maxDistance) {
 			var pt = point,
+				// Set toolPoint to the  previous point for moves or downPoint
+				// for clicks, so mouseup has a delta spanning over the full
+				// drag. Use the current point if this is the first mousedown,
+				// so there's always a delta.
 				toolPoint = move ? tool._point : (tool._downPoint || pt);
 			if (move) {
+				// After first move event was emitted, tool._moveCount = 0, so
+				// we need to include 0 in this check.
 				if (tool._moveCount >= 0 && pt.equals(toolPoint)) {
 					return false;
 				}
@@ -15217,6 +19572,8 @@ var Tool = PaperScopeItem.extend({
 						distance = vector.getLength();
 					if (distance < (minDistance || 0))
 						return false;
+					// Produce a new point on the way to point if point is
+					// further away than maxDistance
 					if (maxDistance) {
 						pt = toolPoint.add(vector.normalize(
 								Math.min(distance, maxDistance)));
@@ -15248,11 +19605,14 @@ var Tool = PaperScopeItem.extend({
 			update();
 			emit();
 			if (this._eventInterval > 0) {
+				// Repeat mousedrag at the last point while the mouse is held,
+				// until the mouse is released or another tool takes over:
 				clearInterval(this._timer);
 				this._timer = setInterval(function() {
 					if (tool.isActive()) {
 						paper = tool._scope;
 						tool._lastPoint = tool._point;
+						// Not moving, but keep the time of the last report:
 						tool._velocity = new Point();
 						tool._elapsed = tool._eventInterval / 1000;
 						tool._moveCount++;
@@ -15275,94 +19635,205 @@ var Tool = PaperScopeItem.extend({
 		}
 		return called;
 	}
+	/**
+	 * {@grouptitle Event Handling}
+	 *
+	 * Attach an event handler to the tool.
+	 *
+	 * @name Tool#on
+	 * @function
+	 * @param {String} type the event type: {@values 'mousedown', 'mouseup',
+	 *     'mousedrag', 'mousemove', 'keydown', 'keyup'}
+	 * @param {Function} function the function to be called when the event
+	 *     occurs, receiving a {@link ToolEvent} object as its sole argument
+	 * @return {Tool} this tool itself, so calls can be chained
+	 */
+	/**
+	 * Attach one or more event handlers to the tool.
+	 *
+	 * @name Tool#on
+	 * @function
+	 * @param {Object} param an object literal containing one or more of the
+	 *     following properties: {@values mousedown, mouseup, mousedrag,
+	 *     mousemove, keydown, keyup}
+	 * @return {Tool} this tool itself, so calls can be chained
+	 */
 
+	/**
+	 * Detach an event handler from the tool.
+	 *
+	 * @name Tool#off
+	 * @function
+	 * @param {String} type the event type: {@values 'mousedown', 'mouseup',
+	 *     'mousedrag', 'mousemove', 'keydown', 'keyup'}
+	 * @param {Function} function the function to be detached
+	 * @return {Tool} this tool itself, so calls can be chained
+	 */
+	/**
+	 * Detach one or more event handlers from the tool.
+	 *
+	 * @name Tool#off
+	 * @function
+	 * @param {Object} param an object literal containing one or more of the
+	 *     following properties: {@values mousedown, mouseup, mousedrag,
+	 *     mousemove, keydown, keyup}
+	 * @return {Tool} this tool itself, so calls can be chained
+	 */
+
+	/**
+	 * Emit an event on the tool.
+	 *
+	 * @name Tool#emit
+	 * @function
+	 * @param {String} type the event type: {@values 'mousedown', 'mouseup',
+	 *     'mousedrag', 'mousemove', 'keydown', 'keyup'}
+	 * @param {Object} event an object literal containing properties describing
+	 * the event
+	 * @return {Boolean} {@true if the event had listeners}
+	 */
+
+	/**
+	 * Check if the tool has one or more event handlers of the specified type.
+	 *
+	 * @name Tool#responds
+	 * @function
+	 * @param {String} type the event type: {@values 'mousedown', 'mouseup',
+	 *     'mousedrag', 'mousemove', 'keydown', 'keyup'}
+	 * @return {Boolean} {@true if the tool has one or more event handlers of
+	 * the specified type}
+	 */
 });
 
-var Tween = Base.extend(Emitter, {
+/*
+ * Paper.js - The Swiss Army Knife of Vector Graphics Scripting.
+ * http://paperjs.org/
+ *
+ * Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey
+ * http://juerglehni.com/ & https://puckey.studio/
+ *
+ * Distributed under the MIT license. See LICENSE file for details.
+ *
+ * All rights reserved.
+ */
+
+/**
+ * @name Tween
+ *
+ * @class Allows tweening `Object` properties between two states for a given
+ * duration. To tween properties on Paper.js {@link Item} instances,
+ * {@link Item#tween(from, to, options)} can be used, which returns created
+ * tween instance.
+ *
+ * @see Item#tween(from, to, options)
+ * @see Item#tween(to, options)
+ * @see Item#tween(options)
+ * @see Item#tweenTo(to, options)
+ * @see Item#tweenFrom(from, options)
+ */
+var Tween = Base.extend(Emitter, /** @lends Tween# */{
 	_class: 'Tween',
 
 	statics: {
 		easings: new Base({
+			// no easing, no acceleration
 			linear: function(t) {
 				return t;
 			},
 
+			// accelerating from zero velocity
 			easeInQuad: function(t) {
 				return t * t;
 			},
 
+			// decelerating to zero velocity
 			easeOutQuad: function(t) {
 				return t * (2 - t);
 			},
 
+			// acceleration until halfway, then deceleration
 			easeInOutQuad: function(t) {
 				return t < 0.5
 					? 2 * t * t
 					: -1 + 2 * (2 - t) * t;
 			},
 
+			// accelerating from zero velocity
 			easeInCubic: function(t) {
 				return t * t * t;
 			},
 
+			// decelerating to zero velocity
 			easeOutCubic: function(t) {
 				return --t * t * t + 1;
 			},
 
+			// acceleration until halfway, then deceleration
 			easeInOutCubic: function(t) {
 				return t < 0.5
 					? 4 * t * t * t
 					: (t - 1) * (2 * t - 2) * (2 * t - 2) + 1;
 			},
 
+			// accelerating from zero velocity
 			easeInQuart: function(t) {
 				return t * t * t * t;
 			},
 
+			// decelerating to zero velocity
 			easeOutQuart: function(t) {
 				return 1 - (--t) * t * t * t;
 			},
 
+			// acceleration until halfway, then deceleration
 			easeInOutQuart: function(t) {
 				return t < 0.5
 					? 8 * t * t * t * t
 					: 1 - 8 * (--t) * t * t * t;
 			},
 
+			// accelerating from zero velocity
 			easeInQuint: function(t) {
 				return t * t * t * t * t;
 			},
 
+			// decelerating to zero velocity
 			easeOutQuint: function(t) {
 				return 1 + --t * t * t * t * t;
 			},
 
+			// acceleration until halfway, then deceleration
 			easeInOutQuint: function(t) {
 				return t < 0.5
 					? 16 * t * t * t * t * t
 					: 1 + 16 * (--t) * t * t * t * t;
 			},
 
+			// accelerating from zero velocity
 			easeInSine: function(t) {
 				return 1 - Math.cos(t * Math.PI / 2);
 			},
 
+			// decelerating to zero velocity
 			easeOutSine: function(t) {
 				return Math.sin(t * Math.PI / 2);
 			},
 
+			// acceleration until halfway, then deceleration
 			easeInOutSine: function(t) {
 				return (1 - Math.cos(t * Math.PI)) / 2;
 			},
 
+			// accelerating from zero velocity
 			easeInExpo: function(t) {
 				return t === 0 ? 0 : Math.pow(2, 10 * t - 10);
 			},
 
+			// decelerating to zero velocity
 			easeOutExpo: function(t) {
 				return t === 1 ? 1 : 1 - Math.pow(2, -10 * t);
 			},
 
+			// acceleration until halfway, then deceleration
 			easeInOutExpo: function(t) {
 				return t === 0 || t === 1
 					? t
@@ -15371,14 +19842,17 @@ var Tween = Base.extend(Emitter, {
 						: 1 - Math.pow(2, 10 - 20 * t) / 2;
 			},
 
+			// accelerating from zero velocity
 			easeInCirc: function(t) {
 				return 1 - Math.sqrt(1 - t * t);
 			},
 
+			// decelerating to zero velocity
 			easeOutCirc: function(t) {
 				return Math.sqrt(1 - (--t) * t);
 			},
 
+			// acceleration until halfway, then deceleration
 			easeInOutCirc: function(t) {
 				return t < 0.5
 					? (1 - Math.sqrt(1 - 4 * t * t)) / 2
@@ -15387,6 +19861,18 @@ var Tween = Base.extend(Emitter, {
 		})
 	},
 
+	/**
+	 * Creates a new tween.
+	 *
+	 * @param {Object} object the object to tween the properties on
+	 * @param {Object} from the state at the start of the tweening
+	 * @param {Object} to the state at the end of the tweening
+	 * @param {Number} duration the duration of the tweening
+	 * @param {String|Function} [easing='linear'] the type of the easing
+	 *     function or the easing function
+	 * @param {Boolean} [start=true] whether to start tweening automatically
+	 * @return {Tween} the newly created tween
+	 */
 	initialize: function Tween(object, from, to, duration, easing, start) {
 		this.object = object;
 		var type = typeof easing;
@@ -15412,25 +19898,87 @@ var Tween = Base.extend(Emitter, {
 		}
 	},
 
+	/**
+	 * Set a function that will be executed when the tween completes.
+	 * @param {Function} function the function to execute when the tween
+	 *     completes
+	 * @return {Tween}
+	 *
+	 * @example {@paperscript}
+	 * // Tweens chaining:
+	 * var circle = new Path.Circle({
+	 *     center: view.center,
+	 *     radius: 40,
+	 *     fillColor: 'blue'
+	 * });
+	 * // Tween color from blue to red.
+	 * var tween = circle.tweenTo({ fillColor: 'red' }, 2000);
+	 * // When the first tween completes...
+	 * tween.then(function() {
+	 *     // ...tween color back to blue.
+	 *     circle.tweenTo({ fillColor: 'blue' }, 2000);
+	 * });
+	 */
 	then: function(then) {
+		// TODO: This only supports one callback for `then()`. Figure out how
+		// to handle multiple calls to then in an decent way, without relying
+		// on Promises (or should we?).
 		this._then = then;
 		return this;
 	},
 
+	/**
+	 * Start tweening.
+	 * @return {Tween}
+	 *
+	 * @example {@paperscript}
+	 * // Manually start tweening.
+	 * var circle = new Path.Circle({
+	 *     center: view.center,
+	 *     radius: 40,
+	 *     fillColor: 'blue'
+	 * });
+	 * var tween = circle.tweenTo(
+	 *     { fillColor: 'red' },
+	 *     { duration: 2000, start: false }
+	 * );
+	 * tween.start();
+	 */
 	start: function() {
 		this._startTime = null;
 		this.running = true;
 		return this;
 	},
 
+	/**
+	 * Stop tweening.
+	 * @return {Tween}
+	 *
+	 * @example {@paperscript}
+	 * // Stop a tween before it completes.
+	 * var circle = new Path.Circle({
+	 *     center: view.center,
+	 *     radius: 40,
+	 *     fillColor: 'blue'
+	 * });
+	 * // Start tweening from blue to red for 2 seconds.
+	 * var tween = circle.tweenTo({ fillColor: 'red' }, 2000);
+	 * // After 1 second...
+	 * setTimeout(function(){
+	 *     // ...stop tweening.
+	 *     tween.stop();
+	 * }, 1000);
+	 */
 	stop: function() {
 		this.running = false;
 		return this;
 	},
 
+	// DOCS: Document Tween#update(progress)
 	update: function(progress) {
 		if (this.running) {
 			if (progress >= 1) {
+				// Always finish the animation.
 				progress = 1;
 				this.running = false;
 			}
@@ -15446,12 +19994,16 @@ var Tween = Base.extend(Emitter, {
 				var key = keys[i],
 					from = getValue(this._from[key]),
 					to = getValue(this._to[key]),
+					// Some paper objects have math functions (e.g.: Point,
+					// Color) which can directly be used to do the tweening.
 					value = (from && to && from.multiply && to.multiply)
 						? to.subtract(from).multiply(factor).add(from)
 						: ((to - from) * factor) + from;
 				this._setProperty(this._parsedKeys[key], value);
 			}
 
+			// TODO: Set `progress` and `factor` on Tween object also, so they
+			// can be used witout events.
 			if (this.responds('update')) {
 				this.emit('update', new Base({
 					progress: progress,
@@ -15459,12 +20011,51 @@ var Tween = Base.extend(Emitter, {
 				}));
 			}
 			if (!this.running && this._then) {
+				// TODO: Look into what should be returned.
 				this._then(this.object);
 			}
 		}
 		return this;
 	},
 
+	/**
+	 * {@grouptitle Event Handlers}
+	 *
+	 * The function to be called when the tween is updated. It receives an
+	 * object as its sole argument, containing the current progress of the
+	 * tweening and the factor calculated by the easing function.
+	 *
+	 * @name Tween#onUpdate
+	 * @property
+	 * @type ?Function
+	 *
+	 * @example {@paperscript}
+	 * // Display tween progression values:
+	 * var circle = new Path.Circle({
+	 *     center: view.center,
+	 *     radius: 40,
+	 *     fillColor: 'blue'
+	 * });
+	 * var tween = circle.tweenTo(
+	 *     { fillColor: 'red' },
+	 *     {
+	 *         duration: 2000,
+	 *         easing: 'easeInCubic'
+	 *     }
+	 * );
+	 * var progressText = new PointText(view.center + [60, -10]);
+	 * var factorText = new PointText(view.center + [60, 10]);
+	 *
+	 * // Install event using onUpdate() property:
+	 * tween.onUpdate = function(event) {
+	 *     progressText.content = 'progress: ' + event.progress.toFixed(2);
+	 * };
+	 *
+	 * // Install event using on('update') method:
+	 * tween.on('update', function(event) {
+	 *     factorText.content = 'factor: ' + event.factor.toFixed(2);
+	 * });
+	 */
 	_events: {
 		onUpdate: {}
 	},
@@ -15490,11 +20081,16 @@ var Tween = Base.extend(Emitter, {
 				value;
 			if (state) {
 				var resolved = this._resolveValue(current, state[key]);
+				// Temporarily set the resolved value, so we can retrieve the
+				// coerced value from paper's internal magic.
 				this._setProperty(path, resolved);
 				value = this._getProperty(path);
+				// Clone the value if possible to prevent future changes.
 				value = value && value.clone ? value.clone() : value;
 				this._setProperty(path, current);
 			} else {
+				// We want to get the current state at the time of the call, so
+				// we have to clone if possible to prevent future changes.
 				value = current && current.clone ? current.clone() : current;
 			}
 			result[key] = value;
@@ -15509,6 +20105,8 @@ var Tween = Base.extend(Emitter, {
 				return (
 					operator &&
 					operator.match &&
+					// We're (unnecessarily) escaping '*/' here to not confuse
+					// the ol' JSDoc parser...
 					operator.match(/^[+\-\*\/]=/)
 				)
 					? this._calculate(current, operator[0], value[1])
@@ -15528,6 +20126,8 @@ var Tween = Base.extend(Emitter, {
 	},
 
 	_calculate: function(left, operator, right) {
+		// Use the math functions of objects that have them (e.g.: Point,
+		// Color), and the operator itself for numbers.
 		var name = { '+': 'add', '-': 'subtract', '*': 'multiply',
 				'/': 'divide' }[operator];
 		if (left && left[name])
@@ -15545,7 +20145,9 @@ var Tween = Base.extend(Emitter, {
 		for (var i = 0, l = keys.length; i < l; i++) {
 			var key = keys[i],
 				path = key
+					// Convert from JS property access notation to JSON pointer:
 					.replace(/\.([^.]*)/g, '/$1')
+					// Expand array property access notation ([])
 					.replace(/\[['"]?([^'"\]]*)['"]?\]/g, '/$1');
 			parsed[key] = path.split('/');
 		}
@@ -15568,8 +20170,21 @@ var Tween = Base.extend(Emitter, {
 	}
 });
 
+/*
+ * Paper.js - The Swiss Army Knife of Vector Graphics Scripting.
+ * http://paperjs.org/
+ *
+ * Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey
+ * http://juerglehni.com/ & https://puckey.studio/
+ *
+ * Distributed under the MIT license. See LICENSE file for details.
+ *
+ * All rights reserved.
+ */
+
 var Http = {
 	request: function(options) {
+		// Code borrowed from Coffee Script and extended:
 		var xhr = new self.XMLHttpRequest();
 		xhr.open((options.method || 'get').toUpperCase(), options.url,
 				Base.pick(options.async, true));
@@ -15599,10 +20214,23 @@ var Http = {
 	}
 };
 
+/*
+ * Paper.js - The Swiss Army Knife of Vector Graphics Scripting.
+ * http://paperjs.org/
+ *
+ * Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey
+ * http://juerglehni.com/ & https://puckey.studio/
+ *
+ * Distributed under the MIT license. See LICENSE file for details.
+ *
+ * All rights reserved.
+ */
+
 var CanvasProvider = Base.exports.CanvasProvider = {
 	canvases: [],
 
 	getCanvas: function(width, height, options) {
+		// Web-workers have no DOM, but may support OffscreenCanvas:
 		if (!window && !self.OffscreenCanvas)
 			return null;
 		var canvas,
@@ -15617,7 +20245,7 @@ var CanvasProvider = Base.exports.CanvasProvider = {
 			canvas = window
 					? document.createElement('canvas')
 					: new self.OffscreenCanvas(width, height);
-			clear = false;
+			clear = false; // It's already cleared when created.
 		}
 		var ctx = canvas.getContext('2d', options || {});
 		if (!ctx) {
@@ -15941,11 +20569,16 @@ var HostItem = Item.extend({
 new function() {
 	var contentFields = [
 			[Item, ['_style', '_applyMatrix', '_opacity', '_blendMode',
-					'_pivot', '_data']],
+					'_pivot', '_data', '_textWrap']],
 			[Path, ['_segments', '_closed', '_version', '_curves',
 					'_segmentSelection']],
 			[CompoundPath, ['_children', '_namedChildren']],
-			[HostItem, ['_values']]
+			[HostItem, ['_values']],
+			[TextItem, ['_story', '_orientation', '_layout', '_fontMetrics']],
+			[PathText, ['_children', '_startOffset', '_endOffset',
+					'_alignment', '_spacing']],
+			[AreaText, ['_children', '_columns', '_rows', '_gutter', '_inset',
+					'_verticalAlign']]
 		],
 		childrenFields = ['_children', '_namedChildren'],
 		boxSize = 12,
@@ -16227,6 +20860,42 @@ new function() {
 		}
 	});
 
+	TextItem.inject({
+		_getHostLayout: function(host) {
+			var that = this,
+				story = this._story,
+				content = story._content,
+				layout = host.layOut(this.exportJSON({ asString: false }),
+						this._getStart(), this._key);
+			this._visibleEnd = layout.end;
+			return layout.lines.map(function(line) {
+				line.pieces = line.pieces.map(function(placed) {
+					var style = story._getRangeStyles('fontSize', placed.start,
+							placed.end)[0],
+						piece = Base.set(that._getPiece(style), placed);
+					if (piece.content == null) {
+						piece.content = content.slice(piece.start, piece.end);
+						if (piece.capitals)
+							piece.content = piece.content.toUpperCase();
+					}
+					return piece;
+				});
+				return line;
+			});
+		}
+	});
+
+	[PointText, PathText, AreaText].forEach(function(ctor) {
+		ctor.inject({
+			_layOut: function _layOut() {
+				var host = this._project._host;
+				return host && host.layOut
+						? this._getHostLayout(host)
+						: _layOut.base.call(this);
+			}
+		});
+	});
+
 	Project.inject({
 		getHost: function() {
 			return this._host;
@@ -16361,14 +21030,21 @@ var SvgStyles = Base.each({
 	fontFamily: ['font-family', 'string'],
 	fontWeight: ['font-weight', 'font'],
 	fontSize: ['font-size', 'number'],
-	tracking: ['letter-spacing', 'tracking'],
+	letterTracking: ['letter-spacing', 'tracking'],
 	justification: ['text-anchor', 'lookup', {
+		justify: 'start',
+		start: 'start',
+		end: 'end',
 		left: 'start',
 		center: 'middle',
 		right: 'end'
 	}],
-	opacity: ['opacity', 'number'],
-	blendMode: ['mix-blend-mode', 'style']
+	opacity: ['opacity', 'number', null, function(item, value) {
+		return value !== 1;
+	}],
+	blendMode: ['mix-blend-mode', 'style', null, function(item, value) {
+		return value !== 'normal';
+	}]
 }, function(entry, key) {
 	var part = Base.capitalize(key),
 		lookup = entry[2];
@@ -16650,22 +21326,159 @@ new function() {
 		return 'url(#' + gradientNode.id + ')';
 	}
 
-	function exportText(item) {
+	function exportShadow(item, options) {
+		var box = item.getInternalBounds();
+		if (!box.width || !box.height)
+			return null;
+		var style = item._style,
+			color = style.getShadowColor(),
+			offset = style.getShadowOffset(),
+			deviation = style.getShadowBlur() / 2,
+			bounds = item.getStrokeBounds(new Matrix()),
+			rect = bounds.unite(new Rectangle(bounds.getPoint().add(offset),
+					bounds.getSize())).expand(6 * deviation),
+			region = new Matrix().scale(100 / box.width, 100 / box.height)
+					.translate(box.getPoint().negate())._transformBounds(rect),
+			filter = SvgElement.create('filter');
+
+		function add(type, attrs) {
+			filter.appendChild(SvgElement.create(type, attrs, formatter));
+		}
+
+		Base.each(['x', 'y', 'width', 'height'], function(key) {
+			filter.setAttribute(key, formatter.number(region[key]) + '%');
+		});
+
+		if (deviation > 0) {
+			add('feGaussianBlur', {
+				'in': 'SourceAlpha',
+				stdDeviation: deviation,
+				result: 'blur'
+			});
+		}
+		add('feOffset', {
+			'in': deviation > 0 ? 'blur' : 'SourceAlpha',
+			dx: offset.x,
+			dy: offset.y,
+			result: 'offset'
+		});
+		add('feFlood', {
+			'flood-color': color.toCSS(true),
+			'flood-opacity': color.getAlpha(),
+			result: 'color'
+		});
+		add('feComposite', {
+			'in': 'color',
+			in2: 'offset',
+			operator: 'in',
+			result: 'shadow'
+		});
+		add('feComposite', {
+			'in': 'SourceGraphic',
+			in2: 'shadow',
+			operator: 'over'
+		});
+		setDefinition(item, filter, 'filter', options);
+		return 'url(#' + filter.id + ')';
+	}
+
+	function exportText(item, options) {
 		var attrs = getTransform(item._matrix, true),
 			node = SvgElement.create('text', attrs, formatter),
-			lines = item._lines;
-		if (lines.length > 1) {
-			var leading = item._style.getLeading();
-			for (var i = 0, l = lines.length; i < l; i++) {
-				var span = SvgElement.create('tspan', {
-					x: attrs.x,
-					y: attrs.y + i * leading
-				}, formatter);
-				span.textContent = lines[i];
-				node.appendChild(span);
+			story = item._story,
+			lines = item._getLayout(),
+			isPointText = item instanceof PointText;
+
+		function createSpan(content, style, spanAttrs, isParagraph) {
+			spanAttrs = Base.set({}, spanAttrs);
+			Base.each(SvgStyles, function(entry) {
+				if ((entry.property in story._paragraphKeys) === isParagraph
+						&& item[entry.get]() === undefined) {
+					var value = style[entry.get]();
+					if (value !== undefined)
+						setAttributes(spanAttrs, [], entry, value, options);
+				}
+			});
+			var span = SvgElement.create('tspan', spanAttrs, formatter);
+			if (content != null)
+				span.textContent = content;
+			return span;
+		}
+
+		function addRuns(parent, line) {
+			var pieces = line.pieces,
+				runs = [];
+			for (var i = 0, l = pieces.length; i < l; i++) {
+				var piece = pieces[i],
+					last = runs[runs.length - 1];
+				if (last && last.style.equals(piece.style)) {
+					last.content += piece.content;
+				} else {
+					runs.push({ content: piece.content, style: piece.style });
+				}
+			}
+			var isMixed = runs.some(function(run) {
+				return createSpan(null, run.style, null, false)
+						.attributes.length > 0;
+			});
+			if (isMixed) {
+				for (var i = 0, l = runs.length; i < l; i++) {
+					parent.appendChild(createSpan(runs[i].content,
+							runs[i].style, null, false));
+				}
+			} else {
+				parent.textContent = runs.map(function(run) {
+					return run.content;
+				}).join('');
+			}
+		}
+
+		if (isPointText) {
+			if (lines.length > 1) {
+				for (var i = 0, l = lines.length; i < l; i++) {
+					var line = lines[i],
+						paragraph = story._getParagraph(line.start).style,
+						side = item._getSide(paragraph.getJustification(),
+							paragraph.getDirection()),
+						span = createSpan(null, paragraph, {
+							x: attrs.x + line.x + (side === 'right'
+									? line.width
+									: side === 'center' ? line.width / 2 : 0),
+							y: attrs.y + line.y
+						}, true);
+					addRuns(span, line);
+					node.appendChild(span);
+				}
+			} else if (lines.length) {
+				addRuns(node, lines[0]);
 			}
 		} else {
-			node.textContent = item._content;
+			var justification = item.getJustification(),
+				anchor = justification && justification !== 'left'
+						&& { 'text-anchor': 'start' };
+			for (var i = 0, l = lines.length; i < l; i++) {
+				var line = lines[i],
+					pieces = line.pieces,
+					span = SvgElement.create('tspan', Base.set({
+						x: attrs.x + line.x,
+						y: attrs.y + line.y
+					}, anchor), formatter);
+				for (var j = 0, m = pieces.length; j < m; j++) {
+					var piece = pieces[j],
+						angle = piece.rotation,
+						origin = new Point(piece.dx || 0, 0).rotate(angle)
+								.add(piece.x, line.y + piece.y),
+						pieceAttrs = {
+							x: attrs.x + origin.x,
+							y: attrs.y + origin.y
+						};
+					if (angle)
+						pieceAttrs.rotate = angle;
+					span.appendChild(createSpan(piece.content, piece.style,
+							pieceAttrs, false));
+				}
+				node.appendChild(span);
+			}
 		}
 		return node;
 	}
@@ -16678,7 +21491,9 @@ new function() {
 		Shape: exportShape,
 		CompoundPath: exportCompoundPath,
 		SymbolItem: exportSymbolItem,
-		PointText: exportText
+		PointText: exportText,
+		PathText: exportText,
+		AreaText: exportText
 	};
 
 	var cssBlendModes = Base.each(['normal', 'multiply', 'screen', 'overlay',
@@ -16687,6 +21502,39 @@ new function() {
 			'color', 'luminosity'], function(mode) {
 		this[mode] = true;
 	}, {});
+
+	function setAttributes(attrs, style, entry, value, options) {
+		var type = entry.type;
+		if (type === 'color' && value != null) {
+			var alpha = value.getAlpha();
+			if (alpha < 1)
+				attrs[entry.attribute + '-opacity'] = alpha;
+		}
+		if (type === 'style') {
+			if (cssBlendModes[value]) {
+				style.push(entry.attribute + ': ' + value);
+			} else {
+				attrs['data-paper-blend-mode'] = value;
+			}
+		} else if (type === 'font') {
+			var font = ('' + value).match(
+					/^(.*?)\s*\b(italic|oblique)\b\s*(.*)$/i);
+			attrs[entry.attribute] = font
+					? (font[1] + ' ' + font[3]).trim() || 'normal'
+					: value;
+			if (font)
+				attrs['font-style'] = font[2].toLowerCase();
+		} else {
+			attrs[entry.attribute] = value == null ? 'none'
+					: type === 'color' ? value.gradient
+						? exportGradient(value, options)
+						: value.toCSS(true)
+					: type === 'array' ? value.join(',')
+					: type === 'lookup' ? entry.toSVG[value]
+					: type === 'tracking' ? value && value / 1000 + 'em'
+					: value;
+		}
+	}
 
 	function applyStyle(item, node, options, isRoot) {
 		var attrs = {},
@@ -16700,7 +21548,6 @@ new function() {
 
 		Base.each(SvgStyles, function(entry) {
 			var get = entry.get,
-				type = entry.type,
 				value = item[get]();
 			if (parent && !(get in parentStyle))
 				parentStyle[get] = parent[get]();
@@ -16708,43 +21555,17 @@ new function() {
 					? entry.exportFilter(item, value)
 					: options.reduceAttributes == false
 						|| !parent || !Base.equals(parentStyle[get], value))) {
-				if (type === 'color' && value != null) {
-					var alpha = value.getAlpha();
-					if (alpha < 1)
-						attrs[entry.attribute + '-opacity'] = alpha;
-				}
-				if (type === 'style') {
-					if (cssBlendModes[value]) {
-						style.push(entry.attribute + ': ' + value);
-					} else {
-						attrs['data-paper-blend-mode'] = value;
-					}
-				} else if (type === 'font') {
-					var font = ('' + value).match(
-							/^(.*?)\s*\b(italic|oblique)\b\s*(.*)$/i);
-					attrs[entry.attribute] = font
-							? (font[1] + ' ' + font[3]).trim() || 'normal'
-							: value;
-					if (font)
-						attrs['font-style'] = font[2].toLowerCase();
-				} else {
-					attrs[entry.attribute] = value == null ? 'none'
-							: type === 'color' ? value.gradient
-								? exportGradient(value, options)
-								: value.toCSS(true)
-							: type === 'array' ? value.join(',')
-							: type === 'lookup' ? entry.toSVG[value]
-							: type === 'tracking' ? value && value / 1000 + 'em'
-							: value;
-				}
+				setAttributes(attrs, style, entry, value, options);
 			}
 		});
 
+		var filter = item._style.getShadowColor(true) && item.hasShadow()
+				&& exportShadow(item, options);
+		if (filter)
+			attrs.filter = filter;
+
 		if (style.length)
 			attrs.style = style.join(';');
-
-		if (attrs.opacity === 1)
-			delete attrs.opacity;
 
 		if (!item._visible)
 			attrs.visibility = 'hidden';
@@ -16793,6 +21614,7 @@ new function() {
 		parentStyles = null;
 		return options.asString
 				? new self.XMLSerializer().serializeToString(svg)
+					.replace(/<defs>|<\/filter>|<\/defs>/g, '$&\n')
 				: svg;
 	}
 
@@ -16867,6 +21689,7 @@ new function() {
 new function() {
 
 	var definitions = {},
+		used = {},
 		rootSize,
 		units = { 'in': 96, pt: 96 / 72, pc: 96 / 6, cm: 96 / 2.54,
 			mm: 96 / 25.4 };
@@ -16918,7 +21741,7 @@ new function() {
 
 	function importGroup(node, type, options, isRoot) {
 		var nodes = node.childNodes,
-			isClip = type === 'clippath',
+			isClip = type === 'clippath' || type === 'mask',
 			isDefs = type === 'defs',
 			item = new Group(),
 			project = item._project,
@@ -16950,8 +21773,13 @@ new function() {
 				children.push(child);
 		}
 		item.addChildren(children);
-		if (isClip)
+		if (isClip) {
 			item = applyAttributes(item.reduce(), node, options, isRoot);
+			if (type === 'mask' && !isClipMask(item,
+					SvgElement.get(node, 'mask-type') === 'alpha'))
+				console.warn('Approximating SVG mask \'' + node.id
+						+ '\' as a clipping mask.');
+		}
 		project._currentStyle = currentStyle;
 		rootSize = parentSize;
 		if (isClip || isDefs) {
@@ -16959,6 +21787,22 @@ new function() {
 			item = null;
 		}
 		return item;
+	}
+
+	function isClipMask(item, isAlpha) {
+		if (item.getOpacity() !== 1)
+			return false;
+		if (item instanceof Group) {
+			return item._children.every(function(child) {
+				return isClipMask(child, isAlpha);
+			});
+		}
+		var color = item.getFillColor();
+		return (item instanceof PathItem || item instanceof Shape)
+				&& !item.hasStroke() && !!color && !color.gradient
+				&& color.getAlpha() === 1
+				&& (isAlpha || color.getBrightness() === 1
+					&& color.getSaturation() === 0);
 	}
 
 	function importPoly(node, type) {
@@ -17035,6 +21879,7 @@ new function() {
 		g: importGroup,
 		svg: importGroup,
 		clippath: importGroup,
+		mask: importGroup,
 		polygon: importPoly,
 		polyline: importPoly,
 		path: importPath,
@@ -17079,16 +21924,21 @@ new function() {
 		use: function(node, type, options) {
 			var id = (getValue(node, 'href', true) || '').substring(1),
 				definition = getDefinitionById(id, options),
-				point = getPoint(node);
-			return definition
-					? definition instanceof SymbolDefinition
-						? definition.place(point)
-						: definition instanceof Raster
-							? importNode(getSandbox().ownerDocument
-								.getElementById(id), options, false)
-								.translate(point)
-						: definition.clone().translate(point)
-					: null;
+				point = getPoint(node),
+				item = null;
+			if (definition instanceof SymbolDefinition) {
+				item = definition.place(point);
+			} else if (definition && !used[id]) {
+				used[id] = true;
+				try {
+					item = importNode(getSandbox().ownerDocument
+							.getElementById(id), options, false)
+							.translate(point);
+				} finally {
+					delete used[id];
+				}
+			}
+			return item;
 		},
 
 		circle: function(node) {
@@ -17177,11 +22027,62 @@ new function() {
 		}
 	}
 
+	function applyClipMask(item, value, name, node, styles, options) {
+		var clip = getDefinition(value, options);
+		if (clip) {
+			clip = clip.clone();
+			clip.setClipMask(true);
+			if (item instanceof Group) {
+				item.insertChild(0, clip);
+			} else {
+				return new Group(clip, item);
+			}
+		}
+	}
+
 	function applyOpacity(item, value, name) {
 		var key = name === 'fill-opacity' ? 'getFillColor' : 'getStrokeColor',
 			color = item[key] && item[key]();
 		if (color)
 			color.setAlpha(parseFloat(value));
+	}
+
+	var shadowPrimitives = 'feOffset,feFlood,feComposite,feComposite';
+
+	function getFilterShadow(filter) {
+		var nodes = Base.slice(filter && filter.children || []),
+			names = nodes.map(function(node) {
+				return node.nodeName;
+			}).join(),
+			blur = names === 'feGaussianBlur,' + shadowPrimitives
+					&& nodes.shift();
+		if (!blur && names !== shadowPrimitives)
+			return null;
+		var offset = nodes[0],
+			flood = nodes[1],
+			color = new Color(flood.getAttribute('flood-color') || 'black'),
+			opacity = flood.getAttribute('flood-opacity');
+		if (opacity)
+			color.setAlpha(color.getAlpha() * parseFloat(opacity));
+		return {
+			color: color,
+			blur: blur ? 2 * parseFloat(blur.getAttribute('stdDeviation')) : 0,
+			offset: new Point(parseFloat(offset.getAttribute('dx')) || 0,
+					parseFloat(offset.getAttribute('dy')) || 0)
+		};
+	}
+
+	function getCssShadow(value) {
+		var match = value.match(/^\s*drop-shadow\((.*)\)\s*$/),
+			color = match && match[1].match(
+					/(?:rgba?|hsla?)\([^)]*\)|#[0-9a-f]+|\b[a-z]+\b/i),
+			lengths = match && match[1].replace(color && color[0], '')
+					.match(/-?[\d.]+/g);
+		return lengths && lengths.length >= 2 ? {
+			color: new Color(color ? color[0] : 'black'),
+			blur: parseFloat(lengths[2]) || 0,
+			offset: new Point(parseFloat(lengths[0]), parseFloat(lengths[1]))
+		} : null;
 	}
 
 	var attributes = Base.set(Base.each(SvgStyles, function(entry) {
@@ -17210,18 +22111,8 @@ new function() {
 				item.setName(value);
 		},
 
-		'clip-path': function(item, value, name, node, styles, options) {
-			var clip = getDefinition(value, options);
-			if (clip) {
-				clip = clip.clone();
-				clip.setClipMask(true);
-				if (item instanceof Group) {
-					item.insertChild(0, clip);
-				} else {
-					return new Group(clip, item);
-				}
-			}
-		},
+		'clip-path': applyClipMask,
+		mask: applyClipMask,
 
 		gradientTransform: applyTransform,
 		transform: applyTransform,
@@ -17239,6 +22130,19 @@ new function() {
 				item.setVisible(value !== null);
 		},
 
+		filter: function(item, value) {
+			var shadow = value && !(item instanceof Group)
+					&& item.setShadowColor && (/^url\(/.test(value)
+						? getFilterShadow(getSandbox().ownerDocument
+							.getElementById(getDefinitionId(value)))
+						: getCssShadow(value));
+			if (shadow) {
+				item.setShadowColor(shadow.color);
+				item.setShadowBlur(shadow.blur);
+				item.setShadowOffset(shadow.offset);
+			}
+		},
+
 		'data-paper-blend-mode': function(item, value) {
 			if (item.setBlendMode)
 				item.setBlendMode(value);
@@ -17254,9 +22158,9 @@ new function() {
 		},
 
 		'letter-spacing': function(item, value) {
-			if (item.setTracking) {
+			if (item.setLetterTracking) {
 				var amount = parseFloat(value) || 0;
-				item.setTracking(1000 * (/em$/.test(value) ? amount
+				item.setLetterTracking(1000 * (/em$/.test(value) ? amount
 						: amount / parseFloat(item.getFontSize())));
 			}
 		},
@@ -17324,8 +22228,7 @@ new function() {
 		var parent = node.parentNode,
 			styles = {
 				node: DomElement.getStyles(node) || {},
-				parent: !isRoot && !/^defs$/i.test(parent.tagName)
-						&& DomElement.getStyles(parent) || {}
+				parent: !isRoot && DomElement.getStyles(parent) || {}
 			};
 		if (isRoot && !styles.node.fill && item.setFillColor)
 			item.setFillColor('black');
@@ -17346,17 +22249,36 @@ new function() {
 		return definitions[id];
 	}
 
-	function getDefinition(value, options) {
+	function getDefinitionId(value) {
 		var match = value && value.match(/\((?:["'#]*)([^"')]+)/),
-			name = match && match[1],
-			res = name && getDefinitionById(window
-					? name.replace(window.location.href.split('#')[0] + '#', '')
-					: name, options);
+			name = match && match[1];
+		return name && window
+				? name.replace(window.location.href.split('#')[0] + '#', '')
+				: name;
+	}
+
+	function getDefinition(value, options) {
+		var id = getDefinitionId(value),
+			res = id && getDefinitionById(id, options);
 		if (res && res._scaleToBounds) {
 			res = res.clone();
 			res._scaleToBounds = true;
 		}
 		return res;
+	}
+
+	function getData(node) {
+		var data = null,
+			attributes = node.attributes,
+			json = node.getAttribute('data-paper-data');
+		for (var i = 0, l = attributes.length; i < l; i++) {
+			var match = attributes[i].name.match(/^data-(?!paper-)(.+)$/);
+			if (match) {
+				data = data || {};
+				data[Base.camelize(match[1])] = attributes[i].value;
+			}
+		}
+		return json ? Base.set(data || {}, JSON.parse(json)) : data;
 	}
 
 	var sandbox;
@@ -17413,7 +22335,7 @@ new function() {
 				if (isElement && importer !== importGroup)
 					item = applyAttributes(item, node, options, isRoot);
 				var onImport = options.onImport,
-					data = isElement && node.getAttribute('data-paper-data');
+					data = isElement && getData(node);
 				if (onImport)
 					item = onImport(node, item, options) || item;
 				if (options.expandShapes && item instanceof Shape) {
@@ -17421,7 +22343,7 @@ new function() {
 					item = item.toPath();
 				}
 				if (data)
-					item._data = JSON.parse(data);
+					item._data = data;
 			}
 		} finally {
 			if (container) {
