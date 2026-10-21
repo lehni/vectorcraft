@@ -242,11 +242,11 @@ fn checked<H: Clone>(call: &mut dyn Call<H>, check: Check, value: Value<H>) -> R
         }
         Check::Font => {
             let text = call.to_string(&value)?;
-            crate::canvas::is_font(&text).then_some(Value::String(text))
+            crate::canvas::font_css(&text).map(Value::String)
         }
         Check::Length => {
             let text = call.to_string(&value)?;
-            css_length(&text).is_some().then_some(Value::String(text))
+            css_length(&text, 10.0).is_some().then_some(Value::String(text))
         }
         Check::Color => match &value {
             Value::String(css) => color_value(css),
@@ -263,15 +263,15 @@ fn checked<H: Clone>(call: &mut dyn Call<H>, check: Check, value: Value<H>) -> R
     })
 }
 
-/// A CSS length in pixels, `em` and `rem` taken as 10 pixels, the default font's size.
-fn css_length(text: &str) -> Option<f64> {
+/// A CSS length in pixels, an `em` the font's size `em`, a `rem` the default font's 10 pixels.
+pub(crate) fn css_length(text: &str, em: f64) -> Option<f64> {
     let text = text.trim();
     if text == "0" {
         return Some(0.0);
     }
     let units = [
         ("px", 1.0),
-        ("em", 10.0),
+        ("em", em),
         ("rem", 10.0),
         ("pt", 4.0 / 3.0),
         ("pc", 16.0),
@@ -1323,7 +1323,8 @@ fn text_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>
     let font = text_property(call, this, "font")?;
     let align = text_property(call, this, "textAlign")?;
     let baseline = text_property(call, this, "textBaseline")?;
-    let (outline, measured) = crate::canvas::outline(&text, &font);
+    let spacing = (text_property(call, this, "letterSpacing")?, text_property(call, this, "wordSpacing")?);
+    let (outline, measured) = crate::canvas::outline(&text, &font, &spacing);
     let dx = match align.as_str() {
         "center" => -measured.width / 2.0,
         "right" | "end" => -measured.width,

@@ -7,15 +7,15 @@
 //! fails when another one fails, or when a listed one passes, so the list stays the truth.
 //! `WPT_UPDATE=1` writes the list anew. The pass rate by folder prints with `--nocapture`.
 //!
-//! What fails, by cause (2026-10-21: 1582 of 1821 pass; the canvas 899 of 1093, geometry 683
+//! What fails, by cause (2026-10-21: 1593 of 1821 pass; the canvas 910 of 1093, geometry 683
 //! of 728), to come back to; most of it rarely matters to a script:
 //!
-//! - Text (canvas/text, about 70): WPT loads its test font with `FontFace`, which scripts don't
+//! - Text (canvas/text, about 60): WPT loads its test font with `FontFace`, which scripts don't
 //!   have (it would add a font to the process's font database, for one runtime); the
 //!   `TextMetrics` methods (`getActualBoundingBox()`, `getTextClusters()`,
 //!   `getIndexFromOffset()`, `getSelectionRects()`, tentative); `direction: 'rtl'` in measuring;
-//!   `letterSpacing`, `wordSpacing`, `fontKerning`, `fontStretch`, `fontVariantCaps` and
-//!   `textRendering` are kept but don't change the text yet; `maxWidth` of NaN.
+//!   `fontKerning`, `fontStretch`, `fontVariantCaps` and `textRendering` are kept but don't
+//!   change the text yet; `maxWidth` of NaN.
 //! - A worker's matrices (css/geometry, 12): a script has a window, so `new DOMMatrix(text)`
 //!   reads CSS's transform functions, `setMatrixValue()` is there and a matrix writes itself as
 //!   CSS, as a window's do, which the worker tests expect not to. `structured-serialization` needs

@@ -382,9 +382,9 @@ fn to_png<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[Value<H>])
     Ok(Value::Js(call.new_uint8_array(&png)?))
 }
 
-/// Whether `css` is a CSS `font` shorthand a context takes.
-pub(crate) fn is_font(css: &str) -> bool {
-    Font::parse(css).is_some()
+/// The CSS `font` shorthand `css` as a context keeps it, or `None` when it isn't one.
+pub(crate) fn font_css(css: &str) -> Option<String> {
+    Font::parse(css).map(|font| font.css())
 }
 
 /// A context's font until a script sets one, as in browsers.
@@ -402,7 +402,10 @@ fn measure_text<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value
         Value::String(font) => font,
         _ => DEFAULT_FONT.to_owned(),
     };
-    let measured = measure(&text, &Font::parse(&font).unwrap_or_default());
+    let spacing = (drawing::property_value(call, this, "letterSpacing")?, drawing::property_value(call, this, "wordSpacing")?);
+    let spacing = (call.to_string(&spacing.0)?, call.to_string(&spacing.1)?);
+    let font = Font::parse(&font).unwrap_or_default();
+    let measured = measure_layout(&layout(&text, &font, &spacing));
     let metrics = call.new_object()?;
     for (key, value) in [
         ("width", measured.width),
@@ -418,67 +421,239 @@ fn measure_text<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value
     Ok(Value::Js(metrics))
 }
 
-/// A CSS `font` shorthand as the canvas reads it: `[style] [variant] [weight] size[/line-height]
-/// family[, family…]`.
+/// A CSS `font` shorthand as the canvas reads it: `[style] [variant] [weight] [stretch]
+/// size[/line-height] family[, family…]`.
 #[derive(Debug, PartialEq)]
 struct Font {
     families: Vec<String>,
-    bold: bool,
-    italic: bool,
+    /// `italic` or `oblique`, or none (`normal`).
+    style: Option<&'static str>,
+    small_caps: bool,
+    /// From 1 to 1000: 400 is `normal`, 700 `bold`.
+    weight: u16,
+    /// `condensed` and the others, or none (`normal`).
+    stretch: Option<&'static str>,
     /// In CSS pixels, which are Paper.js's points.
     size: f64,
 }
 
 impl Default for Font {
     fn default() -> Self {
-        Self { families: vec!["sans-serif".into()], bold: false, italic: false, size: 10.0 }
+        Self { families: vec!["sans-serif".into()], style: None, small_caps: false, weight: 400, stretch: None, size: 10.0 }
     }
 }
+
+/// The font sizes CSS names, in pixels.
+const SIZES: [(&str, f64); 8] = [
+    ("xx-small", 9.0),
+    ("x-small", 10.0),
+    ("small", 13.0),
+    ("medium", 16.0),
+    ("large", 18.0),
+    ("x-large", 24.0),
+    ("xx-large", 32.0),
+    ("xxx-large", 48.0),
+];
+
+const STRETCHES: [&str; 8] =
+    ["ultra-condensed", "extra-condensed", "condensed", "semi-condensed", "semi-expanded", "expanded", "extra-expanded", "ultra-expanded"];
+
+/// CSS's generic families.
+const GENERIC: [&str; 13] = [
+    "serif",
+    "sans-serif",
+    "monospace",
+    "cursive",
+    "fantasy",
+    "system-ui",
+    "ui-serif",
+    "ui-sans-serif",
+    "ui-monospace",
+    "ui-rounded",
+    "math",
+    "emoji",
+    "fangsong",
+];
+
+/// What CSS doesn't take as a family's name unquoted.
+const KEYWORDS: [&str; 6] = ["inherit", "initial", "unset", "revert", "revert-layer", "default"];
 
 impl Font {
     /// `font`, or `None` when it isn't a font shorthand, which leaves a canvas's font as it was in
     /// browsers.
     fn parse(font: &str) -> Option<Self> {
-        let (mut bold, mut italic) = (false, false);
+        let mut font_value = Self::default();
+        let (mut style, mut variant, mut weight, mut stretch) = (false, false, false, false);
         let mut rest = font.trim();
         loop {
-            let (word, after) = rest.split_once(char::is_whitespace)?;
+            let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+            let (word, after) = rest.split_at(end);
             let lower = word.to_ascii_lowercase();
+            // Each at most once, `normal` for any of them:
             match lower.as_str() {
-                "italic" | "oblique" => italic = true,
-                "bold" | "bolder" => bold = true,
-                "normal" | "lighter" | "small-caps" | "condensed" | "expanded" => {}
-                weight if weight.parse::<u16>().is_ok_and(|w| (1..=1000).contains(&w)) => bold = weight.parse::<u16>().is_ok_and(|w| w >= 600),
+                "normal" => {}
+                "italic" | "oblique" if !style => {
+                    style = true;
+                    font_value.style = Some(if lower == "italic" { "italic" } else { "oblique" });
+                }
+                "small-caps" if !variant => {
+                    variant = true;
+                    font_value.small_caps = true;
+                }
+                "bold" | "bolder" | "lighter" if !weight => {
+                    weight = true;
+                    font_value.weight = if lower == "lighter" { 100 } else { 700 };
+                }
+                number if !weight && number.parse::<f64>().is_ok_and(|w| (1.0..=1000.0).contains(&w)) => {
+                    weight = true;
+                    font_value.weight = number.parse::<f64>().map_or(400, |w| w.round() as u16);
+                }
+                keyword if !stretch && STRETCHES.contains(&keyword) => {
+                    stretch = true;
+                    font_value.stretch = STRETCHES.iter().copied().find(|s| *s == keyword);
+                }
                 _ => {
-                    let size = Self::size(word.split('/').next()?)?;
-                    let families =
-                        after.split(',').map(|f| f.trim().trim_matches(['"', '\'']).to_owned()).filter(|f| !f.is_empty()).collect::<Vec<_>>();
-                    return (!families.is_empty()).then_some(Self { families, bold, italic, size });
+                    // The size, with a line height (`12px/2`, `12px / 2`) that a canvas leaves out:
+                    let (size, after) = match word.split_once('/') {
+                        Some((size, "")) => (size, Self::skip_word(after.trim_start())?),
+                        Some((size, _)) => (size, after),
+                        None => match after.trim_start().strip_prefix('/') {
+                            Some(height) => (word, Self::skip_word(height.trim_start())?),
+                            None => (word, after),
+                        },
+                    };
+                    font_value.size = Self::size(size)?;
+                    font_value.families = Self::families(after)?;
+                    return Some(font_value);
                 }
             }
             rest = after.trim_start();
+            if rest.is_empty() {
+                return None;
+            }
         }
     }
 
-    /// A CSS font size in pixels.
+    /// What follows the next word.
+    fn skip_word(text: &str) -> Option<&str> {
+        let end = text.find(char::is_whitespace)?;
+        text.get(end..)
+    }
+
+    /// A CSS font size in pixels: absolute lengths, names, and `em`, `rem` and `%` of the default
+    /// font's 10px.
     fn size(size: &str) -> Option<f64> {
-        let number = |s: &str| s.parse::<f64>().ok().filter(|n| n.is_finite() && *n >= 0.0);
-        if let Some(px) = size.strip_suffix("px") {
-            number(px)
-        } else if let Some(pt) = size.strip_suffix("pt") {
-            number(pt).map(|pt| pt * 96.0 / 72.0)
-        } else if let Some(em) = size.strip_suffix("em") {
-            number(em).map(|em| em * 10.0)
-        } else if let Some(percent) = size.strip_suffix('%') {
-            number(percent).map(|p| p / 10.0)
-        } else {
-            None
+        let lower = size.to_ascii_lowercase();
+        if let Some((_, px)) = SIZES.iter().find(|(name, _)| *name == lower) {
+            return Some(*px);
         }
+        let units = [
+            ("px", 1.0),
+            ("pt", 96.0 / 72.0),
+            ("pc", 16.0),
+            ("in", 96.0),
+            ("cm", 96.0 / 2.54),
+            ("mm", 96.0 / 25.4),
+            ("q", 96.0 / 101.6),
+            ("rem", 10.0),
+            ("em", 10.0),
+            ("%", 0.1),
+        ];
+        units.iter().find_map(|(unit, scale)| lower.strip_suffix(unit)?.parse::<f64>().ok().filter(|n| n.is_finite() && *n >= 0.0).map(|n| n * scale))
+    }
+
+    /// The families: names quoted (with CSS's escapes) or unquoted, as identifiers.
+    fn families(text: &str) -> Option<Vec<String>> {
+        let mut families = Vec::new();
+        let mut chars = text.trim().chars().peekable();
+        loop {
+            while chars.next_if(|c| c.is_whitespace()).is_some() {}
+            let family = match chars.peek()? {
+                quote @ ('"' | '\'') => {
+                    let quote = *quote;
+                    chars.next();
+                    let mut name = String::new();
+                    loop {
+                        match chars.next()? {
+                            '\\' => name.push(chars.next()?),
+                            c if c == quote => break,
+                            c => name.push(c),
+                        }
+                    }
+                    name
+                }
+                _ => {
+                    let mut words = Vec::new();
+                    let mut word = String::new();
+                    while let Some(c) = chars.next_if(|c| *c != ',') {
+                        if c.is_whitespace() {
+                            if !word.is_empty() {
+                                words.push(std::mem::take(&mut word));
+                            }
+                        } else if c.is_alphanumeric() || c == '-' || c == '_' || !c.is_ascii() {
+                            word.push(c);
+                        } else {
+                            return None;
+                        }
+                    }
+                    words.extend((!word.is_empty()).then_some(word));
+                    let valid = |w: &String| !w.starts_with(|c: char| c.is_ascii_digit()) && !w.starts_with("--") && w != "-";
+                    if words.is_empty() || !words.iter().all(valid) || words.len() == 1 && KEYWORDS.contains(&words[0].to_ascii_lowercase().as_str())
+                    {
+                        return None;
+                    }
+                    let name = words.join(" ");
+                    // A generic family is a keyword, of any case:
+                    match GENERIC.iter().find(|generic| generic.eq_ignore_ascii_case(&name)) {
+                        Some(generic) => (*generic).to_owned(),
+                        None => name,
+                    }
+                }
+            };
+            families.push(family);
+            while chars.next_if(|c| c.is_whitespace()).is_some() {}
+            match chars.next() {
+                Some(',') => {}
+                None => return Some(families),
+                Some(_) => return None,
+            }
+        }
+    }
+
+    /// The shorthand as the canvas gives it back: what isn't `normal`, the size in pixels, the
+    /// families unquoted where they're identifiers.
+    fn css(&self) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        parts.extend(self.style.map(str::to_owned));
+        if self.small_caps {
+            parts.push("small-caps".into());
+        }
+        match self.weight {
+            400 => {}
+            700 => parts.push("bold".into()),
+            weight => parts.push(weight.to_string()),
+        }
+        parts.extend(self.stretch.map(str::to_owned));
+        parts.push(format!("{}px", self.size));
+        let families: Vec<String> = self
+            .families
+            .iter()
+            .map(|family| {
+                let identifier = !family.is_empty() && family.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_');
+                if identifier { family.clone() } else { format!("\"{}\"", family.replace('\\', "\\\\").replace('"', "\\\"")) }
+            })
+            .collect();
+        parts.push(families.join(", "));
+        parts.join(" ")
+    }
+
+    fn bold(&self) -> bool {
+        self.weight >= 600
     }
 
     /// The font style VectorCraft's font database knows.
     fn style(&self) -> &'static str {
-        match (self.bold, self.italic) {
+        match (self.bold(), self.style.is_some()) {
             (true, true) => "Bold Italic",
             (true, false) => "Bold",
             (false, true) => "Italic",
@@ -524,18 +699,33 @@ pub(crate) struct Measured {
     pub descent: f64,
 }
 
-/// `text` laid out on one line in `font`, as the app lays out point type.
-fn layout(text: &str, font: &Font) -> vectorcraft_text::TextLayout {
+/// `text` laid out on one line in `font`, as the app lays out point type, with the canvas's
+/// `letterSpacing` after each character and its `wordSpacing` after each space (CSS lengths, an
+/// `em` the font's size).
+fn layout(text: &str, font: &Font, (letter, word): &(String, String)) -> vectorcraft_text::TextLayout {
+    let text = text.replace(['\n', '\r'], " ");
     let style = vectorcraft_doc::CharStyle { font_family: font.family(), font_style: font.style().into(), size: font.size, ..Default::default() };
-    let object = vectorcraft_doc::TextObject::point(vectorcraft_geom::Point::ZERO, &text.replace(['\n', '\r'], " "), style);
-    vectorcraft_text::layout(vectorcraft_text::FontDb::global(), &object)
+    let object = vectorcraft_doc::TextObject::point(vectorcraft_geom::Point::ZERO, &text, style);
+    let mut laid = vectorcraft_text::layout(vectorcraft_text::FontDb::global(), &object);
+    let (letter, word) = (drawing::css_length(letter, font.size).unwrap_or(0.0), drawing::css_length(word, font.size).unwrap_or(0.0));
+    if letter != 0.0 || word != 0.0 {
+        // What the characters in `range` add: each its letter spacing, a space its word spacing.
+        let spacing = |range: &str| range.chars().map(|c| letter + if c == ' ' { word } else { 0.0 }).sum::<f64>();
+        for glyph in &mut laid.glyphs {
+            let before = spacing(text.get(..glyph.byte).unwrap_or_default());
+            glyph.advance += spacing(text.get(glyph.byte..glyph.byte + glyph.len).unwrap_or_default());
+            glyph.origin.x += before;
+            glyph.outline = vectorcraft_geom::Affine::translate((before, 0.0)) * &glyph.outline;
+        }
+    }
+    laid
 }
 
 /// The outlines of `text` in the CSS `font`, the start of its baseline at the origin, and its
 /// measurements: what `fillText` draws.
-pub(crate) fn outline(text: &str, font: &str) -> (vectorcraft_geom::BezPath, Measured) {
+pub(crate) fn outline(text: &str, font: &str, spacing: &(String, String)) -> (vectorcraft_geom::BezPath, Measured) {
     let font = Font::parse(font).unwrap_or_default();
-    let laid = layout(text, &font);
+    let laid = layout(text, &font, spacing);
     let measured = measure_layout(&laid);
     let start = laid.glyphs.first().map_or(0.0, |g| g.origin.x);
     let baseline = laid.lines.first().map_or(0.0, |l| l.baseline);
@@ -544,10 +734,6 @@ pub(crate) fn outline(text: &str, font: &str) -> (vectorcraft_geom::BezPath, Mea
         outline.extend(glyph.outline.iter());
     }
     (vectorcraft_geom::Affine::translate((-start, -baseline)) * outline, measured)
-}
-
-fn measure(text: &str, font: &Font) -> Measured {
-    measure_layout(&layout(text, font))
 }
 
 fn measure_layout(layout: &vectorcraft_text::TextLayout) -> Measured {
@@ -571,17 +757,38 @@ fn measure_layout(layout: &vectorcraft_text::TextLayout) -> Measured {
 
 #[cfg(test)]
 mod tests {
-    use super::Font;
+    use super::{Font, font_css};
 
     #[test]
     fn font_shorthands_parse_as_browsers_read_them() {
-        let font = |families: &[&str], bold, italic, size| Font { families: families.iter().map(|f| (*f).to_owned()).collect(), bold, italic, size };
-        assert_eq!(Font::parse("10px sans-serif"), Some(font(&["sans-serif"], false, false, 10.0)));
-        assert_eq!(Font::parse("italic bold 12pt \"Source Sans 3\", serif"), Some(font(&["Source Sans 3", "serif"], true, true, 16.0)));
-        assert_eq!(Font::parse("300 2em/1.5 'Helvetica Neue'"), Some(font(&["Helvetica Neue"], false, false, 20.0)));
-        assert_eq!(Font::parse("700 50% monospace"), Some(font(&["monospace"], true, false, 5.0)));
+        let font = |families: &[&str], weight, style, size| Font {
+            families: families.iter().map(|f| (*f).to_owned()).collect(),
+            weight,
+            style,
+            size,
+            ..Font::default()
+        };
+        assert_eq!(Font::parse("10px sans-serif"), Some(font(&["sans-serif"], 400, None, 10.0)));
+        assert_eq!(Font::parse("italic bold 12pt \"Source Sans 3\", serif"), Some(font(&["Source Sans 3", "serif"], 700, Some("italic"), 16.0)));
+        assert_eq!(Font::parse("300 2em/1.5 'Helvetica Neue'"), Some(font(&["Helvetica Neue"], 300, None, 20.0)));
+        assert_eq!(Font::parse("700 50% monospace"), Some(font(&["monospace"], 700, None, 5.0)));
         assert_eq!(Font::parse("bold"), None, "no size or family");
         assert_eq!(Font::parse("12px"), None, "no family");
         assert_eq!(Font::parse("big Helvetica"), None, "not a size");
+    }
+
+    /// The shorthand as browsers write it back: what isn't `normal`, in CSS's order, the size in
+    /// pixels, the families quoted where they aren't identifiers.
+    #[test]
+    fn font_shorthands_write_back_as_browsers_do() {
+        assert_eq!(font_css("20PX   SERIF").as_deref(), Some("20px serif"));
+        assert_eq!(
+            font_css("small-caps italic 400 12px/2 \"Unknown Font #2\", sans-serif").as_deref(),
+            Some("italic small-caps 12px \"Unknown Font #2\", sans-serif")
+        );
+        assert_eq!(font_css("bold 12pt / 1.5 Helvetica Neue").as_deref(), Some("bold 16px \"Helvetica Neue\""));
+        for invalid in ["", "bogus", "inherit", "10px {bogus}", "10px initial", "10px default", "var(--x)", "1em serif; background: green"] {
+            assert_eq!(font_css(invalid), None, "{invalid}");
+        }
     }
 }

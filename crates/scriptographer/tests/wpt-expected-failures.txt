@@ -173,19 +173,8 @@ html/canvas/offscreen/text/2d.text.draw.space.collapse.start.worker.js: Space ch
 html/canvas/offscreen/text/2d.text.drawing.style.absolute.spacing.worker.js: Testing letter spacing and word spacing with absolute length
 html/canvas/offscreen/text/2d.text.drawing.style.font-relative.spacing.worker.js: Testing letter spacing and word spacing with font-relative length
 html/canvas/offscreen/text/2d.text.drawing.style.fontKerning.worker.js: Testing basic functionalities of fontKerning for canvas
-html/canvas/offscreen/text/2d.text.drawing.style.letterSpacing.change.font.worker.js: Set letter spacing and word spacing to font dependent value and verify it works after font change.
-html/canvas/offscreen/text/2d.text.drawing.style.letterSpacing.measure.worker.js: Testing letter spacing with different length units
 html/canvas/offscreen/text/2d.text.drawing.style.measure.direction.worker.js: Measurement should follow text direction
 html/canvas/offscreen/text/2d.text.drawing.style.measure.textAlign.worker.js: Measurement should be related to textAlignment
-html/canvas/offscreen/text/2d.text.drawing.style.wordSpacing.change.font.worker.js: Set word spacing and word spacing to font dependent value and verify it works after font change.
-html/canvas/offscreen/text/2d.text.drawing.style.wordSpacing.measure.worker.js: Testing word spacing with different length units
-html/canvas/offscreen/text/2d.text.font.parse.basic.worker.js: Untitled
-html/canvas/offscreen/text/2d.text.font.parse.complex.worker.js: Untitled
-html/canvas/offscreen/text/2d.text.font.parse.complex2.worker.js: Untitled
-html/canvas/offscreen/text/2d.text.font.parse.family.worker.js: Untitled
-html/canvas/offscreen/text/2d.text.font.parse.invalid.worker.js: Untitled
-html/canvas/offscreen/text/2d.text.font.relative_size.worker.js: Untitled
-html/canvas/offscreen/text/2d.text.font.weight.worker.js: Untitled
 html/canvas/offscreen/text/2d.text.fontVariantCaps2.worker.js: Testing small caps setting in fontVariant
 html/canvas/offscreen/text/2d.text.lang.default.worker.js: Untitled
 html/canvas/offscreen/text/2d.text.measure.actualBoundingBox.small-font.worker.js: Testing that actualBoundingBox metrics are precise at small font sizes

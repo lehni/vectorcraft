@@ -532,6 +532,28 @@ fn scripts_measure_text<E: Engine>() {
     assert_eq!(runtime.take_output(), ["10px sans-serif", "true true true true", "true 0", "true"], "bold is wider than twice the size alone");
 }
 
+/// `letterSpacing` after each character and `wordSpacing` at each space widen text as it's
+/// measured and drawn, and the font reads back as browsers write it.
+fn text_takes_letter_and_word_spacing<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "const ctx = new OffscreenCanvas(1, 1).getContext('2d')\n\
+             ctx.font = '20PX   SERIF'\n\
+             const width = ctx.measureText('Hello World').width\n\
+             ctx.letterSpacing = '3px'\n\
+             const letters = ctx.measureText('Hello World').width - width\n\
+             ctx.letterSpacing = '0px'\n\
+             ctx.wordSpacing = '0.5em'\n\
+             const words = ctx.measureText('Hello World').width - width\n\
+             console.log(ctx.font, letters.toFixed(3), words.toFixed(3), ctx.wordSpacing)",
+        )
+        .unwrap();
+    assert_eq!(runtime.take_output(), ["20px serif 33.000 10.000 0.5em"], "11 characters, 1 space, an em of 20px");
+}
+
 /// `roundRect()`'s radii as the standard reads them: elliptical ones too, and the errors.
 fn round_rects_take_elliptical_radii<E: Engine>() {
     let mut runtime = Runtime::<E>::new().unwrap();
@@ -1474,6 +1496,11 @@ macro_rules! engine_tests {
             #[test]
             fn round_rects_take_elliptical_radii() {
                 super::round_rects_take_elliptical_radii::<$engine>();
+            }
+
+            #[test]
+            fn text_takes_letter_and_word_spacing() {
+                super::text_takes_letter_and_word_spacing::<$engine>();
             }
 
             #[test]
