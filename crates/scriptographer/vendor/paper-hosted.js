@@ -9,7 +9,7 @@
  *
  * All rights reserved.
  *
- * Date: Wed Oct 21 21:11:49 2026 +0200
+ * Date: Thu Oct 22 01:32:47 2026 +0200
  *
  ***
  *
@@ -2288,9 +2288,16 @@ var Rectangle = Base.extend({
 				this.width + hor, this.height + ver);
 	},
 
-	scale: function(hor, ver) {
-		return this.expand(this.width * hor - this.width,
-				this.height * (ver === undefined ? hor : ver) - this.height);
+	scale: function() {
+		var args = arguments,
+			scale = Point.read(args),
+			center = Point.read(args, 0, { readNull: true })
+					|| this.getCenter(true);
+		return new Rectangle(
+				this.getTopLeft(true).subtract(center).multiply(scale)
+					.add(center),
+				this.getBottomRight(true).subtract(center).multiply(scale)
+					.add(center));
 	}
 }, Base.each([
 		['Top', 'Left'], ['Top', 'Right'],
@@ -4679,13 +4686,16 @@ new function() {
 			for (var i = items.length - 1; i >= 0; i--) {
 				var item = items[i],
 					id = item && item._id;
-				if (!item || inserted[id]) {
+				if (!item || inserted[id] || item === this
+						|| this.isDescendant(item)) {
 					items.splice(i, 1);
 				} else {
 					item._remove(false, true);
 					inserted[id] = true;
 				}
 			}
+			if (!items.length)
+				return null;
 			Base.splice(children, items, index, 0);
 			var project = this._project,
 				notifySelf = project._changes;
@@ -5118,12 +5128,17 @@ new function() {
 			hasFill = style.hasFill(),
 			hasStroke = style.hasStroke();
 		if (hasFill || hasStroke) {
+			var isStrokeFirst = hasStroke && style.getPaintOrder() === 'stroke';
 			this._setStyles(ctx, param, viewMatrix, strokeMatrix);
+			if (isStrokeFirst) {
+				ctx.stroke();
+				ctx.shadowColor = 'rgba(0,0,0,0)';
+			}
 			if (hasFill) {
 				ctx.fill(style.getFillRule());
 				ctx.shadowColor = 'rgba(0,0,0,0)';
 			}
-			if (hasStroke)
+			if (hasStroke && !isStrokeFirst)
 				ctx.stroke();
 		}
 	},
@@ -6368,8 +6383,27 @@ var SymbolItem = Item.extend({
 
 	_draw: function(ctx, param) {
 		this._definition._item.draw(ctx, param.extend({ updateMatrix: false }));
-	}
+	},
 
+	embed: function() {
+		if (!this._parent)
+			return null;
+		var item = this._definition._item.clone(false);
+		item.transform(this._matrix);
+		item.setOpacity(item._opacity * this._opacity);
+		item.setVisible(item._visible && this._visible);
+		item.setLocked(item._locked || this._locked);
+		item.setGuide(item._guide || this._guide);
+		if (this._blendMode !== 'normal')
+			item.setBlendMode(this._blendMode);
+		item.setClipMask(this._clipMask);
+		item.setSelected(this.isSelected());
+		if (this._data)
+			item._data = Base.clone(this._data);
+		if (this._name)
+			item.setName(this._name);
+		return this.replaceWith(item) ? item : null;
+	}
 });
 
 var SymbolDefinition = Base.extend({
@@ -13191,6 +13225,8 @@ var TextItem = Item.extend({
 						style = piece.style,
 						hasFill = style.hasFill(),
 						hasStroke = style.hasStroke(),
+						isStrokeFirst = hasStroke
+								&& style.getPaintOrder() === 'stroke',
 						size = piece.size,
 						x = piece.dx || 0;
 					this._setStyles(ctx, param, viewMatrix, null, style);
@@ -13218,11 +13254,15 @@ var TextItem = Item.extend({
 					x /= piece.scale.x;
 					ctx.font = piece.font;
 					ctx.letterSpacing = piece.tracking;
+					if (isStrokeFirst) {
+						ctx.strokeText(piece.content, x, 0);
+						ctx.shadowColor = 'rgba(0,0,0,0)';
+					}
 					if (hasFill) {
 						ctx.fillText(piece.content, x, 0);
 						ctx.shadowColor = 'rgba(0,0,0,0)';
 					}
-					if (hasStroke)
+					if (hasStroke && !isStrokeFirst)
 						ctx.strokeText(piece.content, x, 0);
 					ctx.restore();
 				}
@@ -15138,6 +15178,7 @@ var Style = Base.extend(new function() {
 		miterLimit: 10,
 		dashOffset: 0,
 		dashArray: [],
+		paintOrder: 'fill',
 		shadowColor: null,
 		shadowBlur: 0,
 		shadowOffset: new Point(),
@@ -15630,6 +15671,33 @@ var Style = Base.extend(new function() {
 	 * @property
 	 * @default 10
 	 * @type Number
+	 */
+
+	/**
+	 * The order in which the fill and the stroke are painted, as in SVG's
+	 * `paint-order`, named after what is painted first: `'fill'` paints the
+	 * fill first, `'stroke'` paints the stroke first, so the fill covers its
+	 * inner half.
+	 *
+	 * @name Style#paintOrder
+	 * @property
+	 * @type String
+	 * @values 'fill', 'stroke'
+	 * @default 'fill'
+	 *
+	 * @example {@paperscript}
+	 * var text = new PointText({
+	 *     point: [20, 70],
+	 *     content: 'Paper',
+	 *     fontSize: 50,
+	 *     fillColor: 'white',
+	 *     strokeColor: 'black',
+	 *     strokeWidth: 8,
+	 *     strokeJoin: 'round'
+	 * });
+	 *
+	 * // Paint the stroke behind the fill:
+	 * text.paintOrder = 'stroke';
 	 */
 
 	/**
@@ -20813,6 +20881,7 @@ var SvgStyles = Base.each({
 	miterLimit: ['stroke-miterlimit', 'number'],
 	dashArray: ['stroke-dasharray', 'array'],
 	dashOffset: ['stroke-dashoffset', 'number'],
+	paintOrder: ['paint-order', 'order'],
 	fontFamily: ['font-family', 'string'],
 	fontWeight: ['font-weight', 'font'],
 	fontSize: ['font-size', 'number'],
@@ -21408,12 +21477,18 @@ new function() {
 		var exporter = exporters[item._class],
 			node = exporter && exporter(item, options);
 		if (node) {
-			var onExport = options.onExport;
-			if (onExport)
-				node = onExport(item, node, options) || node;
+			var onExport = options.onExport,
+				processNode = options.processNode
+					|| onExport && function(arg) {
+						return onExport(arg.item, arg.node, options);
+					};
+			if (processNode)
+				node = processNode({ item: item, node: node }) || node;
 			var data = JSON.stringify(item._data);
 			if (data && data !== '{}' && data !== 'null')
 				node.setAttribute('data-paper-data', data);
+			if (item instanceof Layer)
+				node.setAttribute('data-paper-layer', '');
 		}
 		return node && applyStyle(item, node, options, isRoot);
 	}
@@ -21522,6 +21597,8 @@ new function() {
 					value ? value.split(/[\s,]+/g).map(parseLength) : []
 				: type === 'color' ? getDefinition(value, options) || value
 				: type === 'lookup' ? lookup[value]
+				: type === 'order' ? /^(markers\s+)?stroke\b/.test(value)
+					? 'stroke' : 'fill'
 				: value;
 	}
 
@@ -21529,7 +21606,8 @@ new function() {
 		var nodes = node.childNodes,
 			isClip = type === 'clippath' || type === 'mask',
 			isDefs = type === 'defs',
-			item = new Group(),
+			ctor = node.hasAttribute('data-paper-layer') ? Layer : Group,
+			item = new ctor(),
 			project = item._project,
 			currentStyle = project._currentStyle,
 			parentSize = rootSize,
@@ -22123,16 +22201,20 @@ new function() {
 			if (item) {
 				if (isElement && importer !== importGroup)
 					item = applyAttributes(item, node, options, isRoot);
+				var data = isElement && getData(node);
+				if (data)
+					item._data = data;
 				var onImport = options.onImport,
-					data = isElement && getData(node);
-				if (onImport)
-					item = onImport(node, item, options) || item;
+					processItem = isElement && (options.processItem
+						|| onImport && function(arg) {
+							return onImport(arg.node, arg.item, options);
+						});
+				if (processItem)
+					item = processItem({ item: item, node: node }) || item;
 				if (options.expandShapes && item instanceof Shape) {
 					item.remove();
 					item = item.toPath();
 				}
-				if (data)
-					item._data = data;
 			}
 		} finally {
 			if (container) {
