@@ -509,13 +509,17 @@ impl<E: Engine> Runtime<E> {
         !host.intervals.is_empty() || !host.frames.is_empty()
     }
 
-    /// Sets `project.currentStyle` of `scope`: `style` as [`host::current_style`] makes it.
-    pub fn set_current_style(&mut self, scope: &Scope<E::Handle>, style: &serde_json::Value) -> Result<(), Error> {
+    /// Sets the current styles of `scope`'s project, `project.currentStyle` and
+    /// `project.currentTextStyle`: `styles` as [`host::current_style`] makes them.
+    pub fn set_current_style(&mut self, scope: &Scope<E::Handle>, styles: &serde_json::Value) -> Result<(), Error> {
         self.engine.with_call(|call| {
             let globals = dialog::globals(call)?;
-            let style = dialog::from_json(call, &globals, style)?;
             let project = object(call, &scope.0, "project")?;
-            call.set(&project, "currentStyle", &style)
+            for (name, style) in styles.as_object().into_iter().flatten() {
+                let style = dialog::from_json(call, &globals, style)?;
+                call.set(&project, name, &style)?;
+            }
+            Ok(())
         })
     }
 

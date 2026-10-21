@@ -369,10 +369,15 @@ fn style(node: &Node, props: &mut Map<String, Value>) {
     }
 }
 
-/// The style new art takes in the app, as Paper.js's `project.currentStyle` has it: what new items
-/// a script makes get, as in Scriptographer, where they took the document's current style.
-pub fn current_style(fill: &Paint, stroke: &Paint, stroke_width: f64) -> Value {
-    json!({ "fillColor": color(fill), "strokeColor": color(stroke), "strokeWidth": stroke_width })
+/// The styles new art takes in the app, as a Paper.js project has them: `currentStyle`, what new
+/// items a script makes get, as in Scriptographer, where they took the document's current style,
+/// and `currentTextStyle`, what new text gets instead: a fill of `text_fill` without a stroke, as
+/// the Type tool's new type has.
+pub fn current_style(fill: &Paint, stroke: &Paint, stroke_width: f64, text_fill: &Paint) -> Value {
+    json!({
+        "currentStyle": { "fillColor": color(fill), "strokeColor": color(stroke), "strokeWidth": stroke_width },
+        "currentTextStyle": { "fillColor": color(text_fill), "strokeColor": null },
+    })
 }
 
 /// A solid paint as a Paper.js colour. Gradients and patterns have no Paper.js form yet.

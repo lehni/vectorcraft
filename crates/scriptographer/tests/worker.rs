@@ -25,7 +25,9 @@ fn spawn(s: &Session) -> Worker {
 
 fn send(s: &Session, worker: &Worker, work: Work) {
     let st = s.active().unwrap();
-    let style = serde_json::json!({ "strokeColor": [0, 0, 0], "strokeWidth": 1 });
+    // The styles the app gives scripts.
+    let paint = &s.paint;
+    let style = vectorcraft_scriptographer::host::current_style(&paint.fill, &paint.stroke, paint.stroke_width, &s.new_type_style().fill);
     worker.send(Request::Run { doc: st.doc.clone(), selection: st.selection.clone(), artboard: 0, style, work });
 }
 
@@ -113,4 +115,25 @@ fn text_on_a_path_keeps_its_path_when_the_app_changes_it() {
     send(&s, &worker, Work::Frame(40.0));
     assert_eq!(settle(&mut s, &worker), None);
     assert!(path_left(&s).unwrap() > before + 5.0, "the text moves on with its path");
+}
+
+/// New text takes the style the app's Type tool gives new type, a fill without a stroke, while new
+/// paths take the app's current paint, a white fill and a black stroke by default.
+#[test]
+fn new_text_takes_the_text_style_and_new_paths_the_current_style() {
+    let mut s = session();
+    let worker = spawn(&s);
+    send(&s, &worker, Work::Execute("new Path.Rectangle([0, 0], [10, 10])\nnew PointText({ point: [20, 20], content: 'Hi' })".into()));
+    assert_eq!(settle(&mut s, &worker), None);
+    let st = s.active().unwrap();
+    let nodes = st.doc.layers[0].children().unwrap();
+    let text = nodes.iter().find_map(|n| match &n.kind {
+        vectorcraft_doc::NodeKind::Text(t) => Some(t.runs[0].style.clone()),
+        _ => None,
+    });
+    let text = text.expect("the text");
+    assert_eq!(text.fill, vectorcraft_color::Paint::solid(vectorcraft_color::Color::BLACK), "black, as the fill is white");
+    assert!(!text.has_stroke(), "no stroke");
+    let path = nodes.iter().rev().find(|n| matches!(n.kind, vectorcraft_doc::NodeKind::Path { .. })).unwrap();
+    assert!(!path.appearance.stroke().unwrap().paint.is_none(), "the path's stroke");
 }

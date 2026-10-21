@@ -615,7 +615,8 @@ fn send(app: &mut VectorcraftApp, script: &mut Running, work: Work) -> Result<()
         }
     });
     let paint = &app.session.paint;
-    let style = vectorcraft_scriptographer::host::current_style(&paint.fill, &paint.stroke, paint.stroke_width);
+    let text = app.session.new_type_style();
+    let style = vectorcraft_scriptographer::host::current_style(&paint.fill, &paint.stroke, paint.stroke_width, &text.fill);
     script.worker.send(Request::Run { doc, selection, artboard, style, work });
     Ok(())
 }

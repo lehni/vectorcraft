@@ -779,6 +779,14 @@ pub(crate) fn new_area_fit(s: &Session, p: &Value, c: &str) -> Result<vectorcraf
     Ok(super::typecmd::fit_param(p, default, c)?.unwrap_or(default))
 }
 
+impl Session {
+    /// The character style new type gets with no params ([`new_type_style`]): Scriptographer's new
+    /// text takes its fill.
+    pub fn new_type_style(&self) -> CharStyle {
+        new_type_style(self, &Value::Null)
+    }
+}
+
 /// The character style new type gets: `size`, `font`, `style` and `color` from `p` (an RGB
 /// `color` in a CMYK document as [`super::paint::new_color`] stores it), else the defaults,
 /// filled with the current fill unless that is None or white (black then).
