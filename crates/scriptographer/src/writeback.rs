@@ -10,11 +10,12 @@ use std::sync::Arc;
 
 use serde_json::{Map, Value as Json, json};
 use vectorcraft_color::{BlendMode, Color, Paint};
-use vectorcraft_doc::{Appearance, Document, LayerColor, LineCap, LineJoin, Node, NodeId, NodeKind};
+use vectorcraft_doc::{Appearance, Document, LayerColor, LineCap, LineJoin, Node, NodeId, NodeKind, TextWrap};
 use vectorcraft_geom::{Anchor, AnchorKind, PathData, Point, SubPath};
 
 use crate::binding::{Patch, node, number};
 use crate::host::item_json;
+use crate::text;
 use crate::{Call, Error, Value, method, object};
 
 /// Paper.js's `ChangeFlag`s.
@@ -195,6 +196,14 @@ fn replaced<H: Clone>(call: &mut dyn Call<H>, original: &Node, change: &Change<H
             let json = export(call, &change.item)?;
             apply(&mut node, &json, &before)?;
         }
+        "PointText" | "AreaText" | "PathText" => {
+            let json = export(call, &change.item)?;
+            if let NodeKind::Text(t) = &original.kind {
+                node.kind = NodeKind::Text(Box::new(text::text_object(&json, Some(t))?));
+            }
+            let props = json.get(1).and_then(Json::as_object).cloned().unwrap_or_default();
+            apply_attributes(&mut node, &props, &before[1]);
+        }
         _ => {
             let props = attributes(call, &change.item)?;
             apply_attributes(&mut node, &props, &before[1]);
@@ -233,6 +242,12 @@ fn attributes<H: Clone>(call: &mut dyn Call<H>, item: &H) -> Result<Map<String, 
     if let Value::String(mode) = call.get(item, "blendMode")? {
         props.insert("blendMode".into(), json!(mode));
     }
+    if let Value::Js(wrap) = call.get(item, "textWrap")? {
+        props.insert(
+            "textWrap".into(),
+            json!({ "offset": number(call.get(&wrap, "offset")?), "invert": matches!(call.get(&wrap, "invert")?, Value::Bool(true)) }),
+        );
+    }
     Ok(props)
 }
 
@@ -264,6 +279,14 @@ fn apply_attributes(node: &mut Node, props: &Map<String, Json>, before: &Json) {
     }
     if let Some(mode) = changed("blendMode").and_then(Json::as_str) {
         node.blend = blend_mode(mode);
+    }
+    // A text wrap that isn't set is left out of the JSON:
+    let wrap = props.get("textWrap").unwrap_or(&Json::Null);
+    if wrap != before.get("textWrap").unwrap_or(&Json::Null) {
+        node.extras_mut().wrap = wrap.as_object().map(|w| TextWrap {
+            offset: w.get("offset").and_then(Json::as_f64).filter(|n| n.is_finite()).unwrap_or(6.0),
+            invert: w.get("invert").and_then(Json::as_bool).unwrap_or(false),
+        });
     }
 }
 
@@ -306,7 +329,7 @@ fn apply_style(appearance: &mut Appearance, props: &Map<String, Json>, before: &
 
 /// A Paper.js colour: `[r, g, b, alpha?]` or `['gray', g]`, `['rgb', …]`, `['hsb', …]`,
 /// `['hsl', …]`. Gradients have no VectorCraft form here yet.
-fn color(json: &Json) -> Option<Color> {
+pub(crate) fn color(json: &Json) -> Option<Color> {
     let list = json.as_array()?;
     let (kind, values) = match list.first()?.as_str() {
         Some(kind) => (kind, &list[1..]),
@@ -348,7 +371,7 @@ fn blend_mode(mode: &str) -> BlendMode {
 
 /// The geometry of a path or compound path's JSON. Anchors keep the kind they had in `before`
 /// where the subpath has as many as before; new ones are smooth where their handles line up.
-fn path_data(json: &Json, before: Option<&PathData>) -> Result<PathData, Error> {
+pub(crate) fn path_data(json: &Json, before: Option<&PathData>) -> Result<PathData, Error> {
     let props = json.get(1).and_then(Json::as_object).ok_or_else(|| Error::Script("not an item's JSON".into()))?;
     let subpaths: Vec<&Map<String, Json>> = match json.get(0).and_then(Json::as_str) {
         Some("CompoundPath") => props
@@ -418,6 +441,7 @@ pub fn new_node(json: &Json) -> Result<Node, Error> {
             apply(&mut node, json, &Json::Null)?;
             node
         }
+        "PointText" | "AreaText" | "PathText" => Node::new(id, NodeKind::Text(Box::new(text::text_object(json, None)?))),
         "Group" => {
             let mut node = Node::group(id, children()?);
             if let NodeKind::Group { clip, .. } = &mut node.kind {

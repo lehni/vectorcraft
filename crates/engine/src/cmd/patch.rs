@@ -129,6 +129,10 @@ fn apply(doc: &mut Document, ops: &Ops) -> Result<Vec<u64>> {
     for (node, keep) in &ops.replaces {
         replace(doc, node.clone(), *keep)?;
     }
+    // Text comes without its layout, which is a cache, so lay out what came:
+    let mut text: Vec<NodeId> = ops.replaces.iter().map(|(node, _)| node.id).collect();
+    text.extend(&fresh);
+    super::typecmd::refresh_bounds_of(doc, &text);
     let orders = ops
         .orders
         .iter()

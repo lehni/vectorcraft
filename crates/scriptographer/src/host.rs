@@ -1,27 +1,32 @@
 //! The document as Paper.js sees it through its host: one record per child of a container
 //! (as columns), and each item's own content as Paper.js JSON (`importJSON` form).
 //!
-//! Layers, groups, paths and compound paths have Paper.js classes. Every other kind of object is a
-//! `HostItem`: Paper.js knows its bounds and attributes, never its content. VectorCraft has no
-//! per-object matrix, so every record leaves its matrix out (identity), and boxes are in document
-//! coordinates.
+//! Layers, groups, paths, compound paths and text have Paper.js classes. Every other kind of object
+//! is a `HostItem`: Paper.js knows its bounds and attributes, never its content. VectorCraft has no
+//! per-object matrix, so records leave their matrix out (identity), and boxes are in document
+//! coordinates, but for text: its transform is its matrix, and its boxes are in its own space.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use serde_json::{Map, Value, json};
 use vectorcraft_color::{BlendMode, Color, Paint};
-use vectorcraft_doc::{AnchorRef, Document, LineCap, LineJoin, Node, NodeId, NodeKind, Selection};
-use vectorcraft_geom::{PathData, Rect};
+use vectorcraft_doc::{AnchorRef, Document, LineCap, LineJoin, Node, NodeId, NodeKind, Selection, TextKind, TextObject};
+use vectorcraft_geom::{Affine, PathData, Rect};
+
+use crate::text;
 
 /// The Paper.js classes of the records' `types`.
-pub const TYPE_NAMES: &[&str] = &["Layer", "Group", "Path", "CompoundPath", "HostItem"];
+pub const TYPE_NAMES: &[&str] = &["Layer", "Group", "Path", "CompoundPath", "HostItem", "PointText", "AreaText", "PathText"];
 
 const LAYER: u8 = 0;
 const GROUP: u8 = 1;
 const PATH: u8 = 2;
 const COMPOUND_PATH: u8 = 3;
 const HOST_ITEM: u8 = 4;
+const POINT_TEXT: u8 = 5;
+const AREA_TEXT: u8 = 6;
+const PATH_TEXT: u8 = 7;
 
 /// Record flags, as Paper.js reads them.
 pub mod flags {
@@ -49,6 +54,8 @@ pub struct Columns {
     pub boxes: Vec<f64>,
     /// Names by record index.
     pub names: Vec<(usize, String)>,
+    /// Matrices by record index, `[a, b, c, d, tx, ty]`: text's, whose boxes are in its own space.
+    pub matrices: Vec<(usize, [f64; 6])>,
 }
 
 impl Columns {
@@ -59,6 +66,14 @@ impl Columns {
             NodeKind::Group { .. } => (GROUP, 0),
             NodeKind::Path { clipping, guide, .. } => (PATH, if *clipping { flags::CLIP_MASK } else { 0 } | if *guide { flags::GUIDE } else { 0 }),
             NodeKind::Compound { .. } => (COMPOUND_PATH, 0),
+            NodeKind::Text(t) => (
+                match t.kind {
+                    TextKind::Point => POINT_TEXT,
+                    TextKind::Area { .. } => AREA_TEXT,
+                    TextKind::OnPath { .. } => PATH_TEXT,
+                },
+                0,
+            ),
             _ => (HOST_ITEM, 0),
         };
         flags |= flags::STROKE_SCALING;
@@ -71,12 +86,25 @@ impl Columns {
         if selection.objects.contains(&node.id) {
             flags |= flags::SELECTED;
         }
-        let bounds = node.geometric_bounds();
+        // Text has a matrix in Paper.js, its transform, so its boxes are in its own space:
+        let text = match &node.kind {
+            NodeKind::Text(t) => Some(t),
+            _ => None,
+        };
+        if let Some(t) = text
+            && t.xf != Affine::IDENTITY
+        {
+            self.matrices.push((self.keys.len(), t.xf.as_coeffs()));
+        }
+        let bounds = match text {
+            Some(t) => text_bounds(t),
+            None => node.geometric_bounds(),
+        };
         if bounds.is_none() {
             flags |= flags::EMPTY;
         }
-        let stroke = node.visual_bounds().or(bounds);
-        let rough = rough_bounds(node).or(stroke);
+        let stroke = if text.is_some() { bounds } else { node.visual_bounds().or(bounds) };
+        let rough = if text.is_some() { bounds } else { rough_bounds(node).or(stroke) };
         for rect in [bounds, stroke, rough] {
             let rect = rect.unwrap_or(Rect::ZERO);
             self.boxes.extend([rect.x0, rect.y0, rect.width(), rect.height()]);
@@ -172,6 +200,15 @@ impl Walk<'_> {
     }
 }
 
+/// The bounds of text in its own space, as its matrix places them.
+fn text_bounds(t: &TextObject) -> Option<Rect> {
+    match &t.kind {
+        TextKind::Area { frame } => frame.bounds(),
+        TextKind::OnPath { path, .. } => path.bounds(),
+        TextKind::Point => t.cached_bounds,
+    }
+}
+
 /// The box Paper.js rejects hit tests with: the control points, grown by as far as strokes reach.
 fn rough_bounds(node: &Node) -> Option<Rect> {
     let outset = node.appearance.outset();
@@ -226,7 +263,22 @@ pub fn item_json(node: &Node, selection: &Selection) -> Value {
             props.insert("children".into(), Value::Array(paths));
             json!(["CompoundPath", props])
         }
+        NodeKind::Text(t) => {
+            let mut props = attributes(node);
+            // Text keeps its matrix, as Paper.js's does:
+            props.insert("applyMatrix".into(), json!(false));
+            text::properties(t, &mut props);
+            json!([text::class(t), props])
+        }
         _ => json!(["HostItem", attributes(node)]),
+    }
+}
+
+/// A path as Paper.js `Path` JSON, or `CompoundPath` JSON with several subpaths: a text's path.
+pub(crate) fn path_json(path: &PathData) -> Value {
+    match path.subpaths.as_slice() {
+        [subpath] => json!(["Path", { "applyMatrix": true, "segments": segments(path, 0, None), "closed": subpath.closed }]),
+        _ => json!(["CompoundPath", { "applyMatrix": true, "children": subpaths(path, None) }]),
     }
 }
 
@@ -239,6 +291,9 @@ fn attributes(node: &Node) -> Map<String, Value> {
     }
     if node.blend != BlendMode::Normal {
         props.insert("blendMode".into(), json!(blend_mode(node.blend)));
+    }
+    if let Some(wrap) = &node.extras().wrap {
+        props.insert("textWrap".into(), json!({ "offset": wrap.offset, "invert": wrap.invert }));
     }
     props
 }
@@ -285,7 +340,7 @@ pub fn current_style(fill: &Paint, stroke: &Paint, stroke_width: f64) -> Value {
 }
 
 /// A solid paint as a Paper.js colour. Gradients and patterns have no Paper.js form yet.
-fn color(paint: &Paint) -> Option<Value> {
+pub(crate) fn color(paint: &Paint) -> Option<Value> {
     let Paint::Solid { color, .. } = paint else {
         return None;
     };

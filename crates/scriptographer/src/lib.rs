@@ -30,6 +30,7 @@ mod modules;
 mod palette;
 mod path2d;
 mod storage;
+mod text;
 #[cfg(not(target_arch = "wasm32"))]
 mod urls;
 #[cfg(not(target_arch = "wasm32"))]

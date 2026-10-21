@@ -5,9 +5,10 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use serde_json::Value as Json;
-use vectorcraft_doc::{Document, Node, NodeId, Selection};
+use vectorcraft_doc::{Document, Node, NodeId, NodeKind, Selection};
 
 use crate::host::{Columns, TYPE_NAMES, flags, item_json};
+use crate::text;
 use crate::writeback::{self, Change};
 use crate::{Call, Engine, Error, Runtime, Scope, Value, define_accessor, handle, method, object};
 
@@ -34,6 +35,7 @@ impl<E: Engine> Runtime<E> {
         let get_children = self.engine.function("getChildren", get_children)?;
         let get_item = self.engine.function("getItem", get_item)?;
         let get_ancestor_keys = self.engine.function("getAncestorKeys", get_ancestor_keys)?;
+        let lay_out = self.engine.function("layOut", lay_out)?;
         let artboards = self.engine.function("artboards", artboards)?;
         let active_artboard = self.engine.function("activeArtboard", active_artboard)?;
         let global = self.engine.global()?;
@@ -45,6 +47,7 @@ impl<E: Engine> Runtime<E> {
             call.set(&host, "getChildren", &Value::Js(get_children))?;
             call.set(&host, "getItem", &Value::Js(get_item))?;
             call.set(&host, "getAncestorKeys", &Value::Js(get_ancestor_keys))?;
+            call.set(&host, "layOut", &Value::Js(lay_out))?;
             let project = object(call, &scope.0, "project")?;
             method(call, &project, "setHost", &[Value::Js(host)])?;
             define_accessor(call, &global, &project, "artboards", artboards, None)?;
@@ -277,7 +280,15 @@ fn columns_object<H: Clone>(call: &mut dyn Call<H>, columns: &Columns) -> Result
     for (index, name) in &columns.names {
         call.set(&names, &index.to_string(), &Value::String(name.clone()))?;
     }
-    for (key, value) in [("keys", keys), ("types", types), ("typeNames", type_names), ("flags", flags), ("boxes", boxes), ("names", names)] {
+    let matrices = call.new_object()?;
+    for (index, matrix) in &columns.matrices {
+        let values: Vec<_> = matrix.iter().map(|v| Value::Number(*v)).collect();
+        let values = call.new_array(&values)?;
+        call.set(&matrices, &index.to_string(), &Value::Js(values))?;
+    }
+    for (key, value) in
+        [("keys", keys), ("types", types), ("typeNames", type_names), ("flags", flags), ("boxes", boxes), ("names", names), ("matrices", matrices)]
+    {
         call.set(&result, key, &Value::Js(value))?;
     }
     Ok(result)
@@ -289,6 +300,48 @@ fn get_item<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> R
     let json = with_bound(call, |doc, selection| doc.node(id).map(|node| item_json(node, selection)))?;
     let json = json.ok_or_else(|| Error::Script(format!("getItem: no object {id}")))?;
     Ok(Value::String(json.to_string()))
+}
+
+/// `source.layOut(json, start, key)`: the layout of a text item from its JSON as the script holds
+/// it, by VectorCraft's text layout, starting from the text object of `key` where there is one, so
+/// what Paper.js has no form for, as text wraps, stays, see Paper.js's `Project#host`.
+fn lay_out<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let json = match args.first() {
+        Some(Value::String(json)) => serde_json::from_str(json).map_err(|e| Error::Script(format!("layOut: {e}")))?,
+        _ => return Err(Error::Script("layOut: no JSON".into())),
+    };
+    let start = match args.get(1) {
+        Some(Value::Number(n)) if n.is_finite() && *n >= 0.0 => *n as usize,
+        _ => 0,
+    };
+    let before = with_bound(call, |doc, _| match key(args.get(2..).unwrap_or_default()).and_then(|id| doc.node(id)).map(|n| &n.kind) {
+        Some(NodeKind::Text(t)) => Some((**t).clone()),
+        _ => None,
+    })?;
+    let t = text::text_object(&json, before.as_ref())?;
+    js_value(call, &text::layout(&t, start))
+}
+
+/// A JSON value as a JS value.
+fn js_value<H: Clone>(call: &mut dyn Call<H>, json: &Json) -> Result<Value<H>, Error> {
+    Ok(match json {
+        Json::Null => Value::Null,
+        Json::Bool(b) => Value::Bool(*b),
+        Json::Number(n) => Value::Number(n.as_f64().unwrap_or(0.0)),
+        Json::String(s) => Value::String(s.clone()),
+        Json::Array(list) => {
+            let values = list.iter().map(|v| js_value(call, v)).collect::<Result<Vec<_>, _>>()?;
+            Value::Js(call.new_array(&values)?)
+        }
+        Json::Object(map) => {
+            let object = call.new_object()?;
+            for (key, value) in map {
+                let value = js_value(call, value)?;
+                call.set(&object, key, &value)?;
+            }
+            Value::Js(object)
+        }
+    })
 }
 
 /// `source.getAncestorKeys(key)`: the keys from the layer down to the item's parent.
