@@ -877,7 +877,8 @@ fn canvas_colors_are_css_colors<E: Engine>() {
     assert_eq!(
         runtime.take_output(),
         [
-            "rgba(255, 0, 0, 0.5) #00ff00 #808080 #ff0000",
+            // A colour in a syntax other than the legacy one comes back in it, as in browsers.
+            "rgba(255, 0, 0, 0.5) #00ff00 #808080 oklch(0.628 0.258 29.2)",
             // Alpha as few decimals as give the same 8 bits back; invalid colours change nothing.
             "rgba(255, 255, 255, 0.5) #123456 #123456",
             "#808080",

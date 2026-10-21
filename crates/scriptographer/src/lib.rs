@@ -14,6 +14,7 @@ mod bitmap;
 mod blob;
 mod canvas;
 mod clone;
+mod css_color;
 mod dialog;
 #[cfg(not(target_arch = "wasm32"))]
 mod dom;

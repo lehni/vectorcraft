@@ -18,7 +18,6 @@
 use std::sync::Arc;
 
 use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
-use vello_cpu::color::Rgba8;
 use vello_cpu::kurbo::{Affine, Arc as ArcSegment, BezPath, Cap, Join, ParamCurveNearest, PathEl, Point, Rect, Shape, Stroke, Vec2};
 use vello_cpu::peniko::{self, BlendMode, Color, ColorStop, Compose, Extend, Fill, ImageQuality, ImageSampler, Mix};
 use vello_cpu::{Pixmap, RenderContext, RenderSettings, Resources};
@@ -249,7 +248,7 @@ fn checked<H: Clone>(call: &mut dyn Call<H>, check: Check, value: Value<H>) -> R
             css_length(&text, 10.0).is_some().then_some(Value::String(text))
         }
         // Gradients and patterns come with their slot; anything else is text.
-        Check::Color | Check::Style => color_value(&call.to_string(&value)?),
+        Check::Color | Check::Style => crate::css_color::serialized(&call.to_string(&value)?).map(Value::String),
         Check::Filter => {
             let text = call.to_string(&value)?;
             parse_filter(&text).is_some().then_some(Value::String(text))
@@ -448,38 +447,6 @@ fn number_property<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, name: &str
 }
 
 // Styles.
-
-/// A CSS colour as the canvas keeps it.
-fn color_value<H>(css: &str) -> Option<Value<H>> {
-    css_color(css).map(|c| Value::String(serialize(c)))
-}
-
-/// A colour as browsers give a canvas style back: `#rrggbb`, or `rgba(r, g, b, a)` when it's not
-/// opaque.
-fn serialize(c: Color) -> String {
-    let Rgba8 { r, g, b, a } = c.to_rgba8();
-    if a == 255 {
-        return format!("#{r:02x}{g:02x}{b:02x}");
-    }
-    // The fewest decimals that give the same 8 bits back, as CSS serializes alpha.
-    let exact = f64::from(a) / 255.0;
-    let alpha =
-        [100.0, 1000.0].into_iter().map(|scale| (exact * scale).round() / scale).find(|alpha| (alpha * 255.0).round() as u8 == a).unwrap_or(exact);
-    format!("rgba({r}, {g}, {b}, {alpha})")
-}
-
-/// A CSS colour (CSS Color 4: names, hex, `rgb()`, `hsl()`, `hwb()`, `lab()`, `oklch()`,
-/// `color()` …) in sRGB, rounded to 8 bits a channel as a canvas keeps it; `currentcolor` is
-/// black, as for a canvas without an element.
-pub(crate) fn css_color(css: &str) -> Option<Color> {
-    let css = css.trim();
-    if css.eq_ignore_ascii_case("currentcolor") {
-        return Some(Color::BLACK);
-    }
-    let color = vello_cpu::color::parse_color(css).ok()?.to_alpha_color::<vello_cpu::color::Srgb>();
-    let Rgba8 { r, g, b, a } = color.to_rgba8();
-    Some(Color::from_rgba8(r, g, b, a))
-}
 
 // Paths.
 
@@ -936,7 +903,14 @@ impl Pattern {
 /// What a gradient's or a pattern's slot holds: a gradient as its stops are added, or a pattern's
 /// image as it was when the pattern was made.
 pub(crate) enum Paint {
-    Gradient { kind: &'static str, at: Vec<f64>, stops: Vec<ColorStop> },
+    /// `modern` once a stop is in a syntax other than the legacy one, which makes CSS interpolate
+    /// the gradient in Oklab.
+    Gradient {
+        kind: &'static str,
+        at: Vec<f64>,
+        stops: Vec<ColorStop>,
+        modern: bool,
+    },
     Pattern(Pattern),
 }
 
@@ -945,19 +919,22 @@ fn style<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, name: &str) -> Resul
     let (value, slot) = surface(call, this, |s| (s.properties.value(name), s.properties.style(name)))?;
     match (slot, value) {
         (Some(slot), _) => crate::canvas::with_paint(call, slot, |paint| match paint {
-            Paint::Gradient { kind, at, stops } => gradient(kind, at, stops).map(|(gradient, transform)| Style::Gradient(gradient, transform)),
+            Paint::Gradient { kind, at, stops, modern } => {
+                gradient(kind, at, stops, *modern).map(|(gradient, transform)| Style::Gradient(gradient, transform))
+            }
             Paint::Pattern(pattern) => Some(Style::Pattern(pattern.clone())),
         })
         .map(Option::flatten),
-        (None, Value::String(css)) => Ok(css_color(&css).map(Style::Color)),
+        (None, Value::String(css)) => Ok(crate::css_color::color(&css).map(Style::Color)),
         _ => Ok(None),
     }
 }
 
-/// The gradient of `kind` at `at`, with `stops` in the order of their offsets, and the transform of
-/// its coordinates; none when it paints nothing: without stops, or a linear gradient from a point
-/// to itself or a radial one between the same circle.
-fn gradient(kind: &str, at: &[f64], stops: &[ColorStop]) -> Option<(peniko::Gradient, Affine)> {
+/// The gradient of `kind` at `at`, with `stops` in the order of their offsets, interpolated in
+/// Oklab when they're `modern`, and the transform of its coordinates; none when it paints nothing:
+/// without stops, or a linear gradient from a point to itself or a radial one between the same
+/// circle.
+fn gradient(kind: &str, at: &[f64], stops: &[ColorStop], modern: bool) -> Option<(peniko::Gradient, Affine)> {
     if stops.is_empty() {
         return None;
     }
@@ -976,6 +953,7 @@ fn gradient(kind: &str, at: &[f64], stops: &[ColorStop]) -> Option<(peniko::Grad
     };
     // The canvas interpolates colours with their alpha apart, not premultiplied.
     let gradient = peniko::Gradient { interpolation_alpha_space: peniko::InterpolationAlphaSpace::Unpremultiplied, ..gradient };
+    let gradient = if modern { gradient.with_interpolation_cs(vello_cpu::color::ColorSpaceTag::Oklab) } else { gradient };
     Some((gradient.with_stops(stops.as_slice()), transform))
 }
 
@@ -1063,7 +1041,7 @@ fn parse_filter(css: &str) -> Option<Vec<Effect>> {
             },
             "drop-shadow" => {
                 // The colour comes first or last.
-                let color = |word: &str| css_color(word);
+                let color = |word: &str| crate::css_color::color(word);
                 let (color, lengths) = match arguments.split_first().zip(arguments.split_last()) {
                     Some(((first, rest), _)) if color(first).is_some() => (color(first), rest),
                     Some((_, (last, rest))) if color(last).is_some() => (color(last), rest),
@@ -1169,7 +1147,7 @@ fn compositing<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>) -> Result<Comp
         _ => (Mix::Normal, Compose::SrcOver),
     };
     let effects = parse_filter(&text_property(call, this, "filter")?).unwrap_or_default();
-    let shadow = match css_color(&text_property(call, this, "shadowColor")?) {
+    let shadow = match crate::css_color::color(&text_property(call, this, "shadowColor")?) {
         Some(color) => {
             let offset = Vec2::new(number_property(call, this, "shadowOffsetX", 0.0)?, number_property(call, this, "shadowOffsetY", 0.0)?);
             // As for CSS shadows, the blur's standard deviation is half the `shadowBlur`.
@@ -1537,7 +1515,7 @@ pub(crate) fn create_gradient<H: Clone>(call: &mut dyn Call<H>, kind: &'static s
     {
         return Err(Error::Dom("IndexSizeError", "createRadialGradient: a radius is negative".into()));
     }
-    crate::canvas::store_paint(call, Paint::Gradient { kind, at, stops: Vec::new() })
+    crate::canvas::store_paint(call, Paint::Gradient { kind, at, stops: Vec::new(), modern: false })
 }
 
 /// `addColorStop(offset, color)`, of the gradient `this` is.
@@ -1550,13 +1528,14 @@ pub(crate) fn add_color_stop<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, 
         Some(color) => call.to_string(color)?,
         None => String::new(),
     };
-    let Some(color) = css_color(&css) else {
+    let Some(color) = crate::css_color::CssColor::parse(&css) else {
         return Err(Error::Dom("SyntaxError", format!("addColorStop: '{css}' isn't a colour")));
     };
     let slot = call.to_number(this)?;
     crate::canvas::with_paint(call, slot as usize, |paint| {
-        if let Paint::Gradient { stops, .. } = paint {
-            stops.push(ColorStop::from((offset as f32, color)));
+        if let Paint::Gradient { stops, modern, .. } = paint {
+            stops.push(ColorStop::from((offset as f32, color.srgb())));
+            *modern |= !color.legacy;
         }
     })?;
     Ok(Value::Undefined)

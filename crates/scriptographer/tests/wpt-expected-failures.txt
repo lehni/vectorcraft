@@ -17,19 +17,7 @@ css/geometry/WebKitCSSMatrix.worker.js: WebKitCSSMatrix.worker.js
 css/geometry/structured-serialization.html: DOMRectList clone
 html/canvas/offscreen/color-type/2d.color.type.u8p3.to.u8srgb.to.u8p3.worker.js: test srgb unorm8 canvas storing 8-bit display-p3 data accurately
 html/canvas/offscreen/color-type/2d.color.type.u8srgb.to.u8p3.to.u8srgb.worker.js: test display-p3 unorm8 canvas not storing 8-bit srgb data accurately
-html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.colormix.worker.js: color-mix works as color input
-html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsl-3.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsl-4.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsla-2.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.rgb-2.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.rgba-1.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgb-eof.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgba-eof.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.system.worker.js: Untitled
-html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.relativecolor.worker.js: Relative color works as color input
 html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.toStringFunctionCallback.worker.js: Passing a function in to ctx.fillStyle or ctx.strokeStyle with a toString callback works as specified
-html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.relativecolor.worker.js: Relative color works as CanvasGradient color input
-html/canvas/offscreen/fill-and-stroke-styles/2d.strokeStyle.relativecolor.worker.js: Relative color works as color input
 html/canvas/offscreen/filters/2d.filter.canvasFilterObject.blur.exceptions.tentative.worker.js: Test exceptions on gaussianBlur filter
 html/canvas/offscreen/filters/2d.filter.canvasFilterObject.colorMatrix.tentative.worker.js: Test the functionality of ColorMatrix filters
 html/canvas/offscreen/filters/2d.filter.canvasFilterObject.convolveMatrix.exceptions.tentative.worker.js: Test exceptions on CanvasFilter() convolveMatrix
