@@ -302,14 +302,11 @@ fn get_item<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> R
     Ok(Value::String(json.to_string()))
 }
 
-/// `source.layOut(json, start, key)`: the layout of a text item from its JSON as the script holds
-/// it, by VectorCraft's text layout, starting from the text object of `key` where there is one, so
-/// what Paper.js has no form for, as text wraps, stays, see Paper.js's `Project#host`.
+/// `source.layOut(json, start, key)`: the layout of a text item, by VectorCraft's text layout: of
+/// the text object of `key` itself when the script didn't change it (`json` is null), else of its
+/// JSON as the script holds it, starting from that text object where there is one, so what
+/// Paper.js has no form for, as text wraps, stays, see Paper.js's `Project#host`.
 fn lay_out<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let json = match args.first() {
-        Some(Value::String(json)) => serde_json::from_str(json).map_err(|e| Error::Script(format!("layOut: {e}")))?,
-        _ => return Err(Error::Script("layOut: no JSON".into())),
-    };
     let start = match args.get(1) {
         Some(Value::Number(n)) if n.is_finite() && *n >= 0.0 => *n as usize,
         _ => 0,
@@ -318,7 +315,13 @@ fn lay_out<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]
         Some(NodeKind::Text(t)) => Some((**t).clone()),
         _ => None,
     })?;
-    let t = text::text_object(&json, before.as_ref())?;
+    let t = match args.first() {
+        Some(Value::String(json)) => {
+            let json = serde_json::from_str(json).map_err(|e| Error::Script(format!("layOut: {e}")))?;
+            text::text_object(&json, before.as_ref())?
+        }
+        _ => before.ok_or_else(|| Error::Script("layOut: no JSON, and no text object of that key".into()))?,
+    };
     js_value(call, &text::layout(&t, start))
 }
 
