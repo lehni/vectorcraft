@@ -799,6 +799,25 @@ impl Appearance {
             None => self.items.push(AppearanceItem::Stroke(StrokeLayer::new(p, 1.0))),
         }
     }
+    /// Does the top stroke paint below the top fill, as `paint-order: stroke` has it in SVG and
+    /// Paper.js?
+    pub fn is_stroke_first(&self) -> bool {
+        let fill = self.items.iter().rposition(AppearanceItem::is_fill);
+        let stroke = self.items.iter().rposition(|i| !i.is_fill());
+        matches!((stroke, fill), (Some(s), Some(f)) if s < f)
+    }
+    /// Move the top stroke right below the top fill (`first`), or right above it.
+    pub fn set_stroke_first(&mut self, first: bool) {
+        if self.is_stroke_first() == first {
+            return;
+        }
+        let (Some(fill), Some(stroke)) = (self.items.iter().rposition(AppearanceItem::is_fill), self.items.iter().rposition(|i| !i.is_fill())) else {
+            return;
+        };
+        // From above, the stroke lands at the fill's index, right below it; from below, the fill
+        // moves down one when the stroke is taken out, so the same index is right above it.
+        self.move_item(stroke, fill);
+    }
     pub fn stroke_width(&self) -> f64 {
         self.stroke().filter(|s| !s.paint.is_none()).map(|s| s.width).unwrap_or(0.0)
     }

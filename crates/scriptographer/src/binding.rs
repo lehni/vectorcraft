@@ -322,10 +322,11 @@ fn get_item<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> R
 /// Paper.js JSON, once for all its frames.
 fn get_story<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let id = key(args).ok_or_else(|| Error::Script("getStory: no key".into()))?;
-    let json = with_bound(call, |doc, _| match doc.node(id).map(|node| &node.kind) {
-        Some(NodeKind::Text(t)) => {
+    let json = with_bound(call, |doc, _| match doc.node(id) {
+        Some(node @ Node { kind: NodeKind::Text(t), .. }) => {
             let mut props = Map::new();
-            text::story_properties(&text::story_view(doc, id, t), &mut props);
+            let (story, first) = text::unfolded(&text::story_view(doc, id, t), &node.appearance);
+            text::story_properties(&story, &first, &mut props);
             Some(Json::Object(props))
         }
         _ => None,
@@ -345,15 +346,15 @@ fn lay_out<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]
         _ => 0,
     };
     let before = with_bound(call, |doc, _| match key(args.get(2..).unwrap_or_default()).and_then(|id| doc.node(id)) {
-        Some(Node { id, kind: NodeKind::Text(t), .. }) => Some(text::story_view(doc, *id, t)),
+        Some(node @ Node { id, kind: NodeKind::Text(t), .. }) => Some(text::unfolded(&text::story_view(doc, *id, t), &node.appearance)),
         _ => None,
     })?;
     let t = match args.first() {
         Some(Value::String(json)) => {
             let json = serde_json::from_str(json).map_err(|e| Error::Script(format!("layOut: {e}")))?;
-            text::text_object(&json, before.as_ref())?
+            text::text_object(&json, before.as_ref().map(|(t, first)| (t, first.as_slice())))?.0
         }
-        _ => before.ok_or_else(|| Error::Script("layOut: no JSON, and no text object of that key".into()))?,
+        _ => before.ok_or_else(|| Error::Script("layOut: no JSON, and no text object of that key".into()))?.0,
     };
     js_value(call, &text::layout(&t, start))
 }

@@ -303,8 +303,9 @@ pub fn item_json(node: &Node, selection: &Selection) -> Value {
             let mut props = attributes(node);
             // Text keeps its matrix, as Paper.js's does:
             props.insert("applyMatrix".into(), json!(false));
-            text::properties(t, &mut props);
-            json!([text::class(t), props])
+            let (t, first) = text::unfolded(t, &node.appearance);
+            text::properties(&t, &first, &mut props);
+            json!([text::class(&t), props])
         }
         _ => json!(["HostItem", attributes(node)]),
     }
@@ -334,7 +335,7 @@ fn attributes(node: &Node) -> Map<String, Value> {
     props
 }
 
-/// The topmost fill and stroke, as Paper.js's single fill and stroke.
+/// The topmost fill and stroke, as Paper.js's single fill and stroke, and their order.
 fn style(node: &Node, props: &mut Map<String, Value>) {
     let appearance = &node.appearance;
     if let Some(color) = appearance.fill().and_then(|f| color(&f.paint)) {
@@ -365,6 +366,9 @@ fn style(node: &Node, props: &mut Map<String, Value>) {
         if let Some(dash) = &stroke.dash {
             props.insert("dashArray".into(), json!(dash.pattern));
             props.insert("dashOffset".into(), json!(dash.offset));
+        }
+        if appearance.is_stroke_first() {
+            props.insert("paintOrder".into(), json!("stroke"));
         }
     }
 }

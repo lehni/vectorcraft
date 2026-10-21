@@ -291,7 +291,11 @@ fn replaced<H: Clone>(call: &mut dyn Call<H>, doc: &Document, original: &Node, c
             let json = export(call, &change.item)?;
             if let NodeKind::Text(t) = &original.kind {
                 let view = text::story_view(doc, original.id, t);
-                let edited = text::text_object(&json, Some(&view))?;
+                let (seen, shown) = text::unfolded(&view, &original.appearance);
+                let (mut edited, first) = text::text_object(&json, Some((&seen, &shown)))?;
+                let mut appearance = (*original.appearance).clone();
+                text::fold(&mut edited, &first, shown.contains(&true), &mut appearance);
+                node.appearance = appearance.into();
                 let link = link(call, &change.item)?;
                 node.kind = NodeKind::Text(Box::new(text::written(Some(t), Some(&view), edited, link)));
             }
@@ -384,7 +388,7 @@ fn apply_attributes(node: &mut Node, props: &Map<String, Json>, before: &Json) {
     }
 }
 
-/// The top fill and stroke, where they differ from `before`.
+/// The top fill and stroke and their order, where they differ from `before`.
 fn apply_style(appearance: &mut Appearance, props: &Map<String, Json>, before: &Json) {
     let changed = |key: &str| {
         let now = props.get(key).unwrap_or(&Json::Null);
@@ -395,6 +399,9 @@ fn apply_style(appearance: &mut Appearance, props: &Map<String, Json>, before: &
     }
     if let Some(stroke) = changed("strokeColor") {
         appearance.set_stroke(color(stroke).map_or(Paint::None, Paint::solid));
+    }
+    if let Some(order) = changed("paintOrder") {
+        appearance.set_stroke_first(order.as_str() == Some("stroke"));
     }
     let Some(stroke) = appearance.stroke_mut() else {
         return;
@@ -540,7 +547,14 @@ pub fn new_node(json: &Json) -> Result<Node, Error> {
             apply(&mut node, json, &Json::Null)?;
             node
         }
-        "PointText" | "AreaText" | "PathText" => Node::new(id, NodeKind::Text(Box::new(text::text_object(json, None)?))),
+        "PointText" | "AreaText" | "PathText" => {
+            let (mut t, first) = text::text_object(json, None)?;
+            let mut appearance = Appearance::default();
+            text::fold(&mut t, &first, false, &mut appearance);
+            let mut node = Node::new(id, NodeKind::Text(Box::new(t)));
+            node.appearance = appearance.into();
+            node
+        }
         "Group" => {
             let mut node = Node::group(id, children()?);
             if let NodeKind::Group { clip, .. } = &mut node.kind {

@@ -75,6 +75,22 @@ fn writes_changes_back_as_one_undo_step<E: Engine>() {
     assert_eq!(s.execute("document.json", &json!({})).unwrap(), before, "one undo step undoes the script");
 }
 
+/// `paintOrder` is the order of the top fill and stroke, both ways.
+fn paint_order_is_the_order_of_fill_and_stroke<E: Engine>() {
+    let (mut s, a, _) = document();
+    run::<E>(
+        &mut s,
+        "project.activeLayer.firstChild.paintOrder = 'stroke'\n\
+         new Path.Circle({ center: [200, 150], radius: 10, fillColor: 'red', strokeColor: 'black', paintOrder: 'stroke' })",
+    );
+    let circle = s.active().unwrap().doc.layers[0].children().unwrap().last().unwrap().clone();
+    assert!(node(&s, a).appearance.is_stroke_first() && circle.appearance.is_stroke_first());
+    let output = run::<E>(&mut s, "var a = project.activeLayer.firstChild\nconsole.log(a.paintOrder)\na.paintOrder = 'fill'");
+    assert_eq!(output, ["stroke"]);
+    assert!(!node(&s, a).appearance.is_stroke_first());
+    assert!(matches!(node(&s, a).appearance.items.last(), Some(vectorcraft_doc::AppearanceItem::Stroke(_))), "the stroke is back on top");
+}
+
 fn removes_and_reorders<E: Engine>() {
     let (mut s, a, b) = document();
     run::<E>(&mut s, "var layer = project.activeLayer\nlayer.firstChild.bringToFront()");
@@ -349,6 +365,11 @@ macro_rules! engine_tests {
             #[test]
             fn writes_changes_back_as_one_undo_step() {
                 super::writes_changes_back_as_one_undo_step::<$engine>();
+            }
+
+            #[test]
+            fn paint_order_is_the_order_of_fill_and_stroke() {
+                super::paint_order_is_the_order_of_fill_and_stroke::<$engine>();
             }
 
             #[test]

@@ -278,6 +278,48 @@ fn ranges_style_runs<E: Engine>() {
     assert_eq!(runs[0].style.fill, vectorcraft_color::Paint::solid(vectorcraft_color::Color::rgb(1.0, 0.0, 0.0)), "the range's colour");
 }
 
+/// `paintOrder: 'stroke'` on text is the stroke under its characters: the object's own, below the
+/// Characters row, when its characters share it.
+fn a_stroke_painted_first_goes_under_the_characters<E: Engine>() {
+    let (mut s, _, point, _) = document();
+    let black = vectorcraft_color::Paint::solid(vectorcraft_color::Color::BLACK);
+    let under = |s: &Session| {
+        let n = node(s, point);
+        let (below, _) = n.appearance.split_contents();
+        match below {
+            [vectorcraft_doc::AppearanceItem::Stroke(stroke)] => Some((stroke.paint.clone(), stroke.width)),
+            [] => None,
+            other => panic!("{other:?}"),
+        }
+    };
+    let item = format!("var t = project.getItemByKey({})\n", point.0);
+    run::<E>(&mut s, &format!("{item}t.strokeColor = 'black'\nt.strokeWidth = 4\nt.paintOrder = 'stroke'"));
+    assert_eq!(under(&s), Some((black.clone(), 4.0)));
+    assert!(text(&s, point).runs.iter().all(|r| !r.style.has_stroke()), "the characters' own strokes go");
+
+    // Scripts read it as the characters' stroke, painted first, and other edits keep it under them.
+    let output = run::<E>(&mut s, &format!("{item}console.log(t.paintOrder, t.strokeWidth)\nt.content = 'Hello there'"));
+    assert_eq!(output, ["stroke 4"]);
+    assert_eq!((under(&s), text(&s, point).plain_text()), (Some((black.clone(), 4.0)), "Hello there".to_owned()));
+
+    // Different strokes can't go under the characters together: they stay theirs, painted last.
+    run::<E>(&mut s, &format!("{item}t.range(0, 5).strokeColor = 'red'"));
+    assert_eq!(under(&s), None);
+    let strokes: Vec<bool> = text(&s, point).runs.iter().map(|r| r.style.stroke == black).collect();
+    assert_eq!(strokes, [false, true], "red, then black");
+
+    run::<E>(&mut s, &format!("{item}t.strokeColor = 'black'\nt.paintOrder = 'stroke'"));
+    assert_eq!(under(&s), Some((black.clone(), 4.0)));
+    run::<E>(&mut s, &format!("{item}t.paintOrder = 'fill'"));
+    assert_eq!(under(&s), None);
+    assert!(text(&s, point).runs.iter().all(|r| r.style.stroke == black && r.style.stroke_width == 4.0), "the stroke is the characters' again");
+
+    // Under some characters only, it would outline the others too.
+    run::<E>(&mut s, &format!("{item}t.range(0, 5).paintOrder = 'stroke'"));
+    assert_eq!(under(&s), None);
+    assert!(text(&s, point).runs.iter().all(|r| r.style.stroke == black), "the characters keep their stroke");
+}
+
 fn area_options_go_back<E: Engine>() {
     let (mut s, _, _, area) = document();
     run::<E>(&mut s, &format!("var area = project.getItemByKey({})\n area.columns = 2\n area.gutter = 6", area.0));
@@ -400,6 +442,11 @@ macro_rules! engine_tests {
             #[test]
             fn ranges_style_runs() {
                 super::ranges_style_runs::<$engine>();
+            }
+
+            #[test]
+            fn a_stroke_painted_first_goes_under_the_characters() {
+                super::a_stroke_painted_first_goes_under_the_characters::<$engine>();
             }
 
             #[test]

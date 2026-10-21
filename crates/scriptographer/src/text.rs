@@ -15,8 +15,8 @@ use std::collections::BTreeMap;
 use serde_json::{Map, Value as Json, json};
 use vectorcraft_color::Paint;
 use vectorcraft_doc::{
-    CharPosition, CharStyle, Composer, Document, Justify, NodeId, NodeKind, ParaDirection, ParaStyle, PathAlign, ScriptMetrics, TabAlign, TabStop,
-    TextKind, TextObject, TextRun, VerticalAlign, text::INLINE_CHAR,
+    Appearance, AppearanceItem, CharPosition, CharStyle, Composer, Document, Justify, NodeId, NodeKind, ParaDirection, ParaStyle, PathAlign,
+    ScriptMetrics, TabAlign, TabStop, TextKind, TextObject, TextRun, VerticalAlign, text::INLINE_CHAR,
 };
 use vectorcraft_geom::{Affine, PathData, Point};
 
@@ -51,6 +51,69 @@ pub fn story_view(doc: &Document, id: NodeId, t: &TextObject) -> TextObject {
 /// The keys of the frames of the thread `id` is a frame of, for its JSON's `linked`.
 pub fn linked(doc: &Document, id: NodeId) -> Option<Json> {
     thread(doc, id).map(|thread| json!(thread.iter().map(|frame| frame.0).collect::<Vec<_>>()))
+}
+
+/// The index of the stroke a text's `appearance` paints under its characters: the top one below
+/// the Characters row.
+fn stroke_under(appearance: &Appearance) -> Option<usize> {
+    appearance.split_contents().0.iter().rposition(|item| !item.is_fill())
+}
+
+/// `t` as Paper.js has it, and which of its runs paint their stroke first (`paintOrder:
+/// 'stroke'`): all of them, with the stroke `appearance` paints under the characters, when the
+/// characters have none of their own. Paper.js has no form for a stroke under characters that
+/// have one, so then it isn't shown.
+pub fn unfolded(t: &TextObject, appearance: &Appearance) -> (TextObject, Vec<bool>) {
+    let mut t = t.clone();
+    let under = stroke_under(appearance).and_then(|i| match appearance.items.get(i) {
+        Some(AppearanceItem::Stroke(stroke)) => Some(stroke),
+        _ => None,
+    });
+    let shown = under.filter(|_| !t.runs.iter().any(|run| run.style.has_stroke()));
+    if let Some(stroke) = shown {
+        for run in &mut t.runs {
+            run.style.set_stroke_layer(stroke);
+        }
+    }
+    let first = vec![shown.is_some(); t.runs.len()];
+    (t, first)
+}
+
+/// The reverse of [`unfolded`]: when all characters paint their stroke `first` and share it, it
+/// moves under them, into `appearance`, as one stroke can only go under all of them. Otherwise the
+/// stroke a script was shown there goes, and the characters keep theirs, painted last.
+pub fn fold(t: &mut TextObject, first: &[bool], shown: bool, appearance: &mut Appearance) {
+    // Spaces paint nothing.
+    let mut ink = t.runs.iter().zip(first).filter(|(run, _)| !run.text.trim().is_empty());
+    let stroke = ink.next().filter(|(run, first)| **first && run.style.has_stroke()).map(|(run, _)| run.style.stroke_layer());
+    let under = stroke_under(appearance);
+    let Some(stroke) = stroke.filter(|stroke| ink.all(|(run, first)| *first && run.style.stroke_layer() == *stroke)) else {
+        if let Some(i) = under.filter(|_| shown) {
+            appearance.remove_item(i);
+        }
+        return;
+    };
+    let none = CharStyle::default().stroke_layer();
+    for run in &mut t.runs {
+        run.style.set_stroke_layer(&none);
+    }
+    match under.and_then(|i| appearance.items.get_mut(i)) {
+        // What characters have of a stroke comes from them, the rest stays.
+        Some(AppearanceItem::Stroke(s)) => {
+            s.paint = stroke.paint;
+            s.width = stroke.width;
+            s.cap = stroke.cap;
+            s.join = stroke.join;
+            s.miter_limit = stroke.miter_limit;
+            s.dash = stroke.dash;
+            s.align = stroke.align;
+        }
+        _ => {
+            let below = appearance.contents_at();
+            appearance.items.insert(0, AppearanceItem::Stroke(stroke));
+            appearance.set_contents_at(below + 1);
+        }
+    }
 }
 
 /// Where a text item is in its story, as the script left it: on its own, or one of linked items.
@@ -100,7 +163,7 @@ pub fn class(t: &TextObject) -> &'static str {
 
 /// The properties of `t` as Paper.js's `exportJSON()` writes them, for `props`: the matrix, the
 /// text path and options of its kind, its runs and its paragraphs.
-pub fn properties(t: &TextObject, props: &mut Map<String, Json>) {
+pub fn properties(t: &TextObject, first: &[bool], props: &mut Map<String, Json>) {
     props.insert("matrix".into(), json!(t.xf.as_coeffs()));
     if t.vertical {
         props.insert("orientation".into(), json!("vertical"));
@@ -143,16 +206,16 @@ pub fn properties(t: &TextObject, props: &mut Map<String, Json>) {
             props.insert("spacing".into(), json!(t.path_spacing));
         }
     }
-    story_properties(t, props);
+    story_properties(t, first, props);
 }
 
 /// The story of `t` as Paper.js's `exportJSON()` writes it, for `props`: its runs and its
 /// paragraphs.
-pub fn story_properties(t: &TextObject, props: &mut Map<String, Json>) {
+pub fn story_properties(t: &TextObject, first: &[bool], props: &mut Map<String, Json>) {
     let runs: Vec<Json> = t
         .runs
         .iter()
-        .zip(run_properties(t))
+        .zip(run_properties(t, first))
         .map(|(run, mut run_props)| {
             run_props.insert("content".into(), json!(run.text));
             Json::Object(run_props)
@@ -164,28 +227,29 @@ pub fn story_properties(t: &TextObject, props: &mut Map<String, Json>) {
 }
 
 /// The character properties of the runs of `t`, each with the auto leading of the paragraph it
-/// starts in.
-fn run_properties(t: &TextObject) -> Vec<Map<String, Json>> {
+/// starts in, and whether it paints its stroke `first`.
+fn run_properties(t: &TextObject, first: &[bool]) -> Vec<Map<String, Json>> {
     let text = t.plain_text();
     t.runs
         .iter()
-        .scan(0, |start, run| {
+        .zip(first.iter().chain(std::iter::repeat(&false)))
+        .scan(0, |start, (run, first)| {
             let paragraph = text.get(..*start).map_or(0, |before| before.matches('\n').count());
             *start += run.text.len();
-            Some(char_properties(&run.style, t.para_at(paragraph)))
+            Some(char_properties(&run.style, t.para_at(paragraph), *first))
         })
         .collect()
 }
 
-/// A text object from a Paper.js text item's JSON, starting from `before`, the object the item was
-/// read from: what Paper.js has no form for stays, and only what differs from what `before` reads
-/// as is written.
-pub fn text_object(json: &Json, before: Option<&TextObject>) -> Result<TextObject, Error> {
+/// A text object from a Paper.js text item's JSON, and which of its runs paint their stroke first,
+/// starting from `before`, the object the item was read from, as [`unfolded`] has it: what Paper.js
+/// has no form for stays, and only what differs from what `before` reads as is written.
+pub fn text_object(json: &Json, before: Option<(&TextObject, &[bool])>) -> Result<(TextObject, Vec<bool>), Error> {
     let props = json.get(1).and_then(Json::as_object).ok_or_else(|| Error::Script("not an item's JSON".into()))?;
-    let mut t = before.cloned().unwrap_or_else(|| TextObject::point(Point::ZERO, "", CharStyle::default()));
+    let mut t = before.map_or_else(|| TextObject::point(Point::ZERO, "", CharStyle::default()), |(before, _)| before.clone());
     let mut old = Map::new();
-    if let Some(before) = before {
-        properties(before, &mut old);
+    if let Some((before, first)) = before {
+        properties(before, first, &mut old);
     }
     // The settings of area type and type on a path, which Paper.js leaves out where they are its
     // defaults:
@@ -257,31 +321,34 @@ pub fn text_object(json: &Json, before: Option<&TextObject>) -> Result<TextObjec
         }
         _ => t.kind = TextKind::Point,
     }
-    t.runs = match before {
-        Some(before) => runs(props, &before.runs, &run_properties(before)),
+    let first;
+    (t.runs, first) = match before {
+        Some((before, first)) => runs(props, &before.runs, &run_properties(before, first)),
         None => runs(props, &[], &[]),
     };
-    let old_paras = before.map(TextObject::paragraph_styles).unwrap_or_default();
+    let old_paras = before.map(|(before, _)| before.paragraph_styles()).unwrap_or_default();
     let paras = paragraphs(props, &old_paras, t.paragraph_count());
     t.set_paragraph_styles(paras);
     t.normalize_paras();
-    Ok(t)
+    Ok((t, first))
 }
 
-/// The runs of a text item's JSON: those of `runs`, or one of `content` with the item's own
-/// character properties. Each starts from the old run that read as it does, or else from the one
-/// at its place, and inline objects keep their art in order.
-fn runs(props: &Map<String, Json>, old: &[TextRun], old_props: &[Map<String, Json>]) -> Vec<TextRun> {
+/// The runs of a text item's JSON, and which paint their stroke first: those of `runs`, or one of
+/// `content` with the item's own character properties. Each starts from the old run that read as
+/// it does, or else from the one at its place, and inline objects keep their art in order.
+fn runs(props: &Map<String, Json>, old: &[TextRun], old_props: &[Map<String, Json>]) -> (Vec<TextRun>, Vec<bool>) {
     let items: Vec<&Map<String, Json>> = match props.get("runs").and_then(Json::as_array) {
         Some(runs) => runs.iter().filter_map(Json::as_object).collect(),
         None => vec![props],
     };
     let mut arts = old.iter().filter_map(|run| run.inline.clone());
     let mut runs = Vec::new();
+    let mut first = Vec::new();
     let mut offset = 0;
     for item in items {
         let content = item.get("content").and_then(Json::as_str).unwrap_or_default();
         let now = completed(item, char_defaults());
+        let stroke_first = now.get("paintOrder").and_then(Json::as_str) == Some("stroke");
         let index = old_props.iter().position(|p| *p == now).or_else(|| at_offset(old, offset)).unwrap_or(0);
         let mut style = old.get(index).map(|run| run.style.clone()).unwrap_or_default();
         if let Some(was) = old_props.get(index) {
@@ -302,11 +369,13 @@ fn runs(props: &Map<String, Json>, old: &[TextRun], old_props: &[Map<String, Jso
                 runs.push(TextRun::new(part, style.clone()));
             }
         }
+        first.resize(runs.len(), stroke_first);
     }
     if runs.is_empty() {
         runs.push(TextRun::new("", old.first().map(|run| run.style.clone()).unwrap_or_default()));
+        first.push(false);
     }
-    runs
+    (runs, first)
 }
 
 /// The index of the old run that holds byte `offset` of the old text.
@@ -335,7 +404,7 @@ fn paragraphs(props: &Map<String, Json>, old: &[ParaStyle], count: usize) -> Vec
 }
 
 /// The character properties of `style` as Paper.js has them. Auto leading is the paragraph's.
-fn char_properties(style: &CharStyle, paragraph: &ParaStyle) -> Map<String, Json> {
+fn char_properties(style: &CharStyle, paragraph: &ParaStyle, first: bool) -> Map<String, Json> {
     let mut props = Map::new();
     let (weight, slant) = font_face(&style.font_style);
     props.insert("fontFamily".into(), json!(style.font_family));
@@ -383,6 +452,7 @@ fn char_properties(style: &CharStyle, paragraph: &ParaStyle) -> Map<String, Json
     props.insert("fillColor".into(), color(&style.fill).unwrap_or(Json::Null));
     props.insert("strokeColor".into(), color(&style.stroke).unwrap_or(Json::Null));
     props.insert("strokeWidth".into(), json!(style.stroke_width));
+    props.insert("paintOrder".into(), json!(if first { "stroke" } else { "fill" }));
     props
 }
 
@@ -746,7 +816,7 @@ fn char_defaults() -> Json {
         "fontFamily": "sans-serif", "fontWeight": "normal", "fontStyle": "normal", "fontSize": 12, "lineHeight": "auto",
         "letterTracking": 0, "letterKerning": null, "letterScaling": 1, "letterRotation": 0, "baselineShift": 0,
         "baselinePosition": "normal", "capitals": "normal", "underline": false, "strikethrough": false, "features": null,
-        "fontVariations": null, "fillColor": [0, 0, 0], "strokeColor": null, "strokeWidth": 1,
+        "fontVariations": null, "fillColor": [0, 0, 0], "strokeColor": null, "strokeWidth": 1, "paintOrder": "fill",
     })
 }
 
