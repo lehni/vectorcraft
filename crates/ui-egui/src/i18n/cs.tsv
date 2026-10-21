@@ -4491,6 +4491,32 @@ imageTrace	Outline	Obrys
 @msg	no symbol instances selected	nejsou vybrány žádné instance symbolů
 @msg	no target object has an opacity mask: select one or give `id`	žádný cílový objekt nemá masku krytí: vyberte nějaký, nebo zadejte `id`
 @msg	no threaded text selected	není vybrán žádný zřetězený text
+@msg	{_1} can't be threaded: only area type and type on a path can	{_1} nelze zřetězit: zřetězit lze jen text v oblasti a text na cestě
+@msg	{_1} is in more than one thread	{_1} je ve více než jednom zřetězení
+@msg	each insert needs a node	každé vložení potřebuje uzel
+@msg	each order entry needs a children array	každá položka pořadí potřebuje pole children
+@msg	each thread must be a list of frames	každé zřetězení musí být seznam rámců
+@msg	insert index must be a non-negative integer	index vložení musí být nezáporné celé číslo
+@msg	insert: {e}	insert: {e}
+@msg	no object {p}	žádný objekt {p}
+@msg	only layers go in the layer list (parent null)	do seznamu vrstev patří jen vrstvy (parent null)
+@msg	order: no such object	order: takový objekt neexistuje
+@msg	order: object {id} is in the parent but not listed: remove or move it in the same patch	order: objekt {id} je v rodiči, ale není uveden: odstraňte ho nebo přesuňte ve stejné úpravě
+@msg	order: object {id} is listed twice	order: objekt {id} je uveden dvakrát
+@msg	order: the parent holds no objects	order: rodič neobsahuje žádné objekty
+@msg	order: {e}	order: {e}
+@msg	parent {new} must name an earlier insert	parent {new} musí odkazovat na dřívější vložení
+@msg	remove: {e}	remove: {e}
+@msg	replace: no object {id}	replace: žádný objekt {id}
+@msg	replace: object {id} has children and its new kind can't hold them	replace: objekt {id} má potomky a jeho nový druh je nemůže obsahovat
+@msg	the interaction's preview gave the new objects other ids	náhled interakce přidělil novým objektům jiná id
+@msg	threads: no such object	threads: takový objekt neexistuje
+@msg	threads: {e}	threads: {e}
+@msg	{key} must be an array	{key} musí být pole
+@msg	{key}: object ids are non-negative integers	{key}: id objektů jsou nezáporná celá čísla
+@msg	{key}: {e}	{key}: {e}
+@msg	{new} must name an earlier insert	{new} musí odkazovat na dřívější vložení
+@msg	{new} must name an insert by its index	{new} musí odkazovat na vložení jeho indexem
 @msg	no user library folder here	zde není složka uživatelských knihoven
 @msg	no user workspace `{from}`	uživatelský pracovní prostor `{from}` neexistuje
 @msg	node {_1} is not text	uzel {_1} není text
