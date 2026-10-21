@@ -5,12 +5,12 @@
 //! so what Paper.js can't show (more fills and strokes, gradients, corner and smooth anchors)
 //! stays as it was.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use serde_json::{Map, Value as Json, json};
 use vectorcraft_color::{BlendMode, Color, Paint};
-use vectorcraft_doc::{Appearance, Document, LayerColor, LineCap, LineJoin, Node, NodeId, NodeKind, TextObject, TextWrap};
+use vectorcraft_doc::{Appearance, Document, LayerColor, LineCap, LineJoin, Node, NodeId, NodeKind, TextWrap};
 use vectorcraft_geom::{Anchor, AnchorKind, PathData, Point, SubPath};
 
 use crate::binding::{Patch, node, number};
@@ -56,7 +56,7 @@ pub(crate) fn patch<H: Clone>(call: &mut dyn Call<H>, doc: &Arc<Document>, chang
     let mut replace = Vec::new();
     let mut news = News { insert: Vec::new(), inserted: Vec::new(), new: HashMap::new(), order: Vec::new() };
     let mut parents = Vec::new();
-    let (mut replaced_ids, mut stories) = (Vec::new(), Vec::new());
+    let (mut replaced_ids, mut texts) = (Vec::new(), Vec::new());
     for change in &changes {
         match change.key {
             Some(id) if !change.inserted => {
@@ -66,8 +66,11 @@ pub(crate) fn patch<H: Clone>(call: &mut dyn Call<H>, doc: &Arc<Document>, chang
             }
             Some(id) => {
                 if change.flags & change::CONTENT != 0 {
-                    replace.push(replaced(call, doc, node(doc, id)?, change, &mut stories)?);
+                    replace.push(replaced(call, doc, node(doc, id)?, change)?);
                     replaced_ids.push(id);
+                    if is_text(&change.class) {
+                        texts.push(change.item.clone());
+                    }
                 }
                 if change.flags & change::CHILDREN != 0 {
                     parents.push((id, change.item.clone()));
@@ -90,18 +93,22 @@ pub(crate) fn patch<H: Clone>(call: &mut dyn Call<H>, doc: &Arc<Document>, chang
             None => {}
         }
     }
-    // A thread whose story a frame changed: its other frames go with it, whether Paper.js reports
-    // them or not.
-    for (id, story) in stories {
-        for (frame, written) in text::shared(doc, id, &story) {
-            if !replaced_ids.contains(&frame) {
-                let mut node = node(doc, frame)?.clone();
-                node.kind = NodeKind::Text(Box::new(written));
-                replace.push(node_json(&node)?);
-                replaced_ids.push(frame);
+    // The items linked with changed text go with it, whether Paper.js reports them or not.
+    let mut at = 0;
+    while let Some(item) = texts.get(at).cloned() {
+        at += 1;
+        for linked in story_items(call, &item)? {
+            if let Value::Number(key) = call.get(&linked, "key")?
+                && !replaced_ids.contains(&NodeId(key as u64))
+            {
+                let change = Change::read(call, linked.clone(), change::CONTENT)?;
+                replace.push(replaced(call, doc, node(doc, NodeId(key as u64))?, &change)?);
+                replaced_ids.push(NodeId(key as u64));
+                texts.push(linked);
             }
         }
     }
+    let threads = threads(call, doc, &texts, &news)?;
     for (id, item) in parents {
         let children = object(call, &item, "children")?;
         let count = number(call.get(&children, "length")?) as usize;
@@ -121,7 +128,7 @@ pub(crate) fn patch<H: Clone>(call: &mut dyn Call<H>, doc: &Arc<Document>, chang
     }
     let mut params = Map::new();
     let News { insert, inserted, order, .. } = news;
-    for (key, list) in [("remove", remove), ("insert", insert), ("replace", replace), ("order", order)] {
+    for (key, list) in [("remove", remove), ("insert", insert), ("replace", replace), ("order", order), ("threads", threads)] {
         if !list.is_empty() {
             params.insert(key.into(), Json::Array(list));
         }
@@ -154,7 +161,12 @@ impl<H: Clone> News<H> {
         if container && let Some(props) = json.get_mut(1).and_then(Json::as_object_mut) {
             props.remove("children");
         }
-        let mut entry = json!({ "parent": parent, "node": node_json(&new_node(&json)?)? });
+        let mut node = new_node(&json)?;
+        if let NodeKind::Text(t) = &mut node.kind {
+            let link = link(call, item)?;
+            **t = text::written(None, None, (**t).clone(), link);
+        }
+        let mut entry = json!({ "parent": parent, "node": node_json(&node)? });
         if let Some(index) = index {
             entry["index"] = json!(index);
         }
@@ -184,6 +196,70 @@ impl<H: Clone> News<H> {
     }
 }
 
+fn is_text(class: &str) -> bool {
+    matches!(class, "PointText" | "AreaText" | "PathText")
+}
+
+/// The text items of the story of the text item `item`, in order.
+fn story_items<H: Clone>(call: &mut dyn Call<H>, item: &H) -> Result<Vec<H>, Error> {
+    let story = object(call, item, "story")?;
+    let items = object(call, &story, "textItems")?;
+    let count = number(call.get(&items, "length")?) as usize;
+    (0..count).map(|i| object(call, &items, &i.to_string())).collect()
+}
+
+/// Where the text item `item` is in its story.
+fn link<H: Clone>(call: &mut dyn Call<H>, item: &H) -> Result<text::Link, Error> {
+    let items = story_items(call, item)?;
+    let Some(first) = items.first().filter(|_| items.len() > 1) else {
+        return Ok(text::Link::Alone);
+    };
+    let first = number(call.get(first, "id")?);
+    Ok(if number(call.get(item, "id")?) == first { text::Link::First } else { text::Link::Later })
+}
+
+/// The patch's `threads`: the stories of the text items `texts` and of the new text items, each
+/// its items in order (keys, or `{new: k}`), where that differs from the document's threads.
+fn threads<H: Clone>(call: &mut dyn Call<H>, doc: &Document, texts: &[H], news: &News<H>) -> Result<Vec<Json>, Error> {
+    let mut items = texts.to_vec();
+    for item in &news.inserted {
+        if matches!(call.get(item, "className")?, Value::String(class) if is_text(&class)) {
+            items.push(item.clone());
+        }
+    }
+    let (mut threads, mut seen) = (Vec::new(), HashSet::new());
+    for item in items {
+        let linked = story_items(call, &item)?;
+        let Some(first) = linked.first() else { continue };
+        if !seen.insert(number(call.get(first, "id")?) as u64) {
+            continue;
+        }
+        let (mut slots, mut keys) = (Vec::new(), Vec::new());
+        for item in &linked {
+            match call.get(item, "key")? {
+                Value::Number(key) => {
+                    slots.push(json!(key as u64));
+                    keys.push(Some(NodeId(key as u64)));
+                }
+                _ => {
+                    let paper_id = number(call.get(item, "id")?) as u64;
+                    let k = news.new.get(&paper_id).ok_or_else(|| Error::Script("linked text that isn't in the project can't be written".into()))?;
+                    slots.push(json!({ "new": k }));
+                    keys.push(None);
+                }
+            }
+        }
+        let unchanged = match keys.first().copied().flatten().and_then(|key| text::thread(doc, key)) {
+            Some(thread) => keys.len() == thread.len() && keys.iter().zip(thread).all(|(key, frame)| *key == Some(*frame)),
+            None => keys.len() < 2,
+        };
+        if !unchanged {
+            threads.push(Json::Array(slots));
+        }
+    }
+    Ok(threads)
+}
+
 fn is_project<H>(call: &mut dyn Call<H>, item: &H) -> Result<bool, Error> {
     Ok(matches!(call.get(item, "className")?, Value::String(c) if c == "Project"))
 }
@@ -201,16 +277,9 @@ fn node_json(node: &Node) -> Result<Json, Error> {
 }
 
 /// The node `original` with the item's changes: content for paths and compound paths, attributes
-/// for everything. Containers send no children, so they keep theirs. A frame of a thread is
-/// written as [`text::written`] says; a story it changed goes into `stories`, for the thread's
-/// other frames.
-fn replaced<H: Clone>(
-    call: &mut dyn Call<H>,
-    doc: &Document,
-    original: &Node,
-    change: &Change<H>,
-    stories: &mut Vec<(NodeId, TextObject)>,
-) -> Result<Json, Error> {
+/// for everything. Containers send no children, so they keep theirs. Text is written as
+/// [`text::written`] says, by where it is in its story.
+fn replaced<H: Clone>(call: &mut dyn Call<H>, doc: &Document, original: &Node, change: &Change<H>) -> Result<Json, Error> {
     let mut node = original.clone();
     let before = item_json(original, &Default::default());
     match change.class.as_str() {
@@ -223,9 +292,8 @@ fn replaced<H: Clone>(
             if let NodeKind::Text(t) = &original.kind {
                 let view = text::story_view(doc, original.id, t);
                 let edited = text::text_object(&json, Some(&view))?;
-                let (written, story) = text::written(doc, original.id, t, &view, edited);
-                node.kind = NodeKind::Text(Box::new(written));
-                stories.extend(story.map(|story| (original.id, story)));
+                let link = link(call, &change.item)?;
+                node.kind = NodeKind::Text(Box::new(text::written(Some(t), Some(&view), edited, link)));
             }
             let props = json.get(1).and_then(Json::as_object).cloned().unwrap_or_default();
             apply_attributes(&mut node, &props, &before[1]);

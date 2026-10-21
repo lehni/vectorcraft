@@ -155,6 +155,46 @@ fn a_changed_story_flows_across_its_frames<E: Engine>() {
     }
 }
 
+fn threads(s: &Session) -> Vec<Vec<NodeId>> {
+    s.active().unwrap().doc.text_threads.clone()
+}
+
+/// Text items a script links become a thread, its story flowing across them; an item it unlinks
+/// leaves the thread, and its text stays with the story.
+fn scripts_link_and_unlink_frames<E: Engine>() {
+    let (mut s, _, _, area) = document();
+    let other = NodeId(
+        s.execute("text.create", &json!({"x": 120, "y": 100, "text": "More.", "size": 12, "area": {"width": 200, "height": 300}})).unwrap()["id"]
+            .as_u64()
+            .unwrap(),
+    );
+    s.execute("text.setText", &json!({"id": area.0, "text": "Text in an area breaks into lines that fit it. ".repeat(5)})).unwrap();
+    let output =
+        run::<E>(&mut s, &format!("var a = project.getItemByKey({}); a.link(project.getItemByKey({})); console.log(a.content)", area.0, other.0));
+    let story = output[0].clone();
+    assert_eq!(threads(&s), [vec![area, other]]);
+    let (first, rest) = (text(&s, area).plain_text(), text(&s, other).plain_text());
+    assert!(!rest.is_empty(), "the story flows on into the second frame");
+    assert_eq!(first + &rest, story);
+    run::<E>(&mut s, &format!("project.getItemByKey({}).unlink()", other.0));
+    assert!(threads(&s).is_empty());
+    assert_eq!((text(&s, area).plain_text(), text(&s, other).plain_text()), (story, String::new()));
+}
+
+/// A new text item a script links into a thread becomes a frame of it.
+fn scripts_link_new_frames<E: Engine>() {
+    let (mut s, _, _, area) = document();
+    s.execute("text.setText", &json!({"id": area.0, "text": "Text in an area breaks into lines that fit it. ".repeat(5)})).unwrap();
+    let story = text(&s, area).plain_text();
+    run::<E>(&mut s, &format!("project.getItemByKey({}).link(new AreaText(new Rectangle(120, 100, 200, 300)))", area.0));
+    let threads = threads(&s);
+    let [thread] = threads.as_slice() else { panic!("one thread: {threads:?}") };
+    let [first, new] = thread.as_slice() else { panic!("two frames: {thread:?}") };
+    assert_eq!(*first, area);
+    assert!(!text(&s, *new).plain_text().is_empty(), "the story flows into the new frame");
+    assert_eq!(text(&s, area).plain_text() + &text(&s, *new).plain_text(), story);
+}
+
 /// A frame a script changes but not the story of keeps its share, and the story flows into its new
 /// shape.
 fn a_changed_frame_keeps_the_story<E: Engine>() {
@@ -290,6 +330,16 @@ macro_rules! engine_tests {
             #[test]
             fn a_changed_story_flows_across_its_frames() {
                 super::a_changed_story_flows_across_its_frames::<$engine>();
+            }
+
+            #[test]
+            fn scripts_link_and_unlink_frames() {
+                super::scripts_link_and_unlink_frames::<$engine>();
+            }
+
+            #[test]
+            fn scripts_link_new_frames() {
+                super::scripts_link_new_frames::<$engine>();
             }
 
             #[test]

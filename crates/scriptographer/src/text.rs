@@ -6,8 +6,9 @@
 //!
 //! The frames of a thread are linked text items, which share one story: each one's JSON names the
 //! thread's frames (`linked`), the story comes once for all of them ([`story_view`], the host's
-//! `getStory()`), each one is laid out from where the one before it ends, and a story a script changed goes back whole into the thread's
-//! first frame ([`written`]), for the document to flow it across the frames again.
+//! `getStory()`), and each one is laid out from where the one before it ends. A story a script
+//! changed goes back whole into its first item ([`written`]), and the items it links make the
+//! thread, for the document to flow the story across them again.
 
 use std::collections::BTreeMap;
 
@@ -24,7 +25,7 @@ use crate::host::{color, path_json};
 use crate::writeback::{color as parse_color, path_data};
 
 /// The frames of the thread `id` is a frame of, in order.
-fn thread(doc: &Document, id: NodeId) -> Option<&[NodeId]> {
+pub fn thread(doc: &Document, id: NodeId) -> Option<&[NodeId]> {
     doc.text_threads.iter().find(|thread| thread.contains(&id)).map(Vec::as_slice)
 }
 
@@ -52,47 +53,40 @@ pub fn linked(doc: &Document, id: NodeId) -> Option<Json> {
     thread(doc, id).map(|thread| json!(thread.iter().map(|frame| frame.0).collect::<Vec<_>>()))
 }
 
-/// The text object `id`, `t` in the document, is written back as, from `edited`, the object a
-/// script left, read as [`story_view`] (`view`): for a frame of a thread, with its share of the
-/// story ([`share`]), and the story when the script changed it, for the thread's other frames
-/// ([`shared`]).
-pub fn written(doc: &Document, id: NodeId, t: &TextObject, view: &TextObject, mut edited: TextObject) -> (TextObject, Option<TextObject>) {
-    if thread(doc, id).is_none() {
-        return (edited, None);
+/// Where a text item is in its story, as the script left it: on its own, or one of linked items.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Link {
+    Alone,
+    First,
+    Later,
+}
+
+/// The text object a script left as `edited` is written back as. `t` is the one in the document
+/// (`None` for a new item) and `view` what the script read ([`story_view`]). An item on its own
+/// keeps its story. Linked items share theirs: when the script changed it, the first one gets all of
+/// it and the others none, for the document to flow it across them again, as after any edit; else
+/// each one keeps its share.
+pub fn written(t: Option<&TextObject>, view: Option<&TextObject>, mut edited: TextObject, link: Link) -> TextObject {
+    if link == Link::Alone {
+        return edited;
     }
-    if edited.runs == view.runs && edited.paragraph_styles() == view.paragraph_styles() {
-        // The story is as it was: the frame keeps its share.
+    if let (Some(t), Some(view)) = (t, view)
+        && edited.runs == view.runs
+        && edited.paragraph_styles() == view.paragraph_styles()
+    {
         edited.runs = t.runs.clone();
         edited.set_paragraph_styles(t.paragraph_styles());
-        return (edited, None);
+        return edited;
     }
-    let story = edited.clone();
-    (share(doc, id, &story, edited), Some(story))
-}
-
-/// The frames of the thread `id` is a frame of, but `id`, when a script changed the thread's story
-/// to `story`'s: each one as it is in `doc`, with its share ([`share`]).
-pub fn shared(doc: &Document, id: NodeId, story: &TextObject) -> Vec<(NodeId, TextObject)> {
-    let frames = thread(doc, id).unwrap_or_default();
-    frames.iter().filter(|frame| **frame != id).filter_map(|frame| Some((*frame, share(doc, *frame, story, text_of(doc, *frame)?.clone())))).collect()
-}
-
-/// `frame`, the frame `id` of a thread whose story a script changed to `story`'s, with its share of
-/// it: all of it for the thread's first frame, else none. When the patch is applied, the document
-/// flows the story across the frames again, as after any edit.
-fn share(doc: &Document, id: NodeId, story: &TextObject, mut frame: TextObject) -> TextObject {
-    let paragraphs = story.paragraph_styles();
-    if thread(doc, id).and_then(<[NodeId]>::first) == Some(&id) {
-        frame.runs = story.runs.clone();
-        frame.set_paragraph_styles(paragraphs);
-    } else {
-        let end = vectorcraft_text::edit::runs_len(&story.runs);
-        let style = vectorcraft_text::edit::style_at(&story.runs, end);
-        frame.runs = vec![TextRun { text: String::new(), style, inline: None }];
+    if link == Link::Later {
+        let paragraphs = edited.paragraph_styles();
+        let end = vectorcraft_text::edit::runs_len(&edited.runs);
+        let style = vectorcraft_text::edit::style_at(&edited.runs, end);
+        edited.runs = vec![TextRun { text: String::new(), style, inline: None }];
         // The story's last paragraph style, which the frames before it end with.
-        frame.set_paragraph_styles(paragraphs.last().cloned().into_iter().collect());
+        edited.set_paragraph_styles(paragraphs.last().cloned().into_iter().collect());
     }
-    frame
+    edited
 }
 
 /// The Paper.js class of `t`.
