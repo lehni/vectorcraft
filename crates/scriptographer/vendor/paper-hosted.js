@@ -9,7 +9,7 @@
  *
  * All rights reserved.
  *
- * Date: Wed Oct 21 02:04:19 2026 +0200
+ * Date: Wed Oct 21 03:02:27 2026 +0200
  *
  ***
  *
@@ -12761,16 +12761,25 @@ var TextItem = Item.extend({
 		var json = _serialize.base.call(this, options, dictionary),
 			props = json[1],
 			story = this._story,
-			runs = story.getRuns(),
+			content = story._content,
+			runs = story._getRuns(),
 			paragraphs = story._paragraphs,
-			keys = story._paragraphKeys;
+			keys = story._paragraphKeys,
+			itemKeys = story._itemKeys;
 		if (runs.length > 1) {
 			props.runs = runs.map(function(run) {
-				var json = run.toJSON();
-				delete json.start;
-				delete json.end;
-				for (var key in keys)
-					delete json[key];
+				var style = run.style,
+					values = style._values,
+					defaults = style._defaults,
+					json = { content: content.slice(run.start, run.end) };
+				for (var key in defaults) {
+					if (key in values && !(key in keys || key in itemKeys)) {
+						var value = style[key];
+						if (value !== undefined
+								&& !Base.equals(value, defaults[key]))
+							json[key] = Base.serialize(value);
+					}
+				}
 				return json;
 			});
 			delete props.content;
@@ -20837,6 +20846,7 @@ new function() {
 		},
 
 		_unload: function() {
+			this._edited = false;
 			if (!this._contentFields) {
 				this._loadContent();
 			} else if (!this._shell) {
@@ -20868,8 +20878,9 @@ new function() {
 			var that = this,
 				story = this._story,
 				content = story._content,
-				layout = host.layOut(this.exportJSON(), this._getStart(),
-						this._key);
+				json = this._key != null && !this._edited ? null
+						: this.exportJSON(),
+				layout = host.layOut(json, this._getStart(), this._key);
 			this._visibleEnd = layout.end;
 			return layout.lines.map(function(line) {
 				line.pieces = line.pieces.map(function(placed) {
@@ -20900,6 +20911,19 @@ new function() {
 	});
 
 	Project.inject({
+		_changed: function _changed(flags, item) {
+			_changed.base.call(this, flags, item);
+			if (item && !isLoading)
+				item._edited = true;
+		},
+
+		takeChanges: function takeChanges() {
+			var changes = takeChanges.base.call(this);
+			for (var i = 0, l = changes ? changes.length : 0; i < l; i++)
+				changes[i].item._edited = false;
+			return changes;
+		},
+
 		getHost: function() {
 			return this._host;
 		},
