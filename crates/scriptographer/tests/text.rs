@@ -7,6 +7,7 @@
 use serde_json::json;
 use vectorcraft_doc::{Justify, Node, NodeId, NodeKind, TextObject};
 use vectorcraft_engine::Session;
+use vectorcraft_scriptographer::host::{Columns, flags as host_flags};
 use vectorcraft_scriptographer::{Engine, Runtime};
 
 /// A session with one layer holding a rectangle, then point type "Hello world" at 24 pt, and area
@@ -95,6 +96,91 @@ fn lays_out_unchanged_text_from_the_document<E: Engine>() {
     let lines = vectorcraft_text::layout(vectorcraft_text::FontDb::global(), &text(&s, area)).lines.len();
     let output = run::<E>(&mut s, &format!("console.log(project.host.layOut(null, 0, {}).lines.length)", area.0));
     assert_eq!(output, [lines.to_string()]);
+}
+
+/// Threads the session's area type into a larger second frame beside it, after giving it more text
+/// than it holds, so the story flows on into the second frame. Returns that frame.
+fn threaded(s: &mut Session, area: NodeId) -> NodeId {
+    let story = "Text in an area breaks into lines that fit it. ".repeat(5);
+    s.execute("text.setText", &json!({"id": area.0, "text": story})).unwrap();
+    NodeId(s.execute("text.thread.add", &json!({"from": area.0, "rect": [120, 100, 200, 300]})).unwrap()["id"].as_u64().unwrap())
+}
+
+/// The frames of a thread are linked text items, which share the whole story, and each one is laid
+/// out from where the frame before it ends, as the document splits it.
+fn threads_share_their_story<E: Engine>() {
+    let (mut s, _, _, area) = document();
+    let next = threaded(&mut s, area);
+    let (first, rest) = (text(&s, area).plain_text(), text(&s, next).plain_text());
+    assert!(!first.is_empty() && !rest.is_empty(), "the story flows across both frames");
+    let story = first.clone() + &rest;
+    // Touching the second frame first loads the first one into its story.
+    let output = run::<E>(
+        &mut s,
+        &format!(
+            "var next = project.getItemByKey({}), first = project.getItemByKey({})\n\
+             console.log(next.isLinked(), first.story == next.story, first.nextTextItem == next, next.content.length)\n\
+             console.log(first.visibleRange.start, first.visibleRange.end, next.visibleRange.start, next.visibleRange.end)\n\
+             var layout = project.host.layOut(null, {}, {})\n\
+             console.log(layout.lines[0].start, layout.end)",
+            next.0,
+            area.0,
+            first.len(),
+            next.0
+        ),
+    );
+    assert_eq!(
+        output,
+        [
+            format!("true true true {}", story.len()),
+            format!("0 {} {} {}", first.len(), first.len(), story.len()),
+            format!("{} {}", first.len(), story.len())
+        ]
+    );
+}
+
+/// A story a script changes flows across the frames of its thread again, whichever frame it was
+/// changed through.
+fn a_changed_story_flows_across_its_frames<E: Engine>() {
+    for through in [0, 1] {
+        let (mut s, _, _, area) = document();
+        let next = threaded(&mut s, area);
+        let story = "A story told anew, word by word. ".repeat(8);
+        let key = [area, next][through];
+        run::<E>(&mut s, &format!("project.getItemByKey({}).content = {:?}", key.0, story));
+        let (first, rest) = (text(&s, area).plain_text(), text(&s, next).plain_text());
+        assert!(!first.is_empty() && !rest.is_empty(), "flows across both frames: {first:?} {rest:?}");
+        assert_eq!(first + &rest, story, "through frame {through}");
+        assert_eq!(s.active().unwrap().doc.text_threads, [vec![area, next]]);
+    }
+}
+
+/// A frame a script changes but not the story of keeps its share, and the story flows into its new
+/// shape.
+fn a_changed_frame_keeps_the_story<E: Engine>() {
+    let (mut s, _, _, area) = document();
+    let next = threaded(&mut s, area);
+    let story = text(&s, area).plain_text() + &text(&s, next).plain_text();
+    let before = text(&s, area).plain_text().len();
+    run::<E>(&mut s, &format!("project.getItemByKey({}).textPath.scale(1, 0.5, [0, 100])", area.0));
+    let (first, rest) = (text(&s, area).plain_text(), text(&s, next).plain_text());
+    assert!(first.len() < before, "the smaller frame holds less: {} of {before}", first.len());
+    assert_eq!(first + &rest, story, "and the story stays whole");
+}
+
+/// When one frame of a thread changes, scripts reload every frame of it, as each one holds the
+/// whole story: also the frames whose objects didn't change.
+#[test]
+fn a_threads_frames_reload_together() {
+    let (mut s, _, _, area) = document();
+    let next = threaded(&mut s, area);
+    let st = s.active().unwrap();
+    let (old, selection) = (st.doc.clone(), st.selection.clone());
+    let mut new = (*old).clone();
+    new.node_mut(area).unwrap().name = Some("Renamed".into());
+    let columns = Columns::of_changes(&old, &selection, &new, &selection);
+    let flags = |id: NodeId| columns.keys.iter().position(|k| *k == id.0 as f64).map(|i| columns.flags[i]);
+    assert!(flags(next).is_some_and(|f| f & host_flags::CONTENT_CHANGED != 0), "the other frame reloads: {:?}", columns.keys);
 }
 
 fn writes_text_back_as_one_undo_step<E: Engine>() {
@@ -194,6 +280,21 @@ macro_rules! engine_tests {
             #[test]
             fn lays_out_unchanged_text_from_the_document() {
                 super::lays_out_unchanged_text_from_the_document::<$engine>();
+            }
+
+            #[test]
+            fn threads_share_their_story() {
+                super::threads_share_their_story::<$engine>();
+            }
+
+            #[test]
+            fn a_changed_story_flows_across_its_frames() {
+                super::a_changed_story_flows_across_its_frames::<$engine>();
+            }
+
+            #[test]
+            fn a_changed_frame_keeps_the_story() {
+                super::a_changed_frame_keeps_the_story::<$engine>();
             }
 
             #[test]

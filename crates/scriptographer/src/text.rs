@@ -3,20 +3,97 @@
 //! `exportJSON()`, and its layout by VectorCraft's text crate in the form of the host's
 //! `layOut()`. Paper.js knows only part of VectorCraft's type controls, so reading text back starts
 //! from the object it was read from, and only what the script changed is written.
+//!
+//! The frames of a thread are linked text items, which share one story: each one's JSON names the
+//! thread's frames (`linked`), the story comes once for all of them ([`story_view`], the host's
+//! `getStory()`), each one is laid out from where the one before it ends, and a story a script changed goes back whole into the thread's
+//! first frame ([`written`]), for the document to flow it across the frames again.
 
 use std::collections::BTreeMap;
 
 use serde_json::{Map, Value as Json, json};
 use vectorcraft_color::Paint;
 use vectorcraft_doc::{
-    CharPosition, CharStyle, Composer, Justify, ParaDirection, ParaStyle, PathAlign, ScriptMetrics, TabAlign, TabStop, TextKind, TextObject, TextRun,
-    VerticalAlign, text::INLINE_CHAR,
+    CharPosition, CharStyle, Composer, Document, Justify, NodeId, NodeKind, ParaDirection, ParaStyle, PathAlign, ScriptMetrics, TabAlign, TabStop,
+    TextKind, TextObject, TextRun, VerticalAlign, text::INLINE_CHAR,
 };
 use vectorcraft_geom::{Affine, PathData, Point};
 
 use crate::Error;
 use crate::host::{color, path_json};
 use crate::writeback::{color as parse_color, path_data};
+
+/// The frames of the thread `id` is a frame of, in order.
+fn thread(doc: &Document, id: NodeId) -> Option<&[NodeId]> {
+    doc.text_threads.iter().find(|thread| thread.contains(&id)).map(Vec::as_slice)
+}
+
+fn text_of(doc: &Document, id: NodeId) -> Option<&TextObject> {
+    match doc.node(id).map(|node| &node.kind) {
+        Some(NodeKind::Text(t)) => Some(t),
+        _ => None,
+    }
+}
+
+/// `t`, the text object `id`, as scripts see it: a frame of a thread with the thread's whole story,
+/// which its frames share.
+pub fn story_view(doc: &Document, id: NodeId, t: &TextObject) -> TextObject {
+    let mut view = t.clone();
+    if let Some(thread) = thread(doc, id) {
+        let frames: Vec<&TextObject> = thread.iter().filter_map(|frame| text_of(doc, *frame)).collect();
+        view.runs = vectorcraft_text::thread::story(&frames);
+        view.set_paragraph_styles(vectorcraft_text::thread::story_paras(&frames, &[]));
+    }
+    view
+}
+
+/// The keys of the frames of the thread `id` is a frame of, for its JSON's `linked`.
+pub fn linked(doc: &Document, id: NodeId) -> Option<Json> {
+    thread(doc, id).map(|thread| json!(thread.iter().map(|frame| frame.0).collect::<Vec<_>>()))
+}
+
+/// The text object `id`, `t` in the document, is written back as, from `edited`, the object a
+/// script left, read as [`story_view`] (`view`): for a frame of a thread, with its share of the
+/// story ([`share`]), and the story when the script changed it, for the thread's other frames
+/// ([`shared`]).
+pub fn written(doc: &Document, id: NodeId, t: &TextObject, view: &TextObject, mut edited: TextObject) -> (TextObject, Option<TextObject>) {
+    if thread(doc, id).is_none() {
+        return (edited, None);
+    }
+    if edited.runs == view.runs && edited.paragraph_styles() == view.paragraph_styles() {
+        // The story is as it was: the frame keeps its share.
+        edited.runs = t.runs.clone();
+        edited.set_paragraph_styles(t.paragraph_styles());
+        return (edited, None);
+    }
+    let story = edited.clone();
+    (share(doc, id, &story, edited), Some(story))
+}
+
+/// The frames of the thread `id` is a frame of, but `id`, when a script changed the thread's story
+/// to `story`'s: each one as it is in `doc`, with its share ([`share`]).
+pub fn shared(doc: &Document, id: NodeId, story: &TextObject) -> Vec<(NodeId, TextObject)> {
+    let frames = thread(doc, id).unwrap_or_default();
+    frames.iter().filter(|frame| **frame != id).filter_map(|frame| Some((*frame, share(doc, *frame, story, text_of(doc, *frame)?.clone())))).collect()
+}
+
+/// `frame`, the frame `id` of a thread whose story a script changed to `story`'s, with its share of
+/// it: all of it for the thread's first frame, else none. When the patch is applied, the document
+/// flows the story across the frames again, as after any edit.
+fn share(doc: &Document, id: NodeId, story: &TextObject, mut frame: TextObject) -> TextObject {
+    let paragraphs = story.paragraph_styles();
+    if thread(doc, id).and_then(<[NodeId]>::first) == Some(&id) {
+        frame.runs = story.runs.clone();
+        frame.set_paragraph_styles(paragraphs);
+    } else {
+        let end = vectorcraft_text::edit::runs_len(&story.runs);
+        let style = vectorcraft_text::edit::style_at(&story.runs, end);
+        frame.runs = vec![TextRun { text: String::new(), style, inline: None }];
+        // The story's last paragraph style, which the frames before it end with.
+        frame.set_paragraph_styles(paragraphs.last().cloned().into_iter().collect());
+    }
+    frame
+}
 
 /// The Paper.js class of `t`.
 pub fn class(t: &TextObject) -> &'static str {
@@ -72,6 +149,12 @@ pub fn properties(t: &TextObject, props: &mut Map<String, Json>) {
             props.insert("spacing".into(), json!(t.path_spacing));
         }
     }
+    story_properties(t, props);
+}
+
+/// The story of `t` as Paper.js's `exportJSON()` writes it, for `props`: its runs and its
+/// paragraphs.
+pub fn story_properties(t: &TextObject, props: &mut Map<String, Json>) {
     let runs: Vec<Json> = t
         .runs
         .iter()
@@ -540,10 +623,24 @@ fn apply_para(style: &mut ParaStyle, now: &Map<String, Json>, was: &Map<String, 
 /// visible text ends, and its lines with their pieces, in text space, which is the item's own, as
 /// Paper.js's `Project#host` describes them. Positions and indices are those of VectorCraft's
 /// layout, so scripts see the lines the document shows.
-pub fn layout(t: &TextObject, _start: usize) -> Json {
+pub fn layout(t: &TextObject, start: usize) -> Json {
+    let story = t.plain_text();
+    // A frame of a thread: the story from where the frame before it ends.
+    let (t, offset) = if start > 0 {
+        let byte = byte_at(&story, start);
+        let mut from = t.clone();
+        from.runs = vectorcraft_text::edit::slice_runs(&t.runs, byte, story.len());
+        let first = story.get(..byte).map_or(0, |before| before.matches('\n').count());
+        let count = story.get(byte..).map_or(0, |after| after.matches('\n').count()) + 1;
+        from.set_paragraph_styles(t.paragraph_styles().get(first..first + count).map(<[ParaStyle]>::to_vec).unwrap_or_default());
+        (std::borrow::Cow::Owned(from), utf16(&story, byte))
+    } else {
+        (std::borrow::Cow::Borrowed(t), 0)
+    };
+    let t = t.as_ref();
     let layout = vectorcraft_text::layout(vectorcraft_text::FontDb::global(), t);
     let text = t.plain_text();
-    let index = |byte: usize| utf16(&text, byte);
+    let index = |byte: usize| offset + utf16(&text, byte);
     let styles: Vec<&CharStyle> = t.runs.iter().map(|run| &run.style).collect();
     let leading = |run: usize| styles.get(run).map_or(0.0, |s| s.leading.unwrap_or(s.size * t.para.justification.auto_leading / 100.0));
     let lines: Vec<Json> = layout
@@ -593,8 +690,21 @@ pub fn layout(t: &TextObject, _start: usize) -> Json {
             })
         })
         .collect();
-    let end = if layout.overflow { layout.lines.last().map_or(0, |line| index(line.end)) } else { index(text.len()) };
+    // Where the next frame of a thread starts, as the document splits stories.
+    let end = index(vectorcraft_text::thread::fitted(&layout, &text));
     json!({ "end": end, "lines": lines })
+}
+
+/// The byte of `text` at UTF-16 index `index`, as Paper.js counts, or its end for an index past it.
+fn byte_at(text: &str, index: usize) -> usize {
+    let mut units = 0;
+    for (byte, c) in text.char_indices() {
+        if units >= index {
+            return byte;
+        }
+        units += c.len_utf16();
+    }
+    text.len()
 }
 
 /// The UTF-16 index of byte `byte` of `text`, as Paper.js counts.

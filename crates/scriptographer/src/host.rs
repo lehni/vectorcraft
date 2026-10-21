@@ -146,10 +146,45 @@ impl Columns {
             .filter(|id| old_selection.anchors.get(id) != new_selection.anchors.get(id))
             .copied()
             .collect();
-        let mut walk = Walk { columns: &mut columns, selection: new_selection, reselected: &reselected, reanchored: &reanchored };
+        let changed_threads = changed_threads(old, new);
+        let mut walk = Walk {
+            columns: &mut columns,
+            selection: new_selection,
+            reselected: &reselected,
+            reanchored: &reanchored,
+            changed_threads: &changed_threads,
+        };
         walk.children(&old.layers, &new.layers);
+        // Frames of those threads in subtrees that didn't change, which the walk skips.
+        for id in &changed_threads {
+            if !columns.keys.contains(&(id.0 as f64))
+                && let Some(node) = new.node(*id)
+            {
+                columns.push(node, new_selection);
+                if let Some(last) = columns.flags.last_mut() {
+                    *last |= flags::CONTENT_CHANGED;
+                }
+            }
+        }
         columns
     }
+}
+
+/// The frames of the threads of which a frame changed between `old` and `new`, or that changed
+/// themselves: each frame's record holds the whole story, so they all change with it.
+fn changed_threads(old: &Document, new: &Document) -> BTreeSet<NodeId> {
+    let changed = |id: &NodeId| match (old.node(*id), new.node(*id)) {
+        (Some(a), Some(b)) => !std::ptr::eq(a, b),
+        (a, b) => a.is_some() != b.is_some(),
+    };
+    let mut frames = BTreeSet::new();
+    for thread in old.text_threads.iter().chain(&new.text_threads) {
+        let same = old.text_threads.contains(thread) && new.text_threads.contains(thread);
+        if !same || thread.iter().any(changed) {
+            frames.extend(thread.iter().copied());
+        }
+    }
+    frames
 }
 
 /// [`Columns::of_changes`] in progress.
@@ -158,6 +193,7 @@ struct Walk<'a> {
     selection: &'a Selection,
     reselected: &'a BTreeSet<NodeId>,
     reanchored: &'a BTreeSet<NodeId>,
+    changed_threads: &'a BTreeSet<NodeId>,
 }
 
 impl Walk<'_> {
@@ -174,7 +210,7 @@ impl Walk<'_> {
 
     fn node(&mut self, old: &Arc<Node>, new: &Arc<Node>) {
         let selected = self.reselected.contains(&new.id);
-        let reanchored = self.reanchored.contains(&new.id);
+        let reanchored = self.reanchored.contains(&new.id) || self.changed_threads.contains(&new.id);
         if Arc::ptr_eq(old, new) && !selected && !reanchored {
             return;
         }

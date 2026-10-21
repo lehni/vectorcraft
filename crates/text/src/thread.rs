@@ -46,19 +46,24 @@ fn slice_paras(paras: &[ParaStyle], first: usize, runs: &[TextRun]) -> Vec<ParaS
     (first..first + n).map(|i| paras.get(i).cloned().unwrap_or_else(|| fallback.clone())).collect()
 }
 
-/// How many bytes of `runs` fit in `frame` (whole lines; a following break space or paragraph
-/// break stays with the line that ends there, but on a path, where a space with no room
-/// overflows as any character does, it starts the next frame).
+/// How many bytes of `runs` fit in `frame` ([`fitted`]).
 fn fit(db: &FontDb, frame: &TextObject, runs: &[TextRun]) -> usize {
     let mut probe = frame.clone();
     probe.runs = runs.to_vec();
-    let lay = layout(db, &probe);
     let text: String = runs.iter().map(|r| r.text.as_str()).collect();
-    if !lay.overflow {
+    fitted(&layout(db, &probe), &text)
+}
+
+/// How many bytes of `text` its `layout` in a frame shows: whole lines, and a break space or
+/// paragraph break that follows stays with the line that ends there, but on a path, where a
+/// space with no room overflows as any character does, it starts the next frame. The next frame
+/// of a thread starts there.
+pub fn fitted(layout: &crate::TextLayout, text: &str) -> usize {
+    if !layout.overflow {
         return text.len();
     }
-    let mut end = lay.lines.last().map_or(0, |l| l.end);
-    if lay.on_path {
+    let mut end = layout.lines.last().map_or(0, |l| l.end);
+    if layout.on_path {
         return end;
     }
     let bytes = text.as_bytes();

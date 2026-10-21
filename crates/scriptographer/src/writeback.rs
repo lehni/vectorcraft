@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use serde_json::{Map, Value as Json, json};
 use vectorcraft_color::{BlendMode, Color, Paint};
-use vectorcraft_doc::{Appearance, Document, LayerColor, LineCap, LineJoin, Node, NodeId, NodeKind, TextWrap};
+use vectorcraft_doc::{Appearance, Document, LayerColor, LineCap, LineJoin, Node, NodeId, NodeKind, TextObject, TextWrap};
 use vectorcraft_geom::{Anchor, AnchorKind, PathData, Point, SubPath};
 
 use crate::binding::{Patch, node, number};
@@ -56,6 +56,7 @@ pub(crate) fn patch<H: Clone>(call: &mut dyn Call<H>, doc: &Arc<Document>, chang
     let mut replace = Vec::new();
     let mut news = News { insert: Vec::new(), inserted: Vec::new(), new: HashMap::new(), order: Vec::new() };
     let mut parents = Vec::new();
+    let (mut replaced_ids, mut stories) = (Vec::new(), Vec::new());
     for change in &changes {
         match change.key {
             Some(id) if !change.inserted => {
@@ -65,7 +66,8 @@ pub(crate) fn patch<H: Clone>(call: &mut dyn Call<H>, doc: &Arc<Document>, chang
             }
             Some(id) => {
                 if change.flags & change::CONTENT != 0 {
-                    replace.push(replaced(call, node(doc, id)?, change)?);
+                    replace.push(replaced(call, doc, node(doc, id)?, change, &mut stories)?);
+                    replaced_ids.push(id);
                 }
                 if change.flags & change::CHILDREN != 0 {
                     parents.push((id, change.item.clone()));
@@ -86,6 +88,18 @@ pub(crate) fn patch<H: Clone>(call: &mut dyn Call<H>, doc: &Arc<Document>, chang
                 news.add(call, &change.item, json!(parent_key), Some(index))?;
             }
             None => {}
+        }
+    }
+    // A thread whose story a frame changed: its other frames go with it, whether Paper.js reports
+    // them or not.
+    for (id, story) in stories {
+        for (frame, written) in text::shared(doc, id, &story) {
+            if !replaced_ids.contains(&frame) {
+                let mut node = node(doc, frame)?.clone();
+                node.kind = NodeKind::Text(Box::new(written));
+                replace.push(node_json(&node)?);
+                replaced_ids.push(frame);
+            }
         }
     }
     for (id, item) in parents {
@@ -187,8 +201,16 @@ fn node_json(node: &Node) -> Result<Json, Error> {
 }
 
 /// The node `original` with the item's changes: content for paths and compound paths, attributes
-/// for everything. Containers send no children, so they keep theirs.
-fn replaced<H: Clone>(call: &mut dyn Call<H>, original: &Node, change: &Change<H>) -> Result<Json, Error> {
+/// for everything. Containers send no children, so they keep theirs. A frame of a thread is
+/// written as [`text::written`] says; a story it changed goes into `stories`, for the thread's
+/// other frames.
+fn replaced<H: Clone>(
+    call: &mut dyn Call<H>,
+    doc: &Document,
+    original: &Node,
+    change: &Change<H>,
+    stories: &mut Vec<(NodeId, TextObject)>,
+) -> Result<Json, Error> {
     let mut node = original.clone();
     let before = item_json(original, &Default::default());
     match change.class.as_str() {
@@ -199,7 +221,11 @@ fn replaced<H: Clone>(call: &mut dyn Call<H>, original: &Node, change: &Change<H
         "PointText" | "AreaText" | "PathText" => {
             let json = export(call, &change.item)?;
             if let NodeKind::Text(t) = &original.kind {
-                node.kind = NodeKind::Text(Box::new(text::text_object(&json, Some(t))?));
+                let view = text::story_view(doc, original.id, t);
+                let edited = text::text_object(&json, Some(&view))?;
+                let (written, story) = text::written(doc, original.id, t, &view, edited);
+                node.kind = NodeKind::Text(Box::new(written));
+                stories.extend(story.map(|story| (original.id, story)));
             }
             let props = json.get(1).and_then(Json::as_object).cloned().unwrap_or_default();
             apply_attributes(&mut node, &props, &before[1]);

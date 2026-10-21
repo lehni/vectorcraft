@@ -4,7 +4,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use serde_json::Value as Json;
+use serde_json::{Map, Value as Json};
 use vectorcraft_doc::{Document, Node, NodeId, NodeKind, Selection};
 
 use crate::host::{Columns, TYPE_NAMES, flags, item_json};
@@ -34,6 +34,7 @@ impl<E: Engine> Runtime<E> {
         self.host.borrow_mut().bound = Some(Bound { doc, selection });
         let get_children = self.engine.function("getChildren", get_children)?;
         let get_item = self.engine.function("getItem", get_item)?;
+        let get_story = self.engine.function("getStory", get_story)?;
         let get_ancestor_keys = self.engine.function("getAncestorKeys", get_ancestor_keys)?;
         let lay_out = self.engine.function("layOut", lay_out)?;
         let artboards = self.engine.function("artboards", artboards)?;
@@ -46,6 +47,7 @@ impl<E: Engine> Runtime<E> {
             let host = call.new_object()?;
             call.set(&host, "getChildren", &Value::Js(get_children))?;
             call.set(&host, "getItem", &Value::Js(get_item))?;
+            call.set(&host, "getStory", &Value::Js(get_story))?;
             call.set(&host, "getAncestorKeys", &Value::Js(get_ancestor_keys))?;
             call.set(&host, "layOut", &Value::Js(lay_out))?;
             let project = object(call, &scope.0, "project")?;
@@ -294,25 +296,56 @@ fn columns_object<H: Clone>(call: &mut dyn Call<H>, columns: &Columns) -> Result
     Ok(result)
 }
 
-/// `source.getItem(key)`: the item's own content as Paper.js JSON.
+/// `source.getItem(key)`: the item's own content as Paper.js JSON; for a frame of a thread, without
+/// its story, which [`get_story`] gives, and with the frames it's `linked` with.
 fn get_item<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let id = key(args).ok_or_else(|| Error::Script("getItem: no key".into()))?;
-    let json = with_bound(call, |doc, selection| doc.node(id).map(|node| item_json(node, selection)))?;
+    let json = with_bound(call, |doc, selection| {
+        doc.node(id).map(|node| {
+            let mut json = item_json(node, selection);
+            if let Some(linked) = text::linked(doc, id)
+                && let Some(props) = json.get_mut(1).and_then(Json::as_object_mut)
+            {
+                for key in ["content", "runs", "paragraphs"] {
+                    props.remove(key);
+                }
+                props.insert("linked".into(), linked);
+            }
+            json
+        })
+    })?;
     let json = json.ok_or_else(|| Error::Script(format!("getItem: no object {id}")))?;
+    Ok(Value::String(json.to_string()))
+}
+
+/// `source.getStory(key)`: the story of the thread the frame `key` is in, its runs and paragraphs as
+/// Paper.js JSON, once for all its frames.
+fn get_story<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let id = key(args).ok_or_else(|| Error::Script("getStory: no key".into()))?;
+    let json = with_bound(call, |doc, _| match doc.node(id).map(|node| &node.kind) {
+        Some(NodeKind::Text(t)) => {
+            let mut props = Map::new();
+            text::story_properties(&text::story_view(doc, id, t), &mut props);
+            Some(Json::Object(props))
+        }
+        _ => None,
+    })?;
+    let json = json.ok_or_else(|| Error::Script(format!("getStory: no text {id}")))?;
     Ok(Value::String(json.to_string()))
 }
 
 /// `source.layOut(json, start, key)`: the layout of a text item, by VectorCraft's text layout: of
 /// the text object of `key` itself when the script didn't change it (`json` is null), else of its
 /// JSON as the script holds it, starting from that text object where there is one, so what
-/// Paper.js has no form for, as text wraps, stays, see Paper.js's `Project#host`.
+/// Paper.js has no form for, as text wraps, stays, see Paper.js's `Project#host`. A frame of a
+/// thread holds the whole story, laid out from `start`, where the frame before it ends.
 fn lay_out<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let start = match args.get(1) {
         Some(Value::Number(n)) if n.is_finite() && *n >= 0.0 => *n as usize,
         _ => 0,
     };
-    let before = with_bound(call, |doc, _| match key(args.get(2..).unwrap_or_default()).and_then(|id| doc.node(id)).map(|n| &n.kind) {
-        Some(NodeKind::Text(t)) => Some((**t).clone()),
+    let before = with_bound(call, |doc, _| match key(args.get(2..).unwrap_or_default()).and_then(|id| doc.node(id)) {
+        Some(Node { id, kind: NodeKind::Text(t), .. }) => Some(text::story_view(doc, *id, t)),
         _ => None,
     })?;
     let t = match args.first() {
