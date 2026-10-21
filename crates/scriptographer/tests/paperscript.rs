@@ -1346,6 +1346,49 @@ fn workers_run_scripts_on_their_threads<E: Engine>(name: &str) {
     std::fs::remove_dir_all(&folder).unwrap();
 }
 
+fn message_channels_join_ports_in_a_script_and_across_workers<E: Engine>(name: &str) {
+    let folder = std::env::temp_dir().join(format!("scriptographer-ports-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).unwrap();
+    // One worker speaks on a port it's sent, the other listens on the other and tells its parent.
+    std::fs::write(folder.join("speak.js"), "onmessage = event => { event.ports[0].postMessage('hello from ' + self.name); close() }").unwrap();
+    std::fs::write(
+        folder.join("listen.js"),
+        "onmessage = event => {\n\
+             event.ports[0].onmessage = message => { postMessage([message.data, event.data.port === event.ports[0]]); close() }\n\
+         }",
+    )
+    .unwrap();
+    let mut runtime = Runtime::<E>::new().unwrap();
+    runtime.set_script(&Setup { file: Some(folder.join("script.js").to_string_lossy().into_owned()), ..Setup::default() }).unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "const local = new MessageChannel()\n\
+             local.port2.onmessage = event => { console.log('local', event.data.n, event.data.point instanceof DOMPoint); local.port2.close() }\n\
+             local.port1.postMessage({ n: 1, point: new DOMPoint(1, 2) })\n\
+             try { local.port1.postMessage(0, [local.port1]) } catch (e) { console.log(e.name) }\n\
+             try { local.port1.postMessage(0, [{}]) } catch (e) { console.log(e.name) }\n\
+             const speaker = new Worker('speak.js', { name: 'speaker' })\n\
+             const listener = new Worker('listen.js')\n\
+             listener.onmessage = event => console.log('heard', JSON.stringify(event.data))\n\
+             const { port1, port2 } = new MessageChannel()\n\
+             listener.postMessage({ port: port2 }, [port2])\n\
+             speaker.postMessage(null, { transfer: [port1] })\n\
+             port1.postMessage('sent ports take nothing')\n\
+             try { speaker.postMessage(null, [port1]) } catch (e) { console.log('again', e.name) }",
+        )
+        .unwrap();
+    run_until_done(&mut runtime);
+    assert_eq!(
+        runtime.take_output(),
+        ["DataCloneError", "DataCloneError", "again DataCloneError", "local 1 true", "heard [\"hello from speaker\",true]"]
+    );
+    assert!(!runtime.is_running(), "with the workers closed and the started port too, nothing is left to run");
+    std::fs::remove_dir_all(&folder).unwrap();
+}
+
 fn runtimes_live_side_by_side<E: Engine>() {
     // As the app runs them: a second script starts while the first keeps running, and the first
     // stops first.
@@ -1606,6 +1649,11 @@ macro_rules! engine_tests {
             #[test]
             fn workers_run_scripts_on_their_threads() {
                 super::workers_run_scripts_on_their_threads::<$engine>(stringify!($module));
+            }
+
+            #[test]
+            fn message_channels_join_ports_in_a_script_and_across_workers() {
+                super::message_channels_join_ports_in_a_script_and_across_workers::<$engine>(stringify!($module));
             }
 
             #[test]

@@ -14,37 +14,7 @@ css/geometry/DOMMatrix-css-string.worker.js: DOMMatrixReadOnly stringifier in wo
 css/geometry/DOMMatrix2DInit-validate-fixup.html: DOMMatrix2DInit-validate-fixup.html
 css/geometry/DOMRectList.html: DOMRectList.html
 css/geometry/WebKitCSSMatrix.worker.js: WebKitCSSMatrix.worker.js
-css/geometry/structured-serialization.html: DOMMatrix clone: basic
-css/geometry/structured-serialization.html: DOMMatrix clone: custom property
-css/geometry/structured-serialization.html: DOMMatrix clone: non-initial values (2d)
-css/geometry/structured-serialization.html: DOMMatrix clone: non-initial values (3d)
-css/geometry/structured-serialization.html: DOMMatrix clone: throwing getters
-css/geometry/structured-serialization.html: DOMMatrixReadOnly clone: basic
-css/geometry/structured-serialization.html: DOMMatrixReadOnly clone: custom property
-css/geometry/structured-serialization.html: DOMMatrixReadOnly clone: non-initial values (2d)
-css/geometry/structured-serialization.html: DOMMatrixReadOnly clone: non-initial values (3d)
-css/geometry/structured-serialization.html: DOMMatrixReadOnly clone: throwing getters
-css/geometry/structured-serialization.html: DOMPoint clone: basic
-css/geometry/structured-serialization.html: DOMPoint clone: custom property
-css/geometry/structured-serialization.html: DOMPoint clone: non-initial values
-css/geometry/structured-serialization.html: DOMPoint clone: throwing getters
-css/geometry/structured-serialization.html: DOMPointReadOnly clone: basic
-css/geometry/structured-serialization.html: DOMPointReadOnly clone: custom property
-css/geometry/structured-serialization.html: DOMPointReadOnly clone: non-initial values
-css/geometry/structured-serialization.html: DOMPointReadOnly clone: throwing getters
-css/geometry/structured-serialization.html: DOMQuad clone: basic
-css/geometry/structured-serialization.html: DOMQuad clone: custom property
-css/geometry/structured-serialization.html: DOMQuad clone: non-initial values
-css/geometry/structured-serialization.html: DOMQuad clone: throwing getters
-css/geometry/structured-serialization.html: DOMRect clone: basic
-css/geometry/structured-serialization.html: DOMRect clone: custom property
-css/geometry/structured-serialization.html: DOMRect clone: non-initial values
-css/geometry/structured-serialization.html: DOMRect clone: throwing getters
 css/geometry/structured-serialization.html: DOMRectList clone
-css/geometry/structured-serialization.html: DOMRectReadOnly clone: basic
-css/geometry/structured-serialization.html: DOMRectReadOnly clone: custom property
-css/geometry/structured-serialization.html: DOMRectReadOnly clone: non-initial values
-css/geometry/structured-serialization.html: DOMRectReadOnly clone: throwing getters
 html/canvas/offscreen/color-type/2d.color.type.u8p3.to.u8srgb.to.u8p3.worker.js: test srgb unorm8 canvas storing 8-bit display-p3 data accurately
 html/canvas/offscreen/color-type/2d.color.type.u8srgb.to.u8p3.to.u8srgb.worker.js: test display-p3 unorm8 canvas not storing 8-bit srgb data accurately
 html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.colormix.worker.js: color-mix works as color input

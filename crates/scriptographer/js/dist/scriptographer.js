@@ -2664,7 +2664,8 @@ ${value}\r
     DOMPointReadOnly: () => DOMPointReadOnly,
     DOMQuad: () => DOMQuad,
     DOMRect: () => DOMRect,
-    DOMRectReadOnly: () => DOMRectReadOnly
+    DOMRectReadOnly: () => DOMRectReadOnly,
+    getGeometryValues: () => getGeometryValues
   });
 
   // src/css-transform.js
@@ -2888,6 +2889,7 @@ ${value}\r
   ];
   var getPoint;
   var getRect;
+  var getQuad;
   var getMatrix;
   var setMatrix;
   var DOMPointReadOnly = class {
@@ -2963,6 +2965,9 @@ ${value}\r
     #points;
     constructor(p1, p2, p3, p4) {
       this.#points = [p1, p2, p3, p4].map((point) => DOMPoint.fromPoint(point));
+    }
+    static {
+      getQuad = /* @__PURE__ */ __name((quad) => quad.#points, "getQuad");
     }
     get p1() {
       return this.#points[0];
@@ -3460,6 +3465,10 @@ ${value}\r
     return setMatrix(new Class(), getMatrixFromList(array));
   }
   __name(fromArray, "fromArray");
+  function getGeometryValues(object) {
+    return object instanceof DOMPointReadOnly ? getPoint(object) : object instanceof DOMRectReadOnly ? getRect(object) : object instanceof DOMQuad ? getQuad(object).flatMap(getPoint) : object instanceof DOMMatrixReadOnly ? [...getMatrix(object)[0], getMatrix(object)[1] ? 1 : 0] : null;
+  }
+  __name(getGeometryValues, "getGeometryValues");
 
   // src/palette.js
   var palettes = /* @__PURE__ */ new Map();
@@ -3931,6 +3940,107 @@ ${value}\r
   defineEventHandlers(WebSocket.prototype, "open", "message", "error", "close");
   setToStringTag(WebSocket);
 
+  // src/message-port.js
+  var getNumber;
+  var detach;
+  var MessageChannel = class {
+    static {
+      __name(this, "MessageChannel");
+    }
+    #port1;
+    #port2;
+    constructor() {
+      const [first, second] = natives.port.channel();
+      this.#port1 = new MessagePort(internal, first);
+      this.#port2 = new MessagePort(internal, second);
+    }
+    get port1() {
+      return this.#port1;
+    }
+    get port2() {
+      return this.#port2;
+    }
+  };
+  var MessagePort = class extends EventTarget {
+    static {
+      __name(this, "MessagePort");
+    }
+    // `null` once the port is closed or sent:
+    #number;
+    constructor(key, number) {
+      checkInternal(key, "MessagePort", "MessageChannel makes them");
+      super();
+      this.#number = number;
+    }
+    static {
+      getNumber = /* @__PURE__ */ __name((port) => port.#number, "getNumber");
+      detach = /* @__PURE__ */ __name((port) => {
+        port.#number = null;
+      }, "detach");
+    }
+    postMessage(message, transfer) {
+      checkArguments(arguments, 1, "postMessage");
+      postWith(transfer, (ports, numbers) => {
+        if (this.#number !== null) {
+          if (ports.includes(this)) {
+            throw new DOMException(
+              "Invalid postMessage(): a port can't transfer itself.",
+              "DataCloneError"
+            );
+          }
+          natives.port.post(this.#number, message, ports, numbers);
+        }
+      });
+    }
+    start() {
+      if (this.#number !== null) {
+        natives.port.start(
+          this.#number,
+          ({ type, data, ports }) => fire(this, new MessageEvent(type, { data, ports }))
+        );
+      }
+    }
+    close() {
+      if (this.#number !== null) {
+        natives.port.close(this.#number);
+        this.#number = null;
+      }
+    }
+  };
+  defineEventHandlers(MessagePort.prototype, "message", "messageerror");
+  var { set } = Object.getOwnPropertyDescriptor(
+    MessagePort.prototype,
+    "onmessage"
+  );
+  Object.defineProperty(MessagePort.prototype, "onmessage", {
+    set(handler2) {
+      set.call(this, handler2);
+      this.start();
+    }
+  });
+  setToStringTag(MessageChannel, MessagePort);
+  function postWith(transfer, send) {
+    const list = transfer === void 0 || transfer === null ? [] : typeof transfer === "object" && Symbol.iterator in transfer ? [...transfer] : typeof transfer === "object" ? [...transfer.transfer ?? []] : null;
+    if (!list) {
+      throw new TypeError(`Invalid transfer list: '${transfer}'.`);
+    }
+    for (const [index, port] of list.entries()) {
+      if (!(port instanceof MessagePort) || getNumber(port) === null || list.indexOf(port) !== index) {
+        throw new DOMException(
+          `Invalid transfer list: '${port}' can't be transferred.`,
+          "DataCloneError"
+        );
+      }
+    }
+    send(list, list.map(getNumber));
+    list.forEach(detach);
+  }
+  __name(postWith, "postWith");
+  function makePort(number) {
+    return new MessagePort(internal, number);
+  }
+  __name(makePort, "makePort");
+
   // src/worker.js
   var Worker = class extends EventTarget {
     static {
@@ -3951,21 +4061,24 @@ ${value}\r
         (sent) => this.#receive(sent)
       );
     }
-    postMessage(data) {
-      natives.worker.post(this.#number, data);
+    postMessage(data, transfer) {
+      postWith(
+        transfer,
+        (ports, numbers) => natives.worker.post(this.#number, data, ports, numbers)
+      );
     }
     terminate() {
       natives.worker.terminate(this.#number);
     }
-    // What the worker sent: `{ type, data }` or `{ type: 'error', message }`.
-    #receive({ type, data, message }) {
+    // What the worker sent: `{ type, data, ports }` or `{ type: 'error', message }`.
+    #receive({ type, data, ports, message }) {
       if (type === "error") {
         const event = new ErrorEvent("error", { message, cancelable: true });
         if (fire(this, event)) {
           console.error(`Uncaught (in worker) ${message}`);
         }
       } else {
-        fire(this, new MessageEvent(type, { data }));
+        fire(this, new MessageEvent(type, { data, ports }));
       }
     }
   };
@@ -3973,10 +4086,15 @@ ${value}\r
   setToStringTag(Worker);
   function setupWorker(name) {
     const { addEventListener, removeEventListener, dispatchEvent } = EventTarget.prototype;
-    const { postMessage, close, importScripts } = natives.worker.self;
+    const { close, importScripts } = natives.worker.self;
     inject(globalThis, {
       name,
-      postMessage,
+      postMessage(data, transfer) {
+        postWith(
+          transfer,
+          (ports, numbers) => natives.worker.self.postMessage(data, ports, numbers)
+        );
+      },
       close,
       importScripts,
       addEventListener,
@@ -3984,7 +4102,7 @@ ${value}\r
       dispatchEvent
     });
     defineEventHandlers(globalThis, "message", "messageerror");
-    return ({ type, data }) => fire(globalThis, new MessageEvent(type, { data }));
+    return ({ type, data, ports }) => fire(globalThis, new MessageEvent(type, { data, ports }));
   }
   __name(setupWorker, "setupWorker");
 
@@ -4038,6 +4156,10 @@ ${value}\r
     inject(globalThis, { Worker });
     Object.assign(natives, { setupWorker });
   }
+  if (!globalThis.MessageChannel) {
+    inject(globalThis, { MessageChannel, MessagePort });
+    Object.assign(natives, { makePort });
+  }
   if (natives.dom && !globalThis.document) {
     inject(globalThis, dom, { configurable: true });
   }
@@ -4049,7 +4171,9 @@ ${value}\r
     inject(globalThis, { ...canvas_exports });
   }
   if (!globalThis.DOMMatrix) {
-    inject(globalThis, { ...geometry_exports, WebKitCSSMatrix: DOMMatrix2 });
+    const { getGeometryValues: getGeometryValues2, ...classes } = geometry_exports;
+    inject(globalThis, { ...classes, WebKitCSSMatrix: DOMMatrix2 });
+    Object.assign(natives, { getGeometryValues: getGeometryValues2 });
   }
   setupDialog(globalThis.Dialog ??= {});
   inject(globalThis, { Palette });

@@ -38,6 +38,8 @@ mod web;
 #[cfg(target_arch = "wasm32")]
 pub use dialog::Picked;
 #[cfg(not(target_arch = "wasm32"))]
+mod message_port;
+#[cfg(not(target_arch = "wasm32"))]
 mod web_worker;
 #[cfg(not(target_arch = "wasm32"))]
 mod websocket;
@@ -165,6 +167,11 @@ pub struct Host<H> {
     next_child: u32,
     #[cfg(not(target_arch = "wasm32"))]
     parent: Option<web_worker::Parent<H>>,
+    /// The runtime's `MessagePort`s, and the number the next one gets.
+    #[cfg(not(target_arch = "wasm32"))]
+    ports: Vec<message_port::Port<H>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    next_port: u32,
     /// The realm's error classes, for the exceptions host functions throw.
     exceptions: Option<exception::Classes<H>>,
     /// The realm's global object, for its classes ([`global_class`]).
@@ -233,6 +240,10 @@ impl<H> Default for Host<H> {
             next_child: 0,
             #[cfg(not(target_arch = "wasm32"))]
             parent: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            ports: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            next_port: 0,
             exceptions: None,
             global: None,
             shared: None,
@@ -304,6 +315,8 @@ impl<E: Engine> Runtime<E> {
             ("socket", websocket::natives(&mut engine)?),
             #[cfg(not(target_arch = "wasm32"))]
             ("worker", web_worker::natives(&mut engine)?),
+            #[cfg(not(target_arch = "wasm32"))]
+            ("port", message_port::natives(&mut engine)?),
             #[cfg(not(target_arch = "wasm32"))]
             ("url", urls::natives(&mut engine)?),
             #[cfg(not(target_arch = "wasm32"))]
@@ -466,6 +479,8 @@ impl<E: Engine> Runtime<E> {
             websocket::poll(call)?;
             #[cfg(not(target_arch = "wasm32"))]
             web_worker::poll(call)?;
+            #[cfg(not(target_arch = "wasm32"))]
+            message_port::poll(call)?;
             for callback in due {
                 call.call(&callback, &Value::Undefined, &[])?;
             }
@@ -487,7 +502,7 @@ impl<E: Engine> Runtime<E> {
     pub fn is_running(&self) -> bool {
         let host = self.host.borrow();
         #[cfg(not(target_arch = "wasm32"))]
-        if !host.fetches.is_empty() || !host.sockets.is_empty() || !host.children.is_empty() {
+        if !host.fetches.is_empty() || !host.sockets.is_empty() || !host.children.is_empty() || host.ports.iter().any(|p| p.is_open()) {
             return true;
         }
         !host.intervals.is_empty() || !host.frames.is_empty()

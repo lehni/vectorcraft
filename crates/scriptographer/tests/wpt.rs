@@ -9,7 +9,7 @@
 //! `WPT_FILTER=text` runs only the files whose path contains `text` and prints each test's result
 //! and message, without checking the list.
 //!
-//! What fails, by cause (2026-10-21: 1641 of 1821 pass; the canvas 958 of 1093, geometry 683
+//! What fails, by cause (2026-10-21: 1671 of 1821 pass; the canvas 958 of 1093, geometry 713
 //! of 728), to come back to; most of it rarely matters to a script:
 //!
 //! - Text (canvas/text, about 80): WPT loads its test font with `FontFace`, which scripts don't
@@ -23,8 +23,6 @@
 //! - Colours (about 12): the color crate accepts some invalid legacy syntax (numbers mixed with
 //!   percentages in `rgb()`, `hsl()` without its percent signs: its own TODO); `color-mix()`,
 //!   relative colours, system colours, and keeping colours that aren't sRGB as `color(srgb …)`.
-//! - Structured serialization of the geometry classes (css/geometry, 31): the tests send them
-//!   through a `MessageChannel`, which scripts don't have.
 //! - A worker's matrices (css/geometry, 12): a script has a window, so `new DOMMatrix(text)`
 //!   reads CSS's transform functions, `setMatrixValue()` is there and a matrix writes itself as
 //!   CSS, as a window's do, which the worker tests expect not to.

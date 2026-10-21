@@ -27,6 +27,7 @@ import {
 import { Storage, createStorage } from './storage.js'
 import { URL, URLSearchParams } from './url.js'
 import { WebSocket } from './websocket.js'
+import { MessageChannel, MessagePort, makePort } from './message-port.js'
 import { Worker, setupWorker } from './worker.js'
 
 delete globalThis.__scriptographer
@@ -84,6 +85,11 @@ if (!globalThis.Worker) {
   // What the runtime makes a worker's global object with:
   Object.assign(natives, { setupWorker })
 }
+if (!globalThis.MessageChannel) {
+  inject(globalThis, { MessageChannel, MessagePort })
+  // What the runtime makes the ports it receives with:
+  Object.assign(natives, { makePort })
+}
 // A DOM outside a browser, after Paper.js, which would take one for a browser's:
 if (natives.dom && !globalThis.document) {
   inject(globalThis, dom, { configurable: true })
@@ -97,7 +103,10 @@ if (!globalThis.OffscreenCanvas) {
   inject(globalThis, { ...canvas })
 }
 if (!globalThis.DOMMatrix) {
-  inject(globalThis, { ...geometry, WebKitCSSMatrix: geometry.DOMMatrix })
+  const { getGeometryValues, ...classes } = geometry
+  inject(globalThis, { ...classes, WebKitCSSMatrix: geometry.DOMMatrix })
+  // What structured serialization reads of them:
+  Object.assign(natives, { getGeometryValues })
 }
 setupDialog((globalThis.Dialog ??= {}))
 inject(globalThis, { Palette })

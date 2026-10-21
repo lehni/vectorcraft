@@ -40,7 +40,7 @@ const names = [
 
 // Each class keeps its values in a private array, which these reach, for the
 // writable classes and the operations:
-let getPoint, getRect, getMatrix, setMatrix
+let getPoint, getRect, getQuad, getMatrix, setMatrix
 
 export class DOMPointReadOnly {
   #values
@@ -116,6 +116,10 @@ export class DOMQuad {
 
   constructor(p1, p2, p3, p4) {
     this.#points = [p1, p2, p3, p4].map(point => DOMPoint.fromPoint(point))
+  }
+
+  static {
+    getQuad = quad => quad.#points
   }
 
   get p1() {
@@ -678,4 +682,19 @@ function fromArray(Class, array) {
     throw new TypeError(`Invalid array: '${array}', not a typed array.`)
   }
   return setMatrix(new Class(), getMatrixFromList(array))
+}
+
+// The values structured serialization keeps of a geometry object, from its own
+// fields, whatever getters it was given: a point's, a rect's, a quad's points',
+// or a matrix's 16 and whether it's 2D; none for another object.
+export function getGeometryValues(object) {
+  return object instanceof DOMPointReadOnly
+    ? getPoint(object)
+    : object instanceof DOMRectReadOnly
+      ? getRect(object)
+      : object instanceof DOMQuad
+        ? getQuad(object).flatMap(getPoint)
+        : object instanceof DOMMatrixReadOnly
+          ? [...getMatrix(object)[0], getMatrix(object)[1] ? 1 : 0]
+          : null
 }

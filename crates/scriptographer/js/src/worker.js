@@ -6,12 +6,14 @@ import {
   defineEventHandlers,
   fire
 } from './events.js'
+import { postWith } from './message-port.js'
 import { natives } from './natives.js'
 
 // `Worker` for scripts outside a browser, and what a worker's global object
 // has. The runtime runs each worker's script on a thread of its own, in a
 // runtime of its own, and passes the messages both ways as structured
-// serialization keeps them. Module workers aren't supported.
+// serialization keeps them, with the `MessagePort`s they transfer. Module
+// workers aren't supported.
 
 export class Worker extends EventTarget {
   #number
@@ -29,16 +31,18 @@ export class Worker extends EventTarget {
     )
   }
 
-  postMessage(data) {
-    natives.worker.post(this.#number, data)
+  postMessage(data, transfer) {
+    postWith(transfer, (ports, numbers) =>
+      natives.worker.post(this.#number, data, ports, numbers)
+    )
   }
 
   terminate() {
     natives.worker.terminate(this.#number)
   }
 
-  // What the worker sent: `{ type, data }` or `{ type: 'error', message }`.
-  #receive({ type, data, message }) {
+  // What the worker sent: `{ type, data, ports }` or `{ type: 'error', message }`.
+  #receive({ type, data, ports, message }) {
     if (type === 'error') {
       // Unless a handler prevents it, the error shows in the console too, as in
       // browsers.
@@ -47,7 +51,7 @@ export class Worker extends EventTarget {
         console.error(`Uncaught (in worker) ${message}`)
       }
     } else {
-      fire(this, new MessageEvent(type, { data }))
+      fire(this, new MessageEvent(type, { data, ports }))
     }
   }
 }
@@ -61,10 +65,14 @@ setToStringTag(Worker)
 export function setupWorker(name) {
   const { addEventListener, removeEventListener, dispatchEvent } =
     EventTarget.prototype
-  const { postMessage, close, importScripts } = natives.worker.self
+  const { close, importScripts } = natives.worker.self
   inject(globalThis, {
     name,
-    postMessage,
+    postMessage(data, transfer) {
+      postWith(transfer, (ports, numbers) =>
+        natives.worker.self.postMessage(data, ports, numbers)
+      )
+    },
     close,
     importScripts,
     addEventListener,
@@ -72,5 +80,6 @@ export function setupWorker(name) {
     dispatchEvent
   })
   defineEventHandlers(globalThis, 'message', 'messageerror')
-  return ({ type, data }) => fire(globalThis, new MessageEvent(type, { data }))
+  return ({ type, data, ports }) =>
+    fire(globalThis, new MessageEvent(type, { data, ports }))
 }

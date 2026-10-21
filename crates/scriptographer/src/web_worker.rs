@@ -1,8 +1,8 @@
 //! The workers of `Worker` outside a browser (`js/src/worker.js`): `new Worker(path)` runs the
 //! script at `path` (from the script's folder, or an `https:` URL) as a classic script on a thread
 //! of its own, in a runtime of its own, with the same APIs (and Paper.js, but no document).
-//! Messages go both ways as structured serialization keeps them ([`crate::clone`]), on the
-//! receiver's turn ([`poll`] in the parent). An uncaught error in the worker goes to the `Worker`,
+//! Messages go both ways as structured serialization keeps them ([`crate::clone`]), with the ports
+//! they transfer ([`crate::message_port`]), on the receiver's turn ([`poll`] in the parent). An uncaught error in the worker goes to the `Worker`,
 //! and the worker goes on. The worker's console writes to its parent's. A worker ends with
 //! `close()`, `worker.terminate()`, or its parent; while it runs, its parent does.
 
@@ -10,7 +10,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::clone::{Data, deserialize, serialize};
+use crate::message_port::{Message, message, receive};
 use crate::{Call, Engine, Error, HostFunction, Interrupt, Runtime, Setup, Value};
 
 /// How long a worker waits for a message before it runs its timers.
@@ -18,7 +18,7 @@ const FRAME: Duration = Duration::from_millis(16);
 
 /// What a worker tells its parent.
 enum FromWorker {
-    Message(Data),
+    Message(Message),
     Error(String),
     Output(Vec<String>),
     Closed,
@@ -29,7 +29,7 @@ enum FromWorker {
 pub(crate) struct Child<H> {
     number: u32,
     receive: H,
-    to: Sender<Data>,
+    to: Sender<Message>,
     from: Receiver<FromWorker>,
     interrupt: Arc<Mutex<Option<Interrupt>>>,
 }
@@ -43,8 +43,9 @@ pub(crate) struct Parent<H> {
 }
 
 /// The natives `js/src/worker.js` talks through: `start(url, name, receive)`, which gives the
-/// worker's number, `post(number, data)` and `terminate(number)`, and in the worker
-/// `self.postMessage(data)`, `self.close()` and `self.importScripts(...paths)`.
+/// worker's number, `post(number, data, ports, numbers)` and `terminate(number)`, and in the worker
+/// `self.postMessage(data, ports, numbers)`, `self.close()` and `self.importScripts(...paths)`;
+/// `ports` are the `MessagePort`s the message transfers, and `numbers` theirs.
 pub(crate) fn natives<E: Engine>(engine: &mut E) -> Result<Vec<(&'static str, E::Handle)>, Error> {
     let natives: [(&str, HostFunction<E::Handle>); 3] = [("start", start::<E>), ("post", post_to_worker), ("terminate", terminate)];
     let mut made = natives.into_iter().map(|(name, f)| Ok((name, engine.function(name, f)?))).collect::<Result<Vec<_>, Error>>()?;
@@ -97,7 +98,7 @@ fn run<E: Engine>(
     key: Result<String, String>,
     name: &str,
     setup: Setup,
-    inbox: &Receiver<Data>,
+    inbox: &Receiver<Message>,
     outbox: &Sender<FromWorker>,
     interrupt: &Arc<Mutex<Option<Interrupt>>>,
 ) {
@@ -138,8 +139,8 @@ fn run<E: Engine>(
             break;
         }
         match inbox.recv_timeout(FRAME) {
-            Ok(data) => {
-                if let Err(e) = deliver(&mut runtime, &data) {
+            Ok(sent) => {
+                if let Err(e) = deliver(&mut runtime, sent) {
                     report(e.to_string());
                 }
             }
@@ -164,33 +165,20 @@ fn become_worker<E: Engine>(runtime: &mut Runtime<E>, name: &str, to: Sender<Fro
 
 /// A message from the parent, to the worker's global object: `message`, or `messageerror` when it
 /// can't be made in this realm.
-fn deliver<E: Engine>(runtime: &mut Runtime<E>, data: &Data) -> Result<(), Error> {
+fn deliver<E: Engine>(runtime: &mut Runtime<E>, sent: Message) -> Result<(), Error> {
     runtime.engine.with_call(|call| {
-        let receive = call.host()?.borrow().parent.as_ref().map(|p| p.receive.clone()).ok_or_else(|| Error::Script("not a worker".into()))?;
-        let sent = message(call, data)?;
-        call.call(&receive, &Value::Undefined, &[sent]).map(|_| ())
+        let receive_with = call.host()?.borrow().parent.as_ref().map(|p| p.receive.clone()).ok_or_else(|| Error::Script("not a worker".into()))?;
+        let received = receive(call, sent)?;
+        call.call(&receive_with, &Value::Undefined, &[received]).map(|_| ())
     })
 }
 
-/// `{ type: 'message', data }` for `data`, or `{ type: 'messageerror' }`.
-fn message<H: Clone>(call: &mut dyn Call<H>, data: &Data) -> Result<Value<H>, Error> {
-    let object = call.new_object()?;
-    match deserialize(call, data) {
-        Ok(value) => {
-            call.set(&object, "type", &Value::String("message".into()))?;
-            call.set(&object, "data", &value)?;
-        }
-        Err(_) => call.set(&object, "type", &Value::String("messageerror".into()))?,
-    }
-    Ok(Value::Js(object))
-}
-
-/// The worker's `postMessage(data)`.
+/// The worker's `postMessage(data, ports, numbers)`.
 fn post_to_parent<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let data = serialize(call, args.first().unwrap_or(&Value::Undefined))?;
+    let sent = message(call, args)?;
     if let Some(parent) = call.host()?.borrow().parent.as_ref() {
         // A parent that's gone takes nothing.
-        let _ = parent.to.send(FromWorker::Message(data));
+        let _ = parent.to.send(FromWorker::Message(sent));
     }
     Ok(Value::Undefined)
 }
@@ -227,13 +215,13 @@ fn number<H>(call: &mut dyn Call<H>, args: &[Value<H>]) -> Result<f64, Error> {
     call.to_number(args.first().unwrap_or(&Value::Undefined))
 }
 
-/// The parent's `worker.postMessage(data)`.
+/// The parent's `worker.postMessage(data, ports, numbers)`.
 fn post_to_worker<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let number = number(call, args)?;
-    let data = serialize(call, args.get(1).unwrap_or(&Value::Undefined))?;
+    let sent = message(call, args.get(1..).unwrap_or_default())?;
     if let Some(child) = call.host()?.borrow().children.iter().find(|c| f64::from(c.number) == number) {
         // A worker that ended takes nothing, as in browsers.
-        let _ = child.to.send(data);
+        let _ = child.to.send(sent);
     }
     Ok(Value::Undefined)
 }
@@ -278,7 +266,7 @@ pub(crate) fn poll<H: Clone>(call: &mut dyn Call<H>) -> Result<(), Error> {
                     call.host()?.borrow_mut().children.retain(|c| c.number != number);
                     break;
                 }
-                FromWorker::Message(data) => message(call, &data)?,
+                FromWorker::Message(sent) => crate::message_port::receive(call, sent)?,
                 FromWorker::Error(message) => {
                     let error = call.new_object()?;
                     call.set(&error, "type", &Value::String("error".into()))?;
