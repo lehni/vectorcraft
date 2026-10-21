@@ -1429,6 +1429,56 @@ fn font_faces_give_canvases_fonts_by_the_scripts_names<E: Engine>() {
     );
 }
 
+fn canvas_text_is_placed_by_its_anchor<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    let font = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/fonts/SourceSerif4-Regular.ttf");
+    runtime
+        .execute(
+            &scope,
+            &format!(
+                "fonts.add(await new FontFace('Serif', await new LocalFile({font:?}).arrayBuffer()).loaded)\n\
+                 await new Promise(resolve => setTimeout(resolve))\n\
+                 const canvas = new OffscreenCanvas(100, 50)\n\
+                 const ctx = canvas.getContext('2d')\n\
+                 ctx.font = '40px Serif'\n\
+                 const near = (a, b) => Math.abs(a - b) < 0.01\n\
+                 const m = ctx.measureText('Hi')\n\
+                 console.log(near(m.emHeightAscent + m.emHeightDescent, 40), m.alphabeticBaseline === -0 || m.alphabeticBaseline === 0, m.hangingBaseline > 0)\n\
+                 ctx.textAlign = 'right'\n\
+                 const right = ctx.measureText('Hi')\n\
+                 ctx.textAlign = 'start'\n\
+                 ctx.direction = 'rtl'\n\
+                 const rtl = ctx.measureText('Hi')\n\
+                 console.log(near(right.actualBoundingBoxLeft, m.actualBoundingBoxLeft + m.width), near(rtl.actualBoundingBoxLeft, right.actualBoundingBoxLeft))\n\
+                 ctx.direction = 'ltr'\n\
+                 ctx.textBaseline = 'top'\n\
+                 const top = ctx.measureText('Hi')\n\
+                 console.log(near(top.emHeightAscent, 0), near(top.alphabeticBaseline, -m.emHeightAscent))\n\
+                 ctx.fillText('Hi', 0, 0, 0)\n\
+                 console.log([...ctx.getImageData(0, 0, 100, 50).data].every(n => n === 0))\n\
+                 ctx.letterSpacing = '1PX'\n\
+                 console.log(ctx.letterSpacing, ctx.lang, Object.is(ctx.measureText('').width, 0))"
+            ),
+        )
+        .unwrap();
+    run_until_done(&mut runtime);
+    assert_eq!(
+        runtime.take_output(),
+        [
+            // The em box is as tall as the font's size, the hanging baseline above the alphabetic one.
+            "true true true",
+            // Right-aligned, or started right to left, the text ends at the anchor.
+            "true true",
+            // Hung from the top of the em box.
+            "true true",
+            // A `maxWidth` of 0 draws nothing.
+            "true",
+            "1px inherit true",
+        ]
+    );
+}
+
 fn runtimes_live_side_by_side<E: Engine>() {
     // As the app runs them: a second script starts while the first keeps running, and the first
     // stops first.
@@ -1689,6 +1739,11 @@ macro_rules! engine_tests {
             #[test]
             fn workers_run_scripts_on_their_threads() {
                 super::workers_run_scripts_on_their_threads::<$engine>(stringify!($module));
+            }
+
+            #[test]
+            fn canvas_text_is_placed_by_its_anchor() {
+                super::canvas_text_is_placed_by_its_anchor::<$engine>();
             }
 
             #[test]

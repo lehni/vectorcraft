@@ -286,6 +286,14 @@ impl FontFace {
         *self.icf_margins.get_or_init(|| self.icf_from_base().or_else(|| self.icf_from_glyphs()).unwrap_or_default())
     }
 
+    /// The height of the horizontal baseline `tag` (`hang`, `ideo`, `romn` …) in the face's BASE
+    /// table, in font units; none without one.
+    pub fn baseline(&self, tag: &[u8; 4]) -> Option<f64> {
+        use skrifa::raw::TableProvider;
+        let base = self.skrifa()?.base().ok()?;
+        base_values(base.horiz_axis()?.ok()?)?.get(tag).copied()
+    }
+
     /// [`Self::icf_margins`] from the BASE table: the ICF's bottom edge `icfb` (top edge `icft`, else
     /// as far below the em box top) against the em box `ideo` .. `idtp` (else the OS/2 typographic
     /// descender, and one em above it); across vertical lines, `icfb` and `icft` of the vertical

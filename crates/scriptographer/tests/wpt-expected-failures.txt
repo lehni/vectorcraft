@@ -53,30 +53,12 @@ html/canvas/offscreen/line-styles/2d.line.cross.worker.js: Untitled
 html/canvas/offscreen/path-objects/2d.path.isPointInPath.basic.worker.js: Verify the winding rule in isPointInPath works for for rect path.
 html/canvas/offscreen/pixel-manipulation/2d.imageData.createImageBitmap.srgb.rgba.float16.worker.js: Verify round-trip of 16-bit float sRGB data ImageData through ImageBitmap
 html/canvas/offscreen/pixel-manipulation/2d.imageData.put.basic.rgba.float16.worker.js: putImageData() puts 16-bit floating point image data from getImageData() onto the canvas
-html/canvas/offscreen/text/2d.text.draw.align.end.rtl.worker.js: textAlign end with rtl is the left edge
-html/canvas/offscreen/text/2d.text.draw.align.start.rtl.worker.js: textAlign start with rtl is the right edge
-html/canvas/offscreen/text/2d.text.draw.baseline.hanging.worker.js: Untitled
-html/canvas/offscreen/text/2d.text.draw.baseline.ideographic.worker.js: Untitled
-html/canvas/offscreen/text/2d.text.draw.fill.maxWidth.NaN.worker.js: fillText handles maxWidth correctly
-html/canvas/offscreen/text/2d.text.draw.fill.maxWidth.negative.worker.js: fillText handles maxWidth correctly
-html/canvas/offscreen/text/2d.text.draw.fill.maxWidth.zero.worker.js: fillText handles maxWidth correctly
-html/canvas/offscreen/text/2d.text.drawing.style.absolute.spacing.worker.js: Testing letter spacing and word spacing with absolute length
-html/canvas/offscreen/text/2d.text.drawing.style.font-relative.spacing.worker.js: Testing letter spacing and word spacing with font-relative length
-html/canvas/offscreen/text/2d.text.drawing.style.fontKerning.worker.js: Testing basic functionalities of fontKerning for canvas
-html/canvas/offscreen/text/2d.text.drawing.style.measure.direction.worker.js: Measurement should follow text direction
-html/canvas/offscreen/text/2d.text.drawing.style.measure.textAlign.worker.js: Measurement should be related to textAlignment
-html/canvas/offscreen/text/2d.text.fontVariantCaps2.worker.js: Testing small caps setting in fontVariant
-html/canvas/offscreen/text/2d.text.lang.default.worker.js: Untitled
-html/canvas/offscreen/text/2d.text.measure.actualBoundingBox.whitespace.worker.js: Testing actualBoundingBox with leading/trailing whitespace
-html/canvas/offscreen/text/2d.text.measure.baselines.worker.js: Testing baselines
 html/canvas/offscreen/text/2d.text.measure.emHeights-low-ascent.worker.js: Testing emHeights with reduced ascent metric
 html/canvas/offscreen/text/2d.text.measure.emHeights-zero-descent.worker.js: Testing emHeights with zero descent metric
-html/canvas/offscreen/text/2d.text.measure.emHeights.worker.js: Testing emHeights
 html/canvas/offscreen/text/2d.text.measure.fillTextCluster-options.tentative.worker.js: Test that fillTextCluster() correctly applies the options passed as a dictionary.
 html/canvas/offscreen/text/2d.text.measure.fillTextCluster-range.tentative.worker.js: Test that getTextClusters() and fillTextCluster() correctly render different ranges of the input text.
 html/canvas/offscreen/text/2d.text.measure.fontBoundingBox-reduced-ascent.worker.js: Testing fontBoundingBox for OffscreenCanvas with reduced ascent metric
 html/canvas/offscreen/text/2d.text.measure.fontBoundingBox-zero-descent.worker.js: Testing fontBoundingBox for OffscreenCanvas with zero descent metric
-html/canvas/offscreen/text/2d.text.measure.fontBoundingBox.ahem.worker.js: Testing fontBoundingBox for font ahem
 html/canvas/offscreen/text/2d.text.measure.getActualBoundingBox-exceptions.tentative.worker.js: Check that TextMetrics::getActualBoundingBox() throws when using invalid indexes.
 html/canvas/offscreen/text/2d.text.measure.getActualBoundingBox-full-text.tentative.worker.js: Test TextMetrics::getActualBoundingBox() for the full length of the string for some edge cases, with direction ltr and directional-override
 html/canvas/offscreen/text/2d.text.measure.getActualBoundingBox-full-text.tentative.worker.js: Test TextMetrics::getActualBoundingBox() for the full length of the string for some edge cases, with direction ltr and no-directional-override
@@ -107,9 +89,6 @@ html/canvas/offscreen/text/2d.text.measure.strokeTextCluster-range.tentative.wor
 html/canvas/offscreen/text/2d.text.measure.text-clusters-exceptions.tentative.worker.js: Check that TextMetrics::getTextClusters() throws when using invalid indexes.
 html/canvas/offscreen/text/2d.text.measure.text-clusters-position.tentative.worker.js: Test that TextMetrics::getTextClusters() returns clusters that are positioned according to the target align and baseline passed as options.
 html/canvas/offscreen/text/2d.text.measure.text-clusters-split.tentative.worker.js: Test that getTextClusters() splits the input correctly into the minimal clusters, keeping emojis together.
-html/canvas/offscreen/text/2d.text.measure.width.empty.worker.js: The empty string has zero width
-html/canvas/offscreen/text/2d.text.measure.width.nullCharacter.worker.js: Null character does not take up space
-html/canvas/offscreen/text/2d.text.measure.width.space.worker.js: Space characters are converted to U+0020 and NOT collapsed
 html/canvas/offscreen/wide-gamut-canvas/2d.color.space.getImageData.convert.worker.js: Test getImageData color conversions from a display-p3 canvas
 html/canvas/offscreen/wide-gamut-canvas/2d.color.space.getImageData.convert.worker.js: Test getImageData color conversions from a display-p3-linear canvas
 html/canvas/offscreen/wide-gamut-canvas/2d.color.space.getImageData.convert.worker.js: Test getImageData color conversions from a srgb canvas

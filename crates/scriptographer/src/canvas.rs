@@ -404,23 +404,23 @@ fn measure_text<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value
         Some(text) => call.to_string(text)?,
         None => String::new(),
     };
-    let font = match drawing::property_value(call, this, "font")? {
-        Value::String(font) => font,
-        _ => DEFAULT_FONT.to_owned(),
-    };
-    let spacing = (drawing::property_value(call, this, "letterSpacing")?, drawing::property_value(call, this, "wordSpacing")?);
-    let spacing = (call.to_string(&spacing.0)?, call.to_string(&spacing.1)?);
-    let font = font_of(call, &font)?;
-    let measured = measure_layout(&layout(&text, &font, &spacing));
+    let style = text_style(call, this)?;
+    let (_, measured) = outline(&text, &style);
+    let (x, y) = measured.anchor(&style);
     let metrics = call.new_object()?;
     for (key, value) in [
         ("width", measured.width),
-        ("actualBoundingBoxLeft", measured.ink_left),
-        ("actualBoundingBoxRight", measured.ink_right),
-        ("actualBoundingBoxAscent", measured.ink_ascent),
-        ("actualBoundingBoxDescent", measured.ink_descent),
-        ("fontBoundingBoxAscent", measured.ascent),
-        ("fontBoundingBoxDescent", measured.descent),
+        ("actualBoundingBoxLeft", x + measured.ink_left),
+        ("actualBoundingBoxRight", measured.ink_right - x),
+        ("actualBoundingBoxAscent", measured.ink_ascent - y),
+        ("actualBoundingBoxDescent", measured.ink_descent + y),
+        ("fontBoundingBoxAscent", measured.ascent - y),
+        ("fontBoundingBoxDescent", measured.descent + y),
+        ("emHeightAscent", measured.em_ascent - y),
+        ("emHeightDescent", measured.em_descent + y),
+        ("hangingBaseline", measured.hanging - y),
+        ("alphabeticBaseline", -y),
+        ("ideographicBaseline", measured.ideographic - y),
     ] {
         call.set(&metrics, key, &Value::Number(value))?;
     }
@@ -693,24 +693,98 @@ impl Font {
     }
 }
 
-/// What `measureText` reports, in pixels.
+/// How the canvas sets text, from its context's properties.
+pub(crate) struct TextStyle {
+    font: Font,
+    /// `letterSpacing` and `wordSpacing`, CSS lengths.
+    spacing: (String, String),
+    /// Unless `fontKerning` is `none`.
+    kerning: bool,
+    /// `fontVariantCaps`' or the font's `small-caps`.
+    small_caps: bool,
+    align: String,
+    baseline: String,
+    /// `direction` is `rtl`.
+    rtl: bool,
+}
+
+/// How the context `this` sets text now.
+pub(crate) fn text_style<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>) -> Result<TextStyle, Error> {
+    let text = |call: &mut dyn Call<H>, name| -> Result<String, Error> {
+        let value = drawing::property_value(call, this, name)?;
+        call.to_string(&value)
+    };
+    let font = text(call, "font")?;
+    let font = font_of(call, &font)?;
+    let caps = text(call, "fontVariantCaps")?;
+    Ok(TextStyle {
+        small_caps: font.small_caps || caps.ends_with("small-caps"),
+        font,
+        spacing: (text(call, "letterSpacing")?, text(call, "wordSpacing")?),
+        kerning: text(call, "fontKerning")? != "none",
+        align: text(call, "textAlign")?,
+        baseline: text(call, "textBaseline")?,
+        rtl: text(call, "direction")? == "rtl",
+    })
+}
+
+/// What `measureText` reports and `fillText` places text by, in pixels: `x` from the start of the
+/// text, heights above the alphabetic baseline.
 #[derive(Debug, Default)]
 pub(crate) struct Measured {
     pub width: f64,
+    /// The ink: how far it reaches left and right of the start, above and below the baseline.
     ink_left: f64,
     ink_right: f64,
     ink_ascent: f64,
     ink_descent: f64,
-    pub ascent: f64,
-    pub descent: f64,
+    /// The font's ascent and descent, and its em box's, which is as tall as the font's size.
+    ascent: f64,
+    descent: f64,
+    em_ascent: f64,
+    em_descent: f64,
+    /// The heights of the hanging and the ideographic baseline.
+    hanging: f64,
+    ideographic: f64,
 }
 
-/// `text` laid out on one line in `font`, as the app lays out point type, with the canvas's
+impl Measured {
+    /// The point `textAlign`, `direction` and `textBaseline` put where the text is drawn: its `x`
+    /// from the start of the text and its height above the alphabetic baseline.
+    pub(crate) fn anchor(&self, style: &TextStyle) -> (f64, f64) {
+        let x = match (style.align.as_str(), style.rtl) {
+            ("center", _) => self.width / 2.0,
+            ("right", _) | ("end", false) | ("start", true) => self.width,
+            _ => 0.0,
+        };
+        let y = match style.baseline.as_str() {
+            "top" => self.em_ascent,
+            "hanging" => self.hanging,
+            "middle" => (self.em_ascent - self.em_descent) / 2.0,
+            "ideographic" => self.ideographic,
+            "bottom" => -self.em_descent,
+            _ => 0.0,
+        };
+        (x, y)
+    }
+}
+
+/// `text` laid out on one line in `style`, as the app lays out point type, with the canvas's
 /// `letterSpacing` after each character and its `wordSpacing` after each space (CSS lengths, an
-/// `em` the font's size).
-fn layout(text: &str, font: &Font, (letter, word): &(String, String)) -> vectorcraft_text::TextLayout {
-    let text = text.replace(['\n', '\r'], " ");
-    let style = vectorcraft_doc::CharStyle { font_family: font.family(), font_style: font.style().into(), size: font.size, ..Default::default() };
+/// `em` the font's size). Its whitespace is spaces, and a NUL takes none, as in browsers.
+fn layout(text: &str, style: &TextStyle) -> vectorcraft_text::TextLayout {
+    let text = text.replace(['\t', '\n', '\x0c', '\r'], " ").replace('\0', "");
+    let font = &style.font;
+    let (letter, word) = &style.spacing;
+    let style = vectorcraft_doc::CharStyle {
+        font_family: font.family(),
+        font_style: font.style().into(),
+        size: font.size,
+        // A manual kerning of 0 replaces the font's pairs.
+        kerning: (!style.kerning).then_some(0.0),
+        small_caps: style.small_caps.then_some(70.0),
+        ..Default::default()
+    };
     let object = vectorcraft_doc::TextObject::point(vectorcraft_geom::Point::ZERO, &text, style);
     let mut laid = vectorcraft_text::layout(vectorcraft_text::FontDb::global(), &object);
     let (letter, word) = (drawing::css_length(letter, font.size).unwrap_or(0.0), drawing::css_length(word, font.size).unwrap_or(0.0));
@@ -781,11 +855,11 @@ fn set_font_face<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Val
     Ok(Value::Undefined)
 }
 
-/// The outlines of `text` in `font`, the start of its baseline at the origin, and its
+/// The outlines of `text` in `style`, the start of its baseline at the origin, and its
 /// measurements: what `fillText` draws.
-pub(crate) fn outline(text: &str, font: &Font, spacing: &(String, String)) -> (vectorcraft_geom::BezPath, Measured) {
-    let laid = layout(text, font, spacing);
-    let measured = measure_layout(&laid);
+pub(crate) fn outline(text: &str, style: &TextStyle) -> (vectorcraft_geom::BezPath, Measured) {
+    let laid = layout(text, style);
+    let measured = measure_layout(&laid, &style.font);
     let start = laid.glyphs.first().map_or(0.0, |g| g.origin.x);
     let baseline = laid.lines.first().map_or(0.0, |l| l.baseline);
     let mut outline = vectorcraft_geom::BezPath::new();
@@ -795,16 +869,37 @@ pub(crate) fn outline(text: &str, font: &Font, spacing: &(String, String)) -> (v
     (vectorcraft_geom::Affine::translate((-start, -baseline)) * outline, measured)
 }
 
-fn measure_layout(layout: &vectorcraft_text::TextLayout) -> Measured {
+fn measure_layout(layout: &vectorcraft_text::TextLayout, font: &Font) -> Measured {
     use vectorcraft_geom::Shape as _;
     let Some(line) = layout.lines.first() else {
         return Measured::default();
     };
-    let width = layout.glyphs.iter().map(|g| g.advance).sum();
+    // An empty sum is -0:
+    let width = layout.glyphs.iter().map(|g| g.advance).sum::<f64>() + 0.0;
+    // The font's metrics, else the line's; its em box as tall as the font's size, in their ratio.
+    let face = vectorcraft_text::FontDb::global().resolve(&font.family(), font.style()).map(|(face, _)| face);
+    let scale = face.as_ref().map_or(1.0, |face| font.size / face.units_per_em());
+    let (ascent, descent) = face.as_ref().map_or((line.ascent, line.descent), |face| {
+        let (ascent, descent) = face.vertical_metrics();
+        (ascent * scale, descent * scale)
+    });
+    let em_ascent = if ascent + descent > 0.0 { font.size * ascent / (ascent + descent) } else { font.size * 0.8 };
+    // The BASE table's baselines, else the hanging one at 80% of the ascent, as browsers have
+    // it, and the ideographic one at the descent.
+    let baseline = |tag| face.as_ref().and_then(|face| face.baseline(tag)).map(|height| height * scale);
+    let mut measured = Measured {
+        width,
+        ascent,
+        descent,
+        em_ascent,
+        em_descent: font.size - em_ascent,
+        hanging: baseline(b"hang").unwrap_or(ascent * 0.8),
+        ideographic: baseline(b"ideo").unwrap_or(-descent),
+        ..Default::default()
+    };
     // Ink: the outlines' bounds, around the start of the baseline (y grows downwards).
     let ink = layout.glyphs.iter().filter(|g| !g.outline.elements().is_empty()).map(|g| g.outline.bounding_box()).reduce(|a, b| a.union(b));
     let start = layout.glyphs.first().map_or(0.0, |g| g.origin.x);
-    let mut measured = Measured { width, ascent: line.ascent, descent: line.descent, ..Default::default() };
     if let Some(ink) = ink {
         measured.ink_left = start - ink.x0;
         measured.ink_right = ink.x1 - start;

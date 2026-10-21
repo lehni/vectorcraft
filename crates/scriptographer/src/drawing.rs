@@ -69,7 +69,7 @@ const fn property(name: &'static str, initial: Initial, check: Check) -> Propert
     Property { name, initial, check }
 }
 
-pub(crate) const PROPERTIES: [Property; 26] = [
+pub(crate) const PROPERTIES: [Property; 27] = [
     property("fillStyle", Initial::Text("#000000"), Check::Style),
     property("strokeStyle", Initial::Text("#000000"), Check::Style),
     property("lineWidth", Initial::Number(1.0), Check::Positive),
@@ -83,6 +83,7 @@ pub(crate) const PROPERTIES: [Property; 26] = [
     property("textAlign", Initial::Text("start"), Check::Keyword(&["start", "end", "left", "right", "center"])),
     property("textBaseline", Initial::Text("alphabetic"), Check::Keyword(&["top", "hanging", "middle", "alphabetic", "ideographic", "bottom"])),
     property("direction", Initial::Text("inherit"), Check::Keyword(&["ltr", "rtl", "inherit"])),
+    property("lang", Initial::Text("inherit"), Check::Text),
     property("imageSmoothingEnabled", Initial::Bool(true), Check::Bool),
     property("imageSmoothingQuality", Initial::Text("low"), Check::Keyword(&["low", "medium", "high"])),
     property("shadowBlur", Initial::Number(0.0), Check::NonNegative),
@@ -141,6 +142,8 @@ enum Check {
     Style,
     /// A CSS `filter`.
     Filter,
+    /// Any text.
+    Text,
 }
 
 #[derive(Clone, Copy)]
@@ -244,11 +247,12 @@ fn checked<H: Clone>(call: &mut dyn Call<H>, check: Check, value: Value<H>) -> R
             crate::canvas::font_css(&text).map(Value::String)
         }
         Check::Length => {
-            let text = call.to_string(&value)?;
+            let text = call.to_string(&value)?.trim().to_ascii_lowercase();
             css_length(&text, 10.0).is_some().then_some(Value::String(text))
         }
         // Gradients and patterns come with their slot; anything else is text.
         Check::Color | Check::Style => crate::css_color::serialized(&call.to_string(&value)?).map(Value::String),
+        Check::Text => Some(Value::String(call.to_string(&value)?)),
         Check::Filter => {
             let text = call.to_string(&value)?;
             parse_filter(&text).is_some().then_some(Value::String(text))
@@ -258,14 +262,18 @@ fn checked<H: Clone>(call: &mut dyn Call<H>, check: Check, value: Value<H>) -> R
 
 /// A CSS length in pixels, an `em` the font's size `em`, a `rem` the default font's 10 pixels.
 pub(crate) fn css_length(text: &str, em: f64) -> Option<f64> {
-    let text = text.trim();
+    let text = text.trim().to_ascii_lowercase();
     if text == "0" {
         return Some(0.0);
     }
+    // `ex` and `ch` as half an em, `ic` as an em, as CSS has them without the font's own.
     let units = [
         ("px", 1.0),
         ("em", em),
         ("rem", 10.0),
+        ("ex", em / 2.0),
+        ("ch", em / 2.0),
+        ("ic", em),
         ("pt", 4.0 / 3.0),
         ("pc", 16.0),
         ("in", 96.0),
@@ -1404,29 +1412,18 @@ fn text_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>
     let Some([x, y]) = finite(args, 1) else {
         return Ok(None);
     };
-    let font = text_property(call, this, "font")?;
-    let align = text_property(call, this, "textAlign")?;
-    let baseline = text_property(call, this, "textBaseline")?;
-    let spacing = (text_property(call, this, "letterSpacing")?, text_property(call, this, "wordSpacing")?);
-    let font = crate::canvas::font_of(call, &font)?;
-    let (outline, measured) = crate::canvas::outline(&text, &font, &spacing);
-    let dx = match align.as_str() {
-        "center" => -measured.width / 2.0,
-        "right" | "end" => -measured.width,
-        _ => 0.0,
+    let style = crate::canvas::text_style(call, this)?;
+    let (outline, measured) = crate::canvas::outline(&text, &style);
+    let (dx, dy) = measured.anchor(&style);
+    // `maxWidth` squeezes the text to fit, as in browsers; one that isn't more than 0 draws none.
+    let squeeze = match args.get(3) {
+        Some(_) => match number(args, 3) {
+            max if max > 0.0 => (max / measured.width).min(1.0),
+            _ => return Ok(None),
+        },
+        None => 1.0,
     };
-    let dy = match baseline.as_str() {
-        "top" | "hanging" => measured.ascent,
-        "middle" => (measured.ascent - measured.descent) / 2.0,
-        "bottom" | "ideographic" => -measured.descent,
-        _ => 0.0,
-    };
-    // `maxWidth` squeezes the text to fit, as in browsers.
-    let squeeze = match finite(args, 3) {
-        Some([max]) if max > 0.0 && measured.width > max => max / measured.width,
-        _ => 1.0,
-    };
-    let place = Affine::translate((x, y)) * Affine::scale_non_uniform(squeeze, 1.0) * Affine::translate((dx, dy));
+    let place = Affine::translate((x, y)) * Affine::scale_non_uniform(squeeze, 1.0) * Affine::translate((-dx, dy));
     surface(call, this, |s| Some(s.transform * place * outline))
 }
 

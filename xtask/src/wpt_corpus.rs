@@ -15,7 +15,7 @@ use crate::{root, run, sha256};
 const REPOSITORY: &str = "https://github.com/web-platform-tests/wpt.git";
 const COMMIT: &str = "a26422aab342e2ede3dca385dbd78e16464ed58f";
 
-/// What's fetched: the licence, the harness, the tests, and the images and font they load.
+/// What's fetched: the licence, the harness, the tests, and the images and fonts they load.
 const PATHS: &[&str] = &[
     "LICENSE.md",
     "resources/testharness.js",
@@ -23,7 +23,11 @@ const PATHS: &[&str] = &[
     "html/canvas/offscreen",
     "css/geometry",
     "images",
+    "fonts/Ahem.ttf",
     "fonts/CanvasTest.ttf",
+    "fonts/CanvasTest-ascent256.ttf",
+    "fonts/CanvasTest-descent0.ttf",
+    "fonts/Lato-Medium.ttf",
 ];
 
 const MANIFEST: &str = "xtask/wpt-corpus.sha256";
