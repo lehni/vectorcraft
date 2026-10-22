@@ -1298,10 +1298,11 @@ fn web_sockets_that_cant_connect_close<E: Engine>() {
     assert_eq!(output.get(2..), Some(&["error error".to_owned(), "close 1006 false".to_owned()][..]));
 }
 
-/// Runs the runtime's timers until it stops running, for five seconds at most.
+/// Runs the runtime's timers until it stops running, for 30 seconds at most: Boa starts each
+/// worker's Paper.js slowly when the tests run in parallel.
 fn run_until_done<E: Engine>(runtime: &mut Runtime<E>) {
     let started = std::time::Instant::now();
-    while runtime.is_running() && started.elapsed() < std::time::Duration::from_secs(5) {
+    while runtime.is_running() && started.elapsed() < std::time::Duration::from_secs(30) {
         runtime.run_timers(started.elapsed().as_secs_f64() * 1000.0).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
