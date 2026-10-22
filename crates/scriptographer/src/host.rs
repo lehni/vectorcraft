@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use serde_json::{Map, Value, json};
-use vectorcraft_color::{BlendMode, Color, Paint};
+use vectorcraft_color::{BlendMode, Color, GradientGeom, GradientKind, Paint};
 use vectorcraft_doc::{AnchorRef, Document, LineCap, LineJoin, Node, NodeId, NodeKind, Selection, TextKind, TextObject};
 use vectorcraft_geom::{Affine, PathData, Rect};
 
@@ -338,11 +338,13 @@ fn attributes(node: &Node) -> Map<String, Value> {
 /// The topmost fill and stroke, as Paper.js's single fill and stroke, and their order.
 fn style(node: &Node, props: &mut Map<String, Value>) {
     let appearance = &node.appearance;
-    if let Some(color) = appearance.fill().and_then(|f| color(&f.paint)) {
+    // Gradients that fit the object fit the boxes the renderer gives them:
+    let bounds = node.geometric_bounds().unwrap_or(Rect::ZERO);
+    if let Some(color) = appearance.fill().and_then(|f| color(&f.paint, Some(bounds))) {
         props.insert("fillColor".into(), color);
     }
     if let Some(stroke) = appearance.stroke()
-        && let Some(color) = color(&stroke.paint)
+        && let Some(color) = color(&stroke.paint, Some(stroke.paint_bounds(bounds)))
     {
         props.insert("strokeColor".into(), color);
         props.insert("strokeWidth".into(), json!(stroke.width));
@@ -376,20 +378,42 @@ fn style(node: &Node, props: &mut Map<String, Value>) {
 /// The styles new art takes in the app, as a Paper.js project has them: `currentStyle`, what new
 /// items a script makes get, as in Scriptographer, where they took the document's current style,
 /// and `currentTextStyle`, what new text gets instead: a fill of `text_fill` without a stroke, as
-/// the Type tool's new type has.
+/// the Type tool's new type has. Gradients that fit their object have no art to fit yet.
 pub fn current_style(fill: &Paint, stroke: &Paint, stroke_width: f64, text_fill: &Paint) -> Value {
     json!({
-        "currentStyle": { "fillColor": color(fill), "strokeColor": color(stroke), "strokeWidth": stroke_width },
-        "currentTextStyle": { "fillColor": color(text_fill), "strokeColor": null },
+        "currentStyle": { "fillColor": color(fill, None), "strokeColor": color(stroke, None), "strokeWidth": stroke_width },
+        "currentTextStyle": { "fillColor": color(text_fill, None), "strokeColor": null },
     })
 }
 
-/// A solid paint as a Paper.js colour. Gradients and patterns have no Paper.js form yet.
-pub(crate) fn color(paint: &Paint) -> Option<Value> {
-    let Paint::Solid { color, .. } = paint else {
-        return None;
-    };
-    Some(match *color {
+/// A paint as a Paper.js colour: a solid colour, or a linear or radial gradient, placed where it is
+/// or fitted to `bounds`. Freeform gradients and patterns have no Paper.js form yet.
+pub(crate) fn color(paint: &Paint, bounds: Option<Rect>) -> Option<Value> {
+    match paint {
+        Paint::Solid { color, .. } => Some(solid(*color, 1.0)),
+        Paint::Gradient(g) if g.gradient.kind != GradientKind::Freeform => {
+            let geom = match g.geom {
+                Some(geom) => geom,
+                None => GradientGeom::fit(g.gradient.kind, bounds?, g.angle),
+            };
+            let stops: Vec<Value> = g.gradient.stops.iter().map(|s| json!([solid(s.color, s.opacity), s.offset])).collect();
+            let point = |p: vectorcraft_geom::Point| json!([p.x, p.y]);
+            Some(json!([
+                "gradient",
+                ["Gradient", stops, g.gradient.kind == GradientKind::Radial],
+                point(geom.start),
+                point(geom.end),
+                geom.focal.map(point),
+                geom.aspect
+            ]))
+        }
+        _ => None,
+    }
+}
+
+/// A colour as a Paper.js colour, with `alpha` when it isn't opaque.
+fn solid(color: Color, alpha: f32) -> Value {
+    let mut value = match color {
         Color::Rgb { r, g, b } => json!([r, g, b]),
         // VectorCraft's grey is ink (0 = white), Paper.js's is lightness (0 = black).
         Color::Gray { k } => json!(["gray", 1.0 - k]),
@@ -398,7 +422,13 @@ pub(crate) fn color(paint: &Paint) -> Option<Value> {
             let [r, g, b] = color.to_rgb();
             json!([r, g, b])
         }
-    })
+    };
+    if alpha < 1.0
+        && let Some(list) = value.as_array_mut()
+    {
+        list.push(json!(alpha));
+    }
+    value
 }
 
 fn blend_mode(mode: BlendMode) -> &'static str {

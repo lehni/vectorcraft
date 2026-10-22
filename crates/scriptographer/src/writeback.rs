@@ -2,14 +2,14 @@
 //! changed items replaced, and a container whose children changed gets its new order.
 //!
 //! A changed path goes back through the node it came from: only what a script changed is written,
-//! so what Paper.js can't show (more fills and strokes, gradients, corner and smooth anchors)
+//! so what Paper.js can't show (more fills and strokes, gradient midpoints, corner and smooth anchors)
 //! stays as it was.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use serde_json::{Map, Value as Json, json};
-use vectorcraft_color::{BlendMode, Color, Paint};
+use vectorcraft_color::{BlendMode, Color, Gradient, GradientGeom, GradientKind, GradientPaint, GradientStop, Paint};
 use vectorcraft_doc::{Appearance, Document, LayerColor, LineCap, LineJoin, Node, NodeId, NodeKind, TextWrap};
 use vectorcraft_geom::{Anchor, AnchorKind, PathData, Point, SubPath};
 
@@ -264,11 +264,31 @@ fn is_project<H>(call: &mut dyn Call<H>, item: &H) -> Result<bool, Error> {
     Ok(matches!(call.get(item, "className")?, Value::String(c) if c == "Project"))
 }
 
-/// The item's JSON, as `exportJSON()` gives it.
+/// The item's JSON, as `exportJSON()` gives it, with the gradients it shares through its
+/// dictionary in place.
 fn export<H: Clone>(call: &mut dyn Call<H>, item: &H) -> Result<Json, Error> {
-    match method(call, item, "exportJSON", &[])? {
-        Value::String(json) => serde_json::from_str(&json).map_err(|e| Error::Script(format!("exportJSON(): {e}"))),
-        _ => Err(Error::Script("exportJSON() didn't return a string".into())),
+    let json: Json = match method(call, item, "exportJSON", &[])? {
+        Value::String(json) => serde_json::from_str(&json).map_err(|e| Error::Script(format!("exportJSON(): {e}")))?,
+        _ => return Err(Error::Script("exportJSON() didn't return a string".into())),
+    };
+    Ok(match json.as_array().map(Vec::as_slice) {
+        Some([Json::Array(dictionary), item]) if dictionary.first().and_then(Json::as_str) == Some("dictionary") => {
+            let definitions = dictionary.get(1).and_then(Json::as_object).cloned().unwrap_or_default();
+            resolved(item, &definitions)
+        }
+        _ => json,
+    })
+}
+
+/// `json` with each reference to a definition, `["#id"]`, replaced by it.
+fn resolved(json: &Json, definitions: &Map<String, Json>) -> Json {
+    match json {
+        Json::Array(list) => match list.as_slice() {
+            [Json::String(id)] => definitions.get(id).cloned().unwrap_or_else(|| json.clone()),
+            _ => Json::Array(list.iter().map(|json| resolved(json, definitions)).collect()),
+        },
+        Json::Object(map) => Json::Object(map.iter().map(|(key, json)| (key.clone(), resolved(json, definitions))).collect()),
+        _ => json.clone(),
     }
 }
 
@@ -394,11 +414,11 @@ fn apply_style(appearance: &mut Appearance, props: &Map<String, Json>, before: &
         let now = props.get(key).unwrap_or(&Json::Null);
         (now != before.get(key).unwrap_or(&Json::Null)).then_some(now)
     };
-    if let Some(fill) = changed("fillColor") {
-        appearance.set_fill(color(fill).map_or(Paint::None, Paint::solid));
+    if let Some(fill) = changed_paint(props.get("fillColor"), before.get("fillColor")) {
+        appearance.set_fill(fill);
     }
-    if let Some(stroke) = changed("strokeColor") {
-        appearance.set_stroke(color(stroke).map_or(Paint::None, Paint::solid));
+    if let Some(stroke) = changed_paint(props.get("strokeColor"), before.get("strokeColor")) {
+        appearance.set_stroke(stroke);
     }
     if let Some(order) = changed("paintOrder") {
         appearance.set_stroke_first(order.as_str() == Some("stroke"));
@@ -428,29 +448,103 @@ fn apply_style(appearance: &mut Appearance, props: &Map<String, Json>, before: &
     }
 }
 
-/// A Paper.js colour: `[r, g, b, alpha?]` or `['gray', g]`, `['rgb', …]`, `['hsb', …]`,
-/// `['hsl', …]`, also with its class in front, `['Color', …]`, as text runs write them.
-/// Gradients have no VectorCraft form here yet.
-pub(crate) fn color(json: &Json) -> Option<Color> {
-    let list = json.as_array()?;
-    let list = match list.split_first() {
-        Some((Json::String(class), rest)) if class == "Color" => rest,
-        _ => list,
+/// The paint of a Paper.js colour `now`, when it isn't the one of `before`, the colour it was read
+/// as, beyond the precision of Paper.js's JSON: what Paper.js can't show stays while it's unchanged.
+pub(crate) fn changed_paint(now: Option<&Json>, before: Option<&Json>) -> Option<Paint> {
+    let read = |json: Option<&Json>| json.map_or(Paint::None, paint);
+    let now = read(now);
+    let json = |paint: &Paint| serde_json::to_value(paint).unwrap_or_default();
+    (!is_close(&json(&now), &json(&read(before)))).then_some(now)
+}
+
+/// Are `a` and `b` the same, but for numbers within the precision of Paper.js's JSON?
+fn is_close(a: &Json, b: &Json) -> bool {
+    match (a, b) {
+        (Json::Number(x), Json::Number(y)) => x.as_f64().zip(y.as_f64()).is_some_and(|(x, y)| (x - y).abs() <= 1e-4 * x.abs().max(1.0)),
+        (Json::Array(x), Json::Array(y)) => x.len() == y.len() && x.iter().zip(y).all(|(x, y)| is_close(x, y)),
+        (Json::Object(x), Json::Object(y)) => x.len() == y.len() && x.iter().all(|(key, x)| y.get(key).is_some_and(|y| is_close(x, y))),
+        _ => a == b,
+    }
+}
+
+/// A Paper.js colour as a paint: a solid colour, a gradient (see [`gradient`]) or none.
+fn paint(json: &Json) -> Paint {
+    match gradient(json) {
+        Some(gradient) => Paint::Gradient(Box::new(gradient)),
+        None => color(json).map_or(Paint::None, |(color, _)| Paint::solid(color)),
+    }
+}
+
+/// A Paper.js gradient colour, `['gradient', ['Gradient', stops, radial], origin, destination,
+/// highlight, aspect]`, as a gradient placed where it is. Stops are `[color, offset]`, spread
+/// evenly where they have no offset.
+fn gradient(json: &Json) -> Option<GradientPaint> {
+    let (kind, list) = color_list(json)?;
+    let [gradient, points @ ..] = list else {
+        return None;
     };
-    let (kind, values) = match list.first()?.as_str() {
-        Some(kind) => (kind, &list[1..]),
-        None => ("rgb", list),
+    if kind != "gradient" {
+        return None;
+    }
+    let gradient = classless(gradient.as_array()?, "Gradient");
+    let stops = gradient.first().and_then(Json::as_array).map(Vec::as_slice).unwrap_or_default();
+    let last = stops.len().saturating_sub(1).max(1) as f64;
+    let stops = stops
+        .iter()
+        .enumerate()
+        .filter_map(|(i, stop)| {
+            let stop = classless(stop.as_array()?, "GradientStop");
+            let (color, opacity) = color(stop.first()?)?;
+            let offset = stop.get(1).and_then(Json::as_f64).filter(|n| n.is_finite()).unwrap_or(i as f64 / last);
+            Some(GradientStop { opacity, ..GradientStop::new(offset.clamp(0.0, 1.0) as f32, color) })
+        })
+        .collect();
+    let point = |i: usize| {
+        let xy = classless(points.get(i)?.as_array()?, "Point");
+        match xy {
+            [x, y] => Some(Point::new(x.as_f64().filter(|n| n.is_finite())?, y.as_f64().filter(|n| n.is_finite())?)),
+            _ => None,
+        }
     };
+    let aspect = points.get(3).and_then(Json::as_f64).filter(|a| a.is_finite() && *a > 0.0).unwrap_or(1.0);
+    let geom = GradientGeom { start: point(0)?, end: point(1)?, aspect, focal: point(2) };
+    let kind = if gradient.get(1).and_then(Json::as_bool) == Some(true) { GradientKind::Radial } else { GradientKind::Linear };
+    Some(GradientPaint { gradient: Gradient::new(kind, stops), geom: Some(geom), angle: geom.angle_deg(), swatch: None, freeform: None })
+}
+
+/// A Paper.js solid colour and its alpha: `[r, g, b, alpha?]` or `['gray', g, alpha?]`,
+/// `['rgb', …]`, `['hsb', …]`, `['hsl', …]`.
+fn color(json: &Json) -> Option<(Color, f32)> {
+    let (kind, values) = color_list(json)?;
     let v = |i: usize| values.get(i).and_then(Json::as_f64).unwrap_or(0.0).clamp(0.0, 1.0) as f32;
+    let alpha = |i: usize| values.get(i).map_or(1.0, |_| v(i));
     match kind {
-        "rgb" => Some(Color::rgb(v(0), v(1), v(2))),
-        "gray" => Some(Color::Gray { k: 1.0 - v(0) }),
+        "rgb" => Some((Color::rgb(v(0), v(1), v(2)), alpha(3))),
+        "gray" => Some((Color::Gray { k: 1.0 - v(0) }, alpha(1))),
         "hsb" | "hsl" => {
             let hue = values.first().and_then(Json::as_f64).unwrap_or(0.0).rem_euclid(360.0) as f32;
             let [r, g, b] = if kind == "hsb" { hsb_to_rgb(hue, v(1), v(2)) } else { hsl_to_rgb(hue, v(1), v(2)) };
-            Some(Color::rgb(r, g, b))
+            Some((Color::rgb(r, g, b), alpha(3)))
         }
         _ => None,
+    }
+}
+
+/// A Paper.js colour's type and components, also with its class in front, `['Color', …]`, as text
+/// runs write them. Without a type, it's RGB.
+fn color_list(json: &Json) -> Option<(&str, &[Json])> {
+    let list = classless(json.as_array()?, "Color");
+    Some(match list.split_first() {
+        Some((Json::String(kind), values)) => (kind.as_str(), values),
+        _ => ("rgb", list),
+    })
+}
+
+/// `list` without `class` in front.
+fn classless<'a>(list: &'a [Json], class: &str) -> &'a [Json] {
+    match list.split_first() {
+        Some((Json::String(name), rest)) if name == class => rest,
+        _ => list,
     }
 }
 

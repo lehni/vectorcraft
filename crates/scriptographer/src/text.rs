@@ -13,16 +13,15 @@
 use std::collections::BTreeMap;
 
 use serde_json::{Map, Value as Json, json};
-use vectorcraft_color::Paint;
 use vectorcraft_doc::{
     Appearance, AppearanceItem, CharPosition, CharStyle, Composer, Document, Justify, NodeId, NodeKind, ParaDirection, ParaStyle, PathAlign,
     ScriptMetrics, TabAlign, TabStop, TextKind, TextObject, TextRun, VerticalAlign, text::INLINE_CHAR,
 };
-use vectorcraft_geom::{Affine, PathData, Point};
+use vectorcraft_geom::{Affine, PathData, Point, Rect};
 
 use crate::Error;
 use crate::host::{color, path_json};
-use crate::writeback::{color as parse_color, path_data};
+use crate::writeback::{changed_paint, path_data};
 
 /// The frames of the thread `id` is a frame of, in order.
 pub fn thread(doc: &Document, id: NodeId) -> Option<&[NodeId]> {
@@ -227,16 +226,17 @@ pub fn story_properties(t: &TextObject, first: &[bool], props: &mut Map<String, 
 }
 
 /// The character properties of the runs of `t`, each with the auto leading of the paragraph it
-/// starts in, and whether it paints its stroke `first`.
+/// starts in, and whether it paints its stroke `first`. Their gradients fit the whole text.
 fn run_properties(t: &TextObject, first: &[bool]) -> Vec<Map<String, Json>> {
     let text = t.plain_text();
+    let bounds = t.local_bounds();
     t.runs
         .iter()
         .zip(first.iter().chain(std::iter::repeat(&false)))
         .scan(0, |start, (run, first)| {
             let paragraph = text.get(..*start).map_or(0, |before| before.matches('\n').count());
             *start += run.text.len();
-            Some(char_properties(&run.style, t.para_at(paragraph), *first))
+            Some(char_properties(&run.style, t.para_at(paragraph), *first, bounds))
         })
         .collect()
 }
@@ -403,8 +403,9 @@ fn paragraphs(props: &Map<String, Json>, old: &[ParaStyle], count: usize) -> Vec
         .collect()
 }
 
-/// The character properties of `style` as Paper.js has them. Auto leading is the paragraph's.
-fn char_properties(style: &CharStyle, paragraph: &ParaStyle, first: bool) -> Map<String, Json> {
+/// The character properties of `style` as Paper.js has them, its gradients fitted to `bounds`. Auto
+/// leading is the paragraph's.
+fn char_properties(style: &CharStyle, paragraph: &ParaStyle, first: bool, bounds: Rect) -> Map<String, Json> {
     let mut props = Map::new();
     let (weight, slant) = font_face(&style.font_style);
     props.insert("fontFamily".into(), json!(style.font_family));
@@ -449,8 +450,9 @@ fn char_properties(style: &CharStyle, paragraph: &ParaStyle, first: bool) -> Map
     props.insert("strikethrough".into(), json!(style.strikethrough));
     props.insert("features".into(), if style.features.is_empty() { Json::Null } else { json!(style.features) });
     props.insert("fontVariations".into(), if style.font_axes.is_empty() { Json::Null } else { json!(style.font_axes) });
-    props.insert("fillColor".into(), color(&style.fill).unwrap_or(Json::Null));
-    props.insert("strokeColor".into(), color(&style.stroke).unwrap_or(Json::Null));
+    props.insert("fillColor".into(), color(&style.fill, Some(bounds)).unwrap_or(Json::Null));
+    let stroke_bounds = vectorcraft_doc::appearance::stroke_paint_bounds(bounds, style.stroke_width);
+    props.insert("strokeColor".into(), color(&style.stroke, Some(stroke_bounds)).unwrap_or(Json::Null));
     props.insert("strokeWidth".into(), json!(style.stroke_width));
     props.insert("paintOrder".into(), json!(if first { "stroke" } else { "fill" }));
     props
@@ -520,11 +522,11 @@ fn apply_char(style: &mut CharStyle, now: &Map<String, Json>, was: &Map<String, 
         style.font_axes =
             variations.as_object().map_or_else(BTreeMap::new, |axes| axes.iter().filter_map(|(tag, v)| Some((tag.clone(), finite(v)?))).collect());
     }
-    if let Some(fill) = changed("fillColor") {
-        style.fill = parse_color(fill).map_or(Paint::None, Paint::solid);
+    if let Some(fill) = changed_paint(now.get("fillColor"), was.get("fillColor")) {
+        style.fill = fill;
     }
-    if let Some(stroke) = changed("strokeColor") {
-        style.stroke = parse_color(stroke).map_or(Paint::None, Paint::solid);
+    if let Some(stroke) = changed_paint(now.get("strokeColor"), was.get("strokeColor")) {
+        style.stroke = stroke;
     }
     if let Some(width) = changed("strokeWidth").and_then(finite) {
         style.stroke_width = width.max(0.0);

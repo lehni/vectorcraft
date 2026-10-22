@@ -5,8 +5,10 @@
 //! back to the document.
 
 use serde_json::json;
+use vectorcraft_color::{Color, Gradient, GradientKind, GradientPaint, GradientStop, Paint};
 use vectorcraft_doc::{Justify, Node, NodeId, NodeKind, TextObject};
 use vectorcraft_engine::Session;
+use vectorcraft_geom::Point;
 use vectorcraft_scriptographer::host::{Columns, flags as host_flags};
 use vectorcraft_scriptographer::{Engine, Runtime};
 
@@ -386,12 +388,54 @@ fn items_wrap_text<E: Engine>() {
     assert_eq!((wrap.offset, wrap.invert), (10.0, false));
 }
 
+/// Gradients in text are in its own space, as its runs paint them: they turn with the text, and
+/// one that fits the text still fits it while a script leaves it alone.
+fn text_gradients_are_in_its_own_space<E: Engine>() {
+    let (mut s, _, point, _) = document();
+    let stops = vec![GradientStop::new(0.0, Color::rgb(1.0, 0.0, 0.0)), GradientStop::new(1.0, Color::rgb(0.0, 0.0, 1.0))];
+    let fitted = Paint::Gradient(Box::new(GradientPaint {
+        gradient: Gradient::new(GradientKind::Linear, stops),
+        geom: None,
+        angle: 0.0,
+        swatch: None,
+        freeform: None,
+    }));
+    let mut n = node(&s, point);
+    if let NodeKind::Text(t) = &mut n.kind {
+        for run in &mut t.runs {
+            run.style.fill = fitted.clone();
+        }
+    }
+    s.execute("document.patch", &json!({ "replace": [n] })).unwrap();
+    let bounds = text(&s, point).local_bounds();
+    let output = run::<E>(
+        &mut s,
+        &format!(
+            "var text = project.getItemByKey({})\nvar round = function(x) {{ return Math.round(x * 1e3) / 1e3 }}\nconsole.log(round(text.fillColor.origin.x), round(text.fillColor.destination.x))\ntext.rotate(90)\n\
+             text.range(0, 5).fillColor = {{ gradient: {{ stops: ['white', 'black'] }}, origin: [0, 0], destination: [50, 0] }}",
+            point.0
+        ),
+    );
+    let round = |x: f64| (x * 1e3).round() / 1e3;
+    assert_eq!(output, [format!("{} {}", round(bounds.x0), round(bounds.x1))]);
+    let t = text(&s, point);
+    assert_eq!(t.xf.as_coeffs()[..4], [0.0, 1.0, -1.0, 0.0], "the text turned");
+    let Paint::Gradient(g) = &t.runs[0].style.fill else { panic!("a gradient") };
+    assert_eq!(g.geom.map(|g| (g.start, g.end)), Some((Point::new(0.0, 0.0), Point::new(50.0, 0.0))));
+    assert_eq!(t.runs.last().unwrap().style.fill, fitted, "the rest still fits the text");
+}
+
 macro_rules! engine_tests {
     ($module:ident, $engine:ty) => {
         mod $module {
             #[test]
             fn reads_text() {
                 super::reads_text::<$engine>();
+            }
+
+            #[test]
+            fn text_gradients_are_in_its_own_space() {
+                super::text_gradients_are_in_its_own_space::<$engine>();
             }
 
             #[test]

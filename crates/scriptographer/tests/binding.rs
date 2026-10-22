@@ -4,9 +4,10 @@
 //! changes goes back through `document.patch` as one undo step.
 
 use serde_json::json;
-use vectorcraft_color::{Color, Paint};
+use vectorcraft_color::{Color, Gradient, GradientGeom, GradientKind, GradientPaint, GradientStop, Paint};
 use vectorcraft_doc::{Node, NodeId};
 use vectorcraft_engine::Session;
+use vectorcraft_geom::Point;
 use vectorcraft_scriptographer::{Engine, Runtime};
 
 /// A session with one layer holding two rectangles, a (bottom) and b.
@@ -354,12 +355,106 @@ fn items_moved_into_a_new_group<E: Engine>() {
     assert_eq!(left, [190.0, 290.0], "the clone, a new item in the new group, moved later");
 }
 
+/// Gives `id` the fill `paint`, as the app's Gradient panel does.
+fn fill(s: &mut Session, id: NodeId, paint: Paint) {
+    let mut node = node(s, id);
+    let mut appearance = (*node.appearance).clone();
+    appearance.set_fill(paint);
+    node.appearance = appearance.into();
+    s.execute("document.patch", &json!({ "replace": [node] })).unwrap();
+}
+
+fn gradient(kind: GradientKind, geom: Option<GradientGeom>) -> Paint {
+    let mut stops = vec![GradientStop::new(0.0, Color::rgb(1.0, 0.0, 0.0)), GradientStop::new(1.0, Color::rgb(0.0, 0.0, 1.0))];
+    stops[1].opacity = 0.5;
+    Paint::Gradient(Box::new(GradientPaint { gradient: Gradient::new(kind, stops), geom, angle: 0.0, swatch: None, freeform: None }))
+}
+
+/// Linear and radial gradients read as Paper.js gradient colours, placed where they are, or where
+/// they fit their object.
+fn reads_gradients<E: Engine>() {
+    let (mut s, a, b) = document();
+    fill(&mut s, a, gradient(GradientKind::Linear, None));
+    let geom = GradientGeom { start: Point::new(65.0, 20.0), end: Point::new(75.0, 20.0), aspect: 0.5, focal: Some(Point::new(67.0, 21.0)) };
+    fill(&mut s, b, gradient(GradientKind::Radial, Some(geom)));
+    let output = run::<E>(
+        &mut s,
+        "for (var item of project.activeLayer.children) {\n\
+             var color = item.fillColor\n\
+             console.log(color.type, color.gradient.radial, color.origin, color.destination, color.highlight, color.aspect)\n\
+             console.log(color.gradient.stops.map(function(stop) { return stop.color.toCSS() + ' ' + stop.offset }).join(', '))\n\
+         }",
+    );
+    assert_eq!(
+        output,
+        [
+            "gradient false { x: 10, y: 20 } { x: 40, y: 20 } undefined 1",
+            "rgb(255,0,0) 0, rgba(0,0,255,0.5) 1",
+            "gradient true { x: 65, y: 20 } { x: 75, y: 20 } { x: 67, y: 21 } 0.5",
+            "rgb(255,0,0) 0, rgba(0,0,255,0.5) 1",
+        ]
+    );
+}
+
+/// What Paper.js can't show stays while a script leaves a gradient alone: a gradient that fits its
+/// object still fits it, and keeps its midpoints.
+fn untouched_gradients_stay<E: Engine>() {
+    let (mut s, a, _) = document();
+    let mut paint = gradient(GradientKind::Linear, None);
+    if let Paint::Gradient(g) = &mut paint {
+        // A colour that Paper.js's JSON rounds:
+        g.gradient.stops[0].color = Color::rgb(1.0 / 3.0, 0.0, 0.0);
+        g.gradient.stops[0].midpoint = 0.3;
+    }
+    fill(&mut s, a, paint.clone());
+    run::<E>(&mut s, "project.activeLayer.firstChild.segments[1].point.x += 20");
+    assert_eq!(node(&s, a).geometric_bounds().unwrap().x1, 60.0, "the script changed the path");
+    assert_eq!(node(&s, a).appearance.fill_paint(), paint);
+}
+
+/// A gradient a script makes is placed where the script puts it, and moves with its object.
+fn writes_gradients<E: Engine>() {
+    let (mut s, a, b) = document();
+    fill(&mut s, b, gradient(GradientKind::Linear, None));
+    run::<E>(
+        &mut s,
+        "var layer = project.activeLayer\n\
+         layer.firstChild.fillColor = { gradient: { stops: [['yellow', 0.2], [new Color(0, 0, 0, 0.25), 0.8]], radial: true },\n\
+             origin: [20, 20], destination: [30, 20], highlight: [22, 21] }\n\
+         layer.lastChild.position += [100, 0]",
+    );
+    let Paint::Gradient(g) = node(&s, a).appearance.fill_paint() else { panic!("a gradient") };
+    assert_eq!(g.gradient.kind, GradientKind::Radial);
+    let stops: Vec<_> = g.gradient.stops.iter().map(|s| (s.offset, s.color, s.opacity)).collect();
+    assert_eq!(stops, [(0.2, Color::rgb(1.0, 1.0, 0.0), 1.0), (0.8, Color::rgb(0.0, 0.0, 0.0), 0.25)]);
+    let geom = GradientGeom { start: Point::new(20.0, 20.0), end: Point::new(30.0, 20.0), aspect: 1.0, focal: Some(Point::new(22.0, 21.0)) };
+    assert_eq!(g.geom, Some(geom));
+    let Paint::Gradient(g) = node(&s, b).appearance.fill_paint() else { panic!("a gradient") };
+    let geom = g.geom.expect("a moved gradient is placed, as after any move");
+    assert_eq!((geom.start, geom.end), (Point::new(150.0, 20.0), Point::new(180.0, 20.0)));
+}
+
 macro_rules! engine_tests {
     ($module:ident, $engine:ty) => {
         mod $module {
             #[test]
             fn reads_the_document() {
                 super::reads_the_document::<$engine>();
+            }
+
+            #[test]
+            fn reads_gradients() {
+                super::reads_gradients::<$engine>();
+            }
+
+            #[test]
+            fn untouched_gradients_stay() {
+                super::untouched_gradients_stay::<$engine>();
+            }
+
+            #[test]
+            fn writes_gradients() {
+                super::writes_gradients::<$engine>();
             }
 
             #[test]
