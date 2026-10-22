@@ -42,6 +42,9 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 vectorcraft-engine = { workspace = true }
+# The tests measure and draw text in the bundled fonts (the workspace leaves turning them on to the
+# engine).
+vectorcraft-text = { workspace = true, features = ["bundled-fonts"] }
 # vello_cpu as the app builds it, with its threads.
 vello_cpu = { workspace = true, features = ["multithreading"] }
 
