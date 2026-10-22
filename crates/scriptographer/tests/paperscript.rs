@@ -377,6 +377,20 @@ fn scripts_import_modules<E: Engine>(name: &str) {
     assert_eq!(runtime.take_output(), ["shapes runs", "shapes 10 { x: 20, y: 2 } { x: 1, y: 2 }1"], "shapes.pjs ran once, for both importers");
     runtime.execute(&scope, "import('./shapes.pjs').then(m => console.log('dynamic', m.default, m.size))").unwrap();
     assert_eq!(runtime.take_output(), ["dynamic shapes 10"], "the same module, already loaded");
+    // `with { type }` says which, whatever the name, and a module runs once per kind:
+    runtime
+        .execute(
+            &scope,
+            "import { plain } from './lib/util.js' with { type: 'paperscript' }\n\
+             import { size } from './shapes.pjs' with { type: 'javascript' }\n\
+             console.log(plain, size)",
+        )
+        .unwrap();
+    assert_eq!(runtime.take_output(), ["shapes runs", "{ x: 2, y: 3 } 10"]);
+    runtime.execute(&scope, "import('./lib/util.js', { with: { type: 'paperscript' } }).then(m => console.log('dynamic', m.plain))").unwrap();
+    assert_eq!(runtime.take_output(), ["dynamic { x: 2, y: 3 }"]);
+    let error = runtime.execute(&scope, "import x from './shapes.pjs' with { type: 'css' }").unwrap_err();
+    assert!(error.to_string().contains("'css' isn't a type of module"), "{error}");
     runtime.execute(&scope, "import('./missing.js').catch(e => console.log('rejected'))").unwrap();
     assert_eq!(runtime.take_output(), ["rejected"]);
     let error = runtime.execute(&scope, "import { a } from './a.js'").unwrap_err();

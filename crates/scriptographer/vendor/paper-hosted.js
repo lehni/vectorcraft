@@ -1,5 +1,5 @@
 /*!
- * Paper.js v0.15.0-HEAD - The Swiss Army Knife of Vector Graphics Scripting.
+ * Paper.js v0.16.0-HEAD - The Swiss Army Knife of Vector Graphics Scripting.
  * http://paperjs.org/
  *
  * Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey
@@ -9,7 +9,7 @@
  *
  * All rights reserved.
  *
- * Date: Thu Oct 22 01:32:47 2026 +0200
+ * Date: Thu Oct 22 20:06:50 2026 +0200
  *
  ***
  *
@@ -844,7 +844,7 @@ var PaperScope = Base.extend({
 		}
 	},
 
-	version: "0.15.0-HEAD",
+	version: "0.16.0-HEAD",
 
 	getView: function() {
 		var project = this.project;
@@ -3118,6 +3118,7 @@ var Project = PaperScopeItem.extend({
 		this._selectionItems = {};
 		this._selectionCount = 0;
 		this._updateVersion = 0;
+		this._bufferVersion = 0;
 	},
 
 	_serialize: function(options, dictionary) {
@@ -3344,7 +3345,7 @@ var Project = PaperScopeItem.extend({
 		}
 	},
 
-	draw: function(ctx, matrix, pixelRatio) {
+	draw: function(ctx, matrix, pixelRatio, _view) {
 		this._updateVersion++;
 		ctx.save();
 		matrix.applyToContext(ctx);
@@ -3352,6 +3353,7 @@ var Project = PaperScopeItem.extend({
 			param = new Base({
 				offset: new Point(0, 0),
 				pixelRatio: pixelRatio,
+				view: _view,
 				viewMatrix: matrix.isIdentity() ? null : matrix,
 				matrices: [new Matrix()],
 				updateMatrix: true
@@ -3419,6 +3421,8 @@ var Item = Base.extend(Emitter, {
 		selected: false,
 		data: {}
 	},
+	_attributes: ['_locked', '_visible', '_blendMode', '_opacity',
+			'_clipMask', '_guide', '_textWrap'],
 	_prioritize: ['applyMatrix']
 },
 new function() {
@@ -3536,6 +3540,12 @@ new function() {
 		if (flags & 2) {
 			Item._clearBoundsCache(this);
 		}
+		if (flags & 1) {
+			for (var item = this; item; item = item._parent) {
+				if (item._buffer)
+					item._buffer.matrix = null;
+			}
+		}
 		for (var item = this; item && !(item instanceof Layer);
 				item = item._parent) {
 			if (item._textWrap) {
@@ -3545,14 +3555,19 @@ new function() {
 				break;
 			}
 		}
-		var parent = this._parent,
-			owner = parent && !parent.getChildren() && parent;
+		var isOwner = this._getChangeOwner() === this;
 		if (project)
-			project._changed(flags, owner ? null : this);
-		if (owner)
-			owner._changed(flags);
+			project._changed(flags, isOwner ? this : null);
+		if (!isOwner)
+			this._parent._changed(flags);
 		if (symbol)
 			symbol._changed(flags);
+	},
+
+	_getChangeOwner: function() {
+		var parent = this._parent;
+		return parent && !parent.getChildren() ? parent._getChangeOwner()
+				: this;
 	},
 
 	getId: function() {
@@ -3647,7 +3662,8 @@ new function() {
 			var project = this._project;
 			if (project) {
 				project._updateSelection(this);
-				this._changed(257);
+				project._changed(257,
+						this._getChangeOwner());
 			}
 		}
 	},
@@ -4264,8 +4280,7 @@ new function() {
 
 	copyAttributes: function(source, excludeMatrix) {
 		this.setStyle(source._style);
-		var keys = ['_locked', '_visible', '_blendMode', '_opacity',
-				'_clipMask', '_guide', '_textWrap'];
+		var keys = this._attributes;
 		for (var i = 0, l = keys.length; i < l; i++) {
 			var key = keys[i];
 			if (source.hasOwnProperty(key))
@@ -5135,7 +5150,18 @@ new function() {
 				ctx.shadowColor = 'rgba(0,0,0,0)';
 			}
 			if (hasFill) {
+				var fillColor = style.getFillColor(),
+					ellipse = fillColor._getEllipseMatrix(this._matrix,
+						strokeMatrix);
+				if (ellipse) {
+					ctx.save();
+					ellipse.applyToContext(ctx);
+					ctx.fillStyle = fillColor.toCanvasStyle(ctx, null, null,
+							true);
+				}
 				ctx.fill(style.getFillRule());
+				if (ellipse)
+					ctx.restore();
 				ctx.shadowColor = 'rgba(0,0,0,0)';
 			}
 			if (hasStroke && !isStrokeFirst)
@@ -5186,16 +5212,23 @@ new function() {
 					&& style.getShadowColor(true) && style.hasShadow()
 					&& style.hasFill() && style.hasStroke(),
 			direct = !shadow && (normalBlend && opacity === 1
-						&& !this._isolated
+						&& !(this instanceof Group && this.isIsolated())
 					|| (nativeBlend || normalBlend && opacity < 1)
 						&& this._canComposite())
 					|| param.dontStart
 					|| param.clip,
 			pixelRatio = param.pixelRatio || 1,
-			mainCtx, itemOffset, prevOffset;
+			mainCtx, itemOffset, prevOffset, itemSize, buffer, isFresh;
 		if (!direct) {
-			var bounds = this.getStrokeBounds(viewMatrix);
-			if (style.getShadowColor(true)) {
+			buffer = this._buffered && param.view && !param.clipItem
+					&& (this._buffer || (this._buffer = {}));
+			var version = this._project._bufferVersion;
+			isFresh = buffer && viewMatrix.equals(buffer.matrix)
+					&& buffer.version === version;
+			var bounds = isFresh
+					? buffer.bounds
+					: this.getStrokeBounds(viewMatrix);
+			if (!isFresh && style.getShadowColor(true)) {
 				var mx = viewMatrix._shiftless(),
 					blur = mx.transform(
 							new Point(style.getShadowBlur(true), 0)),
@@ -5203,6 +5236,11 @@ new function() {
 				bounds = bounds.unite(
 					new Rectangle(bounds.getPoint().add(offset),
 						bounds.getSize()).expand(blur.getLength() * 3));
+			}
+			if (buffer) {
+				buffer.matrix = viewMatrix;
+				buffer.version = version;
+				buffer.bounds = bounds;
 			}
 			var canvas = ctx.canvas;
 			bounds = bounds.intersect(
@@ -5215,9 +5253,31 @@ new function() {
 			}
 			prevOffset = param.offset;
 			itemOffset = param.offset = bounds.getTopLeft().floor();
+			itemSize = bounds.getSize().ceil().add(1).multiply(pixelRatio)
+					.floor();
 			mainCtx = ctx;
-			ctx = CanvasProvider.getContext(bounds.getSize().ceil().add(1)
-					.multiply(pixelRatio));
+			if (buffer) {
+				var bufferCanvas = buffer.canvas;
+				isFresh = isFresh && itemOffset.equals(buffer.offset)
+						&& itemSize.equals(buffer.size);
+				if (!bufferCanvas || bufferCanvas.width < itemSize.width
+						|| bufferCanvas.height < itemSize.height) {
+					bufferCanvas = buffer.canvas = self.OffscreenCanvas
+							? new self.OffscreenCanvas(itemSize.width,
+								itemSize.height)
+							: CanvasProvider.getCanvas(itemSize);
+					isFresh = false;
+				}
+				buffer.offset = itemOffset;
+				buffer.size = itemSize;
+				ctx = bufferCanvas.getContext('2d');
+				ctx.setTransform(1, 0, 0, 1, 0, 0);
+				if (!isFresh)
+					ctx.clearRect(0, 0, bufferCanvas.width,
+							bufferCanvas.height);
+			} else {
+				ctx = CanvasProvider.getContext(itemSize, { minimum: true });
+			}
 			if (pixelRatio !== 1)
 				ctx.scale(pixelRatio, pixelRatio);
 		}
@@ -5252,9 +5312,11 @@ new function() {
 			if (offset)
 				ctx.translate(-offset.x, -offset.y);
 		}
-		this._draw(ctx, shadow && !direct
-				? param.extend({ dontShadow: true }) : param,
-				viewMatrix, strokeMatrix);
+		if (!isFresh) {
+			this._draw(ctx, shadow && !direct
+					? param.extend({ dontShadow: true }) : param,
+					viewMatrix, strokeMatrix);
+		}
 		ctx.restore();
 		matrices.pop();
 		if (param.clip && !param.dontFinish) {
@@ -5266,10 +5328,12 @@ new function() {
 				this._setShadow(mainCtx, param, viewMatrix);
 			}
 			BlendMode.process(blendMode, ctx, mainCtx, opacity,
-					itemOffset.subtract(prevOffset).multiply(pixelRatio));
+					itemOffset.subtract(prevOffset).multiply(pixelRatio),
+					itemSize);
 			if (shadow)
 				mainCtx.restore();
-			CanvasProvider.release(ctx);
+			if (!buffer)
+				CanvasProvider.release(ctx);
 			param.offset = prevOffset;
 		}
 	},
@@ -5417,9 +5481,12 @@ var Group = Item.extend({
 	_selectChildren: true,
 	_serializeFields: {
 		isolated: false,
+		buffered: false,
 		children: []
 	},
 	_isolated: false,
+	_buffered: false,
+	_attributes: Item.prototype._attributes.concat(['_isolated', '_buffered']),
 
 	initialize: function Group(arg) {
 		this._children = [];
@@ -5484,12 +5551,34 @@ var Group = Item.extend({
 	},
 
 	isIsolated: function() {
-		return this._isolated;
+		return this._isolated || this._buffered;
 	},
 
 	setIsolated: function(isolated) {
 		this._isolated = !!isolated;
 		this._changed(257);
+	},
+
+	isBuffered: function() {
+		return this._buffered;
+	},
+
+	setBuffered: function(buffered) {
+		this._buffered = !!buffered;
+		this._buffer = null;
+		this._changed(257);
+	},
+
+	_remove: function _remove(notifySelf, notifyParent) {
+		this._buffer = null;
+		return _remove.base.call(this, notifySelf, notifyParent);
+	},
+
+	_serialize: function _serialize(options, dictionary) {
+		var json = _serialize.base.call(this, options, dictionary);
+		if (!this._isolated)
+			delete json[1].isolated;
+		return json;
 	},
 
 	_getBounds: function _getBounds(matrix, options) {
@@ -5951,12 +6040,13 @@ var Raster = Item.extend({
 		var size = Size.read(arguments);
 		if (!size.equals(this._size)) {
 			if (size.width > 0 && size.height > 0) {
-				var element = !_clear && this.getElement();
-				this._setImage(CanvasProvider.getCanvas(size));
+				var element = !_clear && this.getElement(),
+					canvas = CanvasProvider.getCanvas(size);
 				if (element) {
-					this.getContext(true).drawImage(element, 0, 0,
+					canvas.getContext('2d').drawImage(element, 0, 0,
 							size.width, size.height);
 				}
+				this._setImage(canvas);
 			} else {
 				if (this._canvas)
 					CanvasProvider.release(this._canvas);
@@ -6426,8 +6516,11 @@ var SymbolDefinition = Base.extend({
 	_changed: function(flags) {
 		if (flags & 8)
 			Item._clearBoundsCache(this);
-		if (flags & 1)
-			this.project._changed(flags);
+		if (flags & 1) {
+			var project = this.project;
+			project._bufferVersion++;
+			project._changed(flags);
+		}
 	},
 
 	getItem: function() {
@@ -6665,7 +6758,10 @@ var Segment = Base.extend({
 		this._selection = selection = selection || 0;
 		if (path && selection !== oldSelection) {
 			path._updateSelection(this, oldSelection, selection);
-			path._changed(257);
+			var project = path._project;
+			if (project)
+				project._changed(257,
+						path._getChangeOwner());
 		}
 	},
 
@@ -7866,29 +7962,45 @@ new function() {
 				ax = c[0], bx = c[1], cx = c[2],
 				ay = c[3], by = c[4], cy = c[5],
 				count = 100,
+				distances = [],
 				minDist = Infinity,
 				minT = 0;
 
-			function refine(t) {
-				if (t >= 0 && t <= 1) {
-					var dx = getCoordinate(x0, x3, ax, bx, cx, t) - px,
-						dy = getCoordinate(y0, y3, ay, by, cy, t) - py,
-						dist = dx * dx + dy * dy;
-					if (dist < minDist) {
-						minDist = dist;
-						minT = t;
-						return true;
-					}
-				}
+			function getDistance(t) {
+				var dx = getCoordinate(x0, x3, ax, bx, cx, t) - px,
+					dy = getCoordinate(y0, y3, ay, by, cy, t) - py;
+				return dx * dx + dy * dy;
 			}
 
 			for (var i = 0; i <= count; i++)
-				refine(i / count);
+				distances.push(getDistance(i / count));
 
-			var step = 1 / (count * 2);
-			while (step > 1e-8) {
-				if (!refine(minT - step) && !refine(minT + step))
-					step /= 2;
+			for (var i = 0; i <= count; i++) {
+				var dist = distances[i];
+				if ((i === 0 || dist < distances[i - 1])
+						&& (i === count || dist <= distances[i + 1])) {
+					var t = i / count,
+						step = 1 / (count * 2);
+					while (step > 1e-8) {
+						var t1 = t - step,
+							t2 = t + step,
+							dist1 = t1 >= 0 ? getDistance(t1) : Infinity,
+							dist2 = t2 <= 1 ? getDistance(t2) : Infinity;
+						if (dist1 < dist && dist1 <= dist2) {
+							t = t1;
+							dist = dist1;
+						} else if (dist2 < dist) {
+							t = t2;
+							dist = dist2;
+						} else {
+							step /= 2;
+						}
+					}
+					if (dist < minDist) {
+						minDist = dist;
+						minT = t;
+					}
+				}
 			}
 			return minT;
 		},
@@ -8130,6 +8242,8 @@ new function() {
 				return false;
 			var count = Numerical.solveBernstein(polynomial.coefficients,
 					polynomial.errors, roots, speed ? tolerance / speed : 1);
+			if (count >= polynomial.coefficients.length)
+				return false;
 			for (var i = 0; i < count; i++) {
 				var t = roots[i],
 					u = Curve.getTimeOf(v2, Curve.getPoint(v1, t), tolerance);
@@ -10434,9 +10548,11 @@ new function() {
 			ctx.beginPath();
 			drawSegments(ctx, this, matrix);
 			ctx.stroke();
-			var settings = paper.settings;
-			drawHandles(ctx, this._segments, matrix, settings.handleSize,
-					Base.pick(settings.segmentSize, settings.handleSize));
+			var settings = paper.settings,
+				handleSize = settings.handleSize,
+				segmentSize = settings.segmentSize;
+			drawHandles(ctx, this._segments, matrix, handleSize,
+					segmentSize != null ? segmentSize : handleSize);
 		}
 	};
 },
@@ -11661,6 +11777,36 @@ PathItem.inject(new function() {
 		return part;
 	}
 
+	function getTurns(v, epsilon) {
+		var dx = v[6] - v[0],
+			dy = v[7] - v[1];
+		for (var i = 0; i < 4; i += 2) {
+			var hx = v[i + 2] - v[i],
+				hy = v[i + 3] - v[i + 1];
+			if (hx * hx + hy * hy > dx * dx + dy * dy) {
+				dx = hx;
+				dy = hy;
+			}
+		}
+		var length = Math.sqrt(dx * dx + dy * dy),
+			o = [];
+		if (!length)
+			return [];
+		for (var i = 0; i < 8; i += 2) {
+			var x = v[i] - v[0],
+				y = v[i + 1] - v[1];
+			if (abs(x * dy - y * dx) > epsilon * length)
+				return [];
+			o.push((x * dx + y * dy) / length);
+		}
+		var roots = [],
+			count = Numerical.solveQuadratic(3 * (o[1] - o[2]) - o[0] + o[3],
+				2 * (o[0] + o[2]) - 4 * o[1], o[1] - o[0], roots,
+				1e-8,
+				0.99999999);
+		return count > 0 ? roots.slice(0, count) : [];
+	}
+
 	function createGraph(operands) {
 		var curves = [],
 			curveOperands = [],
@@ -11716,6 +11862,13 @@ PathItem.inject(new function() {
 				curve = loc.getCurve();
 			addCut(offsets[curve._path._id] + curve.getIndex(), loc.getTime(),
 					loc.getPoint(), false);
+		}
+		for (var i = 0, l = curves.length; i < l; i++) {
+			var times = getTurns(values[i], epsilon);
+			for (var j = 0, k = times.length; j < k; j++) {
+				addCut(i, times[j], Curve.getPoint(values[i], times[j]),
+						false);
+			}
 		}
 
 		var count = xs.length,
@@ -11954,14 +12107,20 @@ PathItem.inject(new function() {
 
 		var halfEdges = [];
 
+		function getPointAt(halfEdge, distance) {
+			var v = halfEdge.values,
+				edge = halfEdge.edge,
+				t = distance / edge.length;
+			return edge.isStraight
+					? new Point(v[0] + (v[6] - v[0]) * t,
+						v[1] + (v[7] - v[1]) * t)
+					: Curve.getPoint(v, Curve.getTimeAt(v, distance));
+		}
+
 		function getSide(halfEdge1, halfEdge2) {
 			var v1 = halfEdge1.values,
-				v2 = halfEdge2.values,
-				edge2 = halfEdge2.edge,
-				length = min(halfEdge1.edge.length, edge2.length) / 2,
-				point = Curve.getPoint(v2, edge2.isStraight
-						? length / edge2.length
-						: Curve.getTimeAt(v2, length)),
+				point = getPointAt(halfEdge2, min(halfEdge1.edge.length,
+						halfEdge2.edge.length) / 2),
 				time = Curve.getNearestTime(v1, point);
 			return time > 0 && time < 1
 					? Curve.getTangent(v1, time).cross(
@@ -12049,10 +12208,7 @@ PathItem.inject(new function() {
 				}
 				for (var j = 0, k = outgoing.length; j < k; j++) {
 					var halfEdge = halfEdges[outgoing[j]],
-						v = halfEdge.values,
-						point = Curve.getPoint(v, halfEdge.edge.isStraight
-								? distance / halfEdge.edge.length
-								: Curve.getTimeAt(v, distance));
+						point = getPointAt(halfEdge, distance);
 					halfEdge.point = point;
 					halfEdge.angle = Math.atan2(point.y - vertex.y,
 							point.x - vertex.x);
@@ -14413,7 +14569,7 @@ var Color = Base.extend(new function() {
 		rgb: ['red', 'green', 'blue'],
 		hsb: ['hue', 'saturation', 'brightness'],
 		hsl: ['hue', 'saturation', 'lightness'],
-		gradient: ['gradient', 'origin', 'destination', 'highlight']
+		gradient: ['gradient', 'origin', 'destination', 'highlight', 'aspect']
 	};
 
 	var componentParsers = {},
@@ -14421,6 +14577,81 @@ var Color = Base.extend(new function() {
 			transparent: [0, 0, 0, 0]
 		},
 		colorCtx;
+
+	function getCanvasTransform(matrix, strokeMatrix) {
+		var inverse = matrix && matrix.inverted();
+		return strokeMatrix && inverse
+				? strokeMatrix.appended(inverse)
+				: strokeMatrix || inverse;
+	}
+
+	function transformGradient(components, dest, matrix) {
+		var origin = components[1],
+			highlight = components[3],
+			aspect = components[4],
+			along = components[2].subtract(origin),
+			across = along.rotate(90),
+			linear = matrix._shiftless(),
+			u = linear._transformPoint(along),
+			start = matrix._transformPoint(origin),
+			vector = u;
+		if (!along.isZero()) {
+			if (components[0]._radial) {
+				var w = linear._transformPoint(across.multiply(aspect)),
+					v = w.rotate(-90),
+					p = u.add(v),
+					q = u.subtract(v),
+					pLength = p.getLength(),
+					qLength = q.getLength(),
+					major = (pLength + qLength) / 2,
+					minor = Math.abs(pLength - qLength) / 2,
+					axis = u.normalize();
+				aspect = 1;
+				if (Math.min(pLength, qLength)
+						> 1e-12 * major) {
+					axis = new Point({
+						angle: (p.getAngle() + q.getAngle()) / 2,
+						length: 1
+					});
+					if (Math.abs(axis.cross(u)) > Math.abs(axis.dot(u))) {
+						axis = axis.rotate(90);
+						aspect = major / minor;
+						major = minor;
+					} else {
+						aspect = minor / major;
+					}
+					if (axis.dot(u) < 0)
+						axis = axis.negate();
+				}
+				vector = axis.multiply(major);
+			} else {
+				var stripe = linear._transformPoint(across),
+					normal = stripe.rotate(90);
+				if (!normal.isZero()) {
+					vector = normal.multiply(
+							u.dot(normal) / normal.dot(normal));
+				}
+			}
+		}
+		dest[1] = (dest[1] || new Point())._set(start.x, start.y, true);
+		dest[2] = (dest[2] || new Point())._set(start.x + vector.x,
+				start.y + vector.y, true);
+		if (highlight)
+			dest[3] = matrix._transformPoint(highlight, dest[3], true);
+		dest[4] = aspect;
+		return dest;
+	}
+
+	function getEllipseMatrix(components) {
+		var aspect = components[4];
+		if (components[0]._radial && aspect !== 1) {
+			var origin = components[1],
+				angle = components[2].subtract(origin).getAngle();
+			return new Matrix().translate(origin).rotate(angle)
+					.scale(1, aspect).rotate(-angle)
+					.translate(origin.negate());
+		}
+	}
 
 	function fromCSS(string) {
 		var match = string.match(
@@ -14612,12 +14843,16 @@ var Color = Base.extend(new function() {
 							}
 							return value;
 						}
-						: function() {
-							return Point.read(arguments, 0, {
-									readNull: name === 'highlight',
-									clone: true
-							});
-						}
+						: name === 'aspect'
+							? function(value) {
+								return value == null ? 1 : +value;
+							}
+							: function() {
+								return Point.read(arguments, 0, {
+										readNull: name === 'highlight',
+										clone: true
+								});
+							}
 					: function(value) {
 						return value == null || isNaN(value) ? 0 : +value;
 					};
@@ -14703,7 +14938,7 @@ var Color = Base.extend(new function() {
 						components = arg._components.slice();
 						alpha = arg._alpha;
 						if (type === 'gradient') {
-							for (var i = 1, l = components.length; i < l; i++) {
+							for (var i = 1; i < 4; i++) {
 								var point = components[i];
 								if (point)
 									components[i] = point.clone();
@@ -14767,6 +15002,9 @@ var Color = Base.extend(new function() {
 
 		_serialize: function(options, dictionary) {
 			var components = this.getComponents();
+			if (this._type === 'gradient' && components[4] === 1
+					&& this._alpha == null)
+				components.length = components[3] ? 4 : 3;
 			return Base.serialize(
 					/^(gray|rgb)$/.test(this._type)
 						? components
@@ -14878,28 +15116,36 @@ var Color = Base.extend(new function() {
 						+ components.join(',') + ')';
 		},
 
-		toCanvasStyle: function(ctx, matrix, strokeMatrix) {
-			var isCacheable = !(this._type === 'gradient' && strokeMatrix);
+		_getCanvasComponents: function(matrix, strokeMatrix) {
+			var components = this._components,
+				transform = getCanvasTransform(matrix, strokeMatrix);
+			return transform
+					? transformGradient(components, [components[0]], transform)
+					: components;
+		},
+
+		_getEllipseMatrix: function(matrix, strokeMatrix) {
+			return this._type === 'gradient' && getEllipseMatrix(
+					this._getCanvasComponents(matrix, strokeMatrix)) || null;
+		},
+
+		toCanvasStyle: function(ctx, matrix, strokeMatrix, isEllipse) {
+			var isCacheable = !(this._type === 'gradient'
+					&& (strokeMatrix || this._components[4] !== 1));
 			if (this._canvasStyle && isCacheable)
 				return this._canvasStyle;
 			if (this._type !== 'gradient')
 				return this._canvasStyle = this.toCSS();
-			var components = this._components,
+			var components = this._getCanvasComponents(matrix, strokeMatrix),
 				gradient = components[0],
 				stops = gradient._stops,
 				origin = components[1],
 				destination = components[2],
 				highlight = components[3],
-				inverse = matrix && matrix.inverted(),
-				transform = strokeMatrix && inverse
-						? strokeMatrix.appended(inverse)
-						: strokeMatrix || inverse,
 				canvasGradient;
-			if (transform) {
-				origin = transform._transformPoint(origin);
-				destination = transform._transformPoint(destination);
-				if (highlight)
-					highlight = transform._transformPoint(highlight);
+			if (isEllipse && highlight) {
+				highlight = getEllipseMatrix(components)._inverseTransform(
+						highlight);
 			}
 			if (gradient._radial) {
 				var radius = destination.getDistance(origin);
@@ -14930,10 +15176,7 @@ var Color = Base.extend(new function() {
 		transform: function(matrix) {
 			if (this._type === 'gradient') {
 				var components = this._components;
-				for (var i = 1, l = components.length; i < l; i++) {
-					var point = components[i];
-					matrix._transformPoint(point, point, true);
-				}
+				transformGradient(components, components, matrix);
 				this._changed();
 			}
 		},
@@ -16576,7 +16819,7 @@ var View = Base.extend(Emitter, /** @lends View# */{
 	 *
 	 * @param {Boolean} [force=false] whether to redraw the view even if nothing
 	 * has changed, e.g. after a web font used by text items has finished
-	 * loading
+	 * loading, also in buffered groups, see {@link Group#buffered}
 	 * @return {Boolean} {@true if the view was updated}
 	 */
 	update: function(force) {
@@ -18326,7 +18569,7 @@ var CanvasView = View.extend(/** @lends CanvasView# */{
 	 *
 	 * @param {Boolean} [force=false] whether to redraw the view even if nothing
 	 * has changed, e.g. after a web font used by text items has finished
-	 * loading
+	 * loading, also in buffered groups, see {@link Group#buffered}
 	 * @return {Boolean} {@true if the view was updated}
 	 */
 	update: function(force) {
@@ -18336,8 +18579,12 @@ var CanvasView = View.extend(/** @lends CanvasView# */{
 			ctx = this._context,
 			size = this._viewSize;
 		ctx.clearRect(0, 0, size.width + 1, size.height + 1);
-		if (project)
-			project.draw(ctx, this._matrix, this._pixelRatio);
+		if (project) {
+			// Forced updates follow changes that the buffers don't know of:
+			if (force)
+				project._bufferVersion++;
+			project.draw(ctx, this._matrix, this._pixelRatio, this);
+		}
 		this._needsUpdate = false;
 		return true;
 	}
@@ -20168,25 +20415,51 @@ var CanvasProvider = Base.exports.CanvasProvider = {
 		// Web-workers have no DOM, but may support OffscreenCanvas:
 		if (!window && !self.OffscreenCanvas)
 			return null;
-		var canvas;
 		if (typeof width === 'object') {
+			options = height;
 			height = width.height;
 			width = width.width;
 		}
-		if (this.canvases.length) {
-			canvas = this.canvases.pop();
-		} else {
-			canvas = window
-					? document.createElement('canvas')
-					: new self.OffscreenCanvas(width, height);
+		// With options.minimum, a pooled canvas that is at least as large is
+		// reused without resizing it, since resizing reallocates its pixels:
+		var minimum = options && options.minimum,
+			canvases = this.canvases,
+			fits = function(canvas) {
+				return minimum
+						? canvas.width >= width && canvas.height >= height
+						: canvas.width === width && canvas.height === height;
+			},
+			index = canvases.length - 1;
+		for (var i = index; i >= 0; i--) {
+			if (fits(canvases[i])) {
+				index = i;
+				break;
+			}
 		}
-		var ctx = canvas.getContext('2d', options || {});
+		var canvas = index >= 0
+				? canvases.splice(index, 1)[0]
+				: window
+					? document.createElement('canvas')
+					: new self.OffscreenCanvas(width, height),
+			ctx = canvas.getContext('2d', options || {});
 		if (!ctx) {
 			throw new Error('Canvas ' + canvas +
 					' is unable to provide a 2D context.');
 		}
-		// No need to clear: pooled canvases are 0 × 0, new ones are blank.
-		if (canvas.width !== width || canvas.height !== height) {
+		if (fits(canvas)) {
+			// Clear the reused pixels and reset the context's state:
+			if (ctx.reset) {
+				ctx.reset();
+			} else {
+				ctx.setTransform(1, 0, 0, 1, 0, 0);
+				ctx.clearRect(0, 0, canvas.width, canvas.height);
+				ctx.globalAlpha = 1;
+				ctx.globalCompositeOperation = 'source-over';
+				ctx.filter = 'none';
+				ctx.shadowColor = 'transparent';
+				ctx.shadowBlur = ctx.shadowOffsetX = ctx.shadowOffsetY = 0;
+			}
+		} else {
 			canvas.width = width;
 			canvas.height = height;
 		}
@@ -20195,16 +20468,14 @@ var CanvasProvider = Base.exports.CanvasProvider = {
 
 	getContext: function(width, height, options) {
 		var canvas = this.getCanvas(width, height, options);
-		return canvas ? canvas.getContext('2d', options || {}) : null;
+		return canvas ? canvas.getContext('2d') : null;
 	},
 
-	 // release can receive either a canvas or a context.
 	release: function(obj) {
 		var canvas = obj && obj.canvas ? obj.canvas : obj;
 		if (canvas && canvas.getContext) {
-			// Resizing frees the pixels right away, and also resets the
-			// context's state. Keep only a few canvases, to reuse their
-			canvas.width = canvas.height = 0;
+			if (canvas.width * canvas.height > 256 * 256)
+				canvas.width = canvas.height = 0;
 			if (this.canvases.length < 8)
 				this.canvases.push(canvas);
 		}
@@ -20264,8 +20535,10 @@ var BlendMode = new function() {
 		this[mode] = false;
 	}, {}));
 
-	this.process = function(mode, srcContext, dstContext, alpha, offset) {
-		var srcCanvas = srcContext.canvas,
+	this.process = function(mode, srcContext, dstContext, alpha, offset,
+			size) {
+		var width = size.width,
+			height = size.height,
 			normal = mode === 'normal',
 			process = modes[mode];
 		if (!process) {
@@ -20274,14 +20547,14 @@ var BlendMode = new function() {
 			dstContext.globalAlpha = alpha;
 			if (!normal)
 				dstContext.globalCompositeOperation = mode;
-			dstContext.drawImage(srcCanvas, offset.x, offset.y);
+			dstContext.drawImage(srcContext.canvas, 0, 0, width, height,
+					offset.x, offset.y, width, height);
 			dstContext.restore();
 		} else {
 			var dstData = dstContext.getImageData(offset.x, offset.y,
-					srcCanvas.width, srcCanvas.height),
+					width, height),
 				dst = dstData.data,
-				src = srcContext.getImageData(0, 0,
-					srcCanvas.width, srcCanvas.height).data;
+				src = srcContext.getImageData(0, 0, width, height).data;
 			for (var i = 0, l = dst.length; i < l; i += 4) {
 				sr = src[i];
 				br = dst[i];
@@ -20919,7 +21192,8 @@ var SvgStyles = Base.each({
 
 new function() {
 	var formatter,
-		parentStyles;
+		parentStyles,
+		elementMatrix;
 
 	function getTransform(matrix, coordinates, center) {
 		var attrs = new Base(),
@@ -20959,6 +21233,7 @@ new function() {
 				attrs.transform = 'matrix(' + matrix.getValues().join(',') + ')';
 			}
 		}
+		elementMatrix = matrix;
 		return attrs;
 	}
 
@@ -21037,8 +21312,9 @@ new function() {
 	}
 
 	function exportPath(item, options) {
-		var matchShapes = options.matchShapes;
-		if (matchShapes) {
+		var matchShapes = options.matchShapes,
+			segmentsData = getSegmentsData(item);
+		if (matchShapes && !segmentsData) {
 			var shape = item.toShape(false);
 			if (shape)
 				return exportShape(shape, options);
@@ -21070,6 +21346,8 @@ new function() {
 			type = 'path';
 			attrs.d = item.getPathData(null, options.precision);
 		}
+		if (segmentsData)
+			attrs['data-paper-segments'] = segmentsData;
 		return SvgElement.create(type, attrs, formatter);
 	}
 
@@ -21102,10 +21380,36 @@ new function() {
 
 	function exportCompoundPath(item, options) {
 		var attrs = getTransform(item._matrix);
-		var data = item.getPathData(null, options.precision);
+		var data = item.getPathData(null, options.precision),
+			segmentsData = getSegmentsData(item);
 		if (data)
 			attrs.d = data;
+		if (segmentsData)
+			attrs['data-paper-segments'] = segmentsData;
 		return SvgElement.create('path', attrs, formatter);
+	}
+
+	function getSegmentsData(item) {
+		var paths = item._children || [item],
+			entries = null,
+			index = 0;
+		for (var i = 0, l = paths.length; i < l; i++) {
+			var segments = paths[i]._segments;
+			for (var j = 0, m = segments.length; j < m; j++, index++) {
+				var segment = segments[j],
+					name = segment._name,
+					data = segment._data,
+					hasData = data && !Base.equals(data, {});
+				if (name || hasData) {
+					var entry = (entries = entries || {})[index] = {};
+					if (name)
+						entry.name = name;
+					if (hasData)
+						entry.data = data;
+				}
+			}
+		}
+		return entries && JSON.stringify(entries);
 	}
 
 	function exportSymbolItem(item, options) {
@@ -21131,6 +21435,10 @@ new function() {
 	}
 
 	function exportGradient(color, options) {
+		if (!elementMatrix.isIdentity()) {
+			color = color.clone();
+			color.transform(elementMatrix.inverted());
+		}
 		var gradientNode = getDefinition(color, 'color');
 		if (!gradientNode) {
 			var gradient = color.getGradient(),
@@ -21139,12 +21447,24 @@ new function() {
 				destination = color.getDestination(),
 				attrs;
 			if (radial) {
-				attrs = {
-					cx: origin.x,
-					cy: origin.y,
-					r: origin.getDistance(destination)
-				};
-				var highlight = color.getHighlight();
+				var aspect = color.getAspect(),
+					highlight = color.getHighlight(),
+					center = origin;
+				attrs = { r: origin.getDistance(destination) };
+				if (aspect !== 1) {
+					var angle = destination.subtract(origin).getAngle(),
+						local = new Matrix().translate(origin).rotate(angle)
+							.scale(1, aspect);
+					center = new Point();
+					if (highlight)
+						highlight = local._inverseTransform(highlight);
+					attrs.gradientTransform = 'translate('
+							+ formatter.point(origin) + ') rotate('
+							+ formatter.number(angle) + ') scale(1,'
+							+ formatter.number(aspect) + ')';
+				}
+				attrs.cx = center.x;
+				attrs.cy = center.y;
 				if (highlight) {
 					attrs.fx = highlight.x;
 					attrs.fy = highlight.y;
@@ -21396,6 +21716,7 @@ new function() {
 			parent = !isRoot && item.getParent(),
 			parentStyle = parent && (parentStyles[parent._id] =
 					parentStyles[parent._id] || {}),
+			isGroup = item instanceof Group,
 			style = [];
 
 		if (item._name != null)
@@ -21403,13 +21724,15 @@ new function() {
 
 		Base.each(SvgStyles, function(entry) {
 			var get = entry.get,
-				value = item[get]();
+				value = item[get](),
+				isGradient = entry.type === 'color' && value && value.gradient;
 			if (parent && !(get in parentStyle))
 				parentStyle[get] = parent[get]();
-			if (value !== undefined && (entry.exportFilter
-					? entry.exportFilter(item, value)
-					: options.reduceAttributes == false
-						|| !parent || !Base.equals(parentStyle[get], value))) {
+			if (value !== undefined && (isGradient ? !isGroup
+					: entry.exportFilter
+						? entry.exportFilter(item, value)
+						: options.reduceAttributes == false
+							|| !parent || !Base.equals(parentStyle[get], value))) {
 				setAttributes(attrs, style, entry, value, options);
 			}
 		});
@@ -22144,6 +22467,27 @@ new function() {
 		return json ? Base.set(data || {}, JSON.parse(json)) : data;
 	}
 
+	function setSegmentsData(item, node) {
+		var json = node.getAttribute('data-paper-segments');
+		if (json) {
+			var entries = JSON.parse(json),
+				paths = item._children || [item],
+				segments = [];
+			for (var i = 0, l = paths.length; i < l; i++)
+				segments.push.apply(segments, paths[i]._segments);
+			if (Math.max.apply(Math, Object.keys(entries)) < segments.length) {
+				for (var index in entries) {
+					var entry = entries[index],
+						segment = segments[index];
+					if (entry.name)
+						segment.setName(entry.name);
+					if (entry.data)
+						segment._data = entry.data;
+				}
+			}
+		}
+	}
+
 	var sandbox;
 
 	function getSandbox() {
@@ -22199,6 +22543,8 @@ new function() {
 				settings.applyMatrix = applyMatrix;
 			}
 			if (item) {
+				if (isElement && item instanceof PathItem)
+					setSegmentsData(item, node);
 				if (isElement && importer !== importGroup)
 					item = applyAttributes(item, node, options, isRoot);
 				var data = isElement && getData(node);
@@ -23695,8 +24041,10 @@ Base.exports.PaperScript = function() {
 		}
 	}
 
-	function __$assign__(object, key, operator, value) {
-		return object[key] = __$__(object[key], operator, value);
+	function __$assign__(object, key, operator, value, postfix) {
+		var old = object[key],
+			res = object[key] = __$__(old, operator, value);
+		return postfix ? old : res;
 	}
 
 	function $__(operator, value) {
@@ -23743,6 +24091,10 @@ Base.exports.PaperScript = function() {
 			insertions = insertions.filter(function(insertion) {
 				return insertion[0] < range[0] || insertion[1] > range[1];
 			});
+			if (/[\w$]/.test(code.charAt(start - 1)) && /^[\w$]/.test(str))
+				str = ' ' + str;
+			if (/[\w$]/.test(code.charAt(end)) && /[\w$]$/.test(str))
+				str += ' ';
 			insertions.push([range[0], range[1],
 					str.length - range[1] + range[0]]);
 			code = code.substring(0, start) + str + code.substring(end);
@@ -23780,46 +24132,41 @@ Base.exports.PaperScript = function() {
 							&& /^[=!<>]/.test(parent.operator)
 						|| parentType === 'MemberExpression' && parent.computed
 				)) {
-					if (node.type === 'UpdateExpression') {
-						var arg = getCode(node.argument),
-							exp = '__$__(' + arg + ', "' + node.operator[0]
-									+ '", 1)',
-							str = arg + ' = ' + exp;
-						if (node.prefix) {
-							str = '(' + str + ')';
-						} else if (
-							parentType === 'AssignmentExpression' ||
-							parentType === 'VariableDeclarator' ||
-							parentType === 'BinaryExpression'
-						) {
-							if (getCode(parent.left || parent.id) === arg)
-								str = exp;
-							str = arg + '; ' + str;
+					var isUpdate = node.type === 'UpdateExpression',
+						target = isUpdate ? node.argument : node.left;
+					if (isUpdate || /^.=$/.test(node.operator)
+							&& target.type !== 'Literal') {
+						var left = getCode(target),
+							right = isUpdate ? '1' : getCode(node.right),
+							operator = node.operator[0],
+							isUsed = isUpdate && !(
+								parentType === 'ExpressionStatement' ||
+								parentType === 'SequenceExpression' &&
+									node !== parent.expressions[
+										parent.expressions.length - 1]
+							),
+							isPostfix = isUsed && !node.prefix,
+							member = target.type === 'MemberExpression'
+								&& target.object.type !== 'Super'
+								&& target.property.type
+									!== 'PrivateIdentifier',
+							exp = member
+								? '__$assign__(' + getCode(target.object)
+									+ ', ' + (target.computed
+										? getCode(target.property)
+										: JSON.stringify(
+											target.property.name))
+									+ ', "' + operator + '", ' + right
+									+ (isPostfix ? ', true' : '') + ')'
+								: left + ' = __$__(' + left + ', "'
+									+ operator + '", ' + right + ')';
+						if (isUsed && !member) {
+							exp = isPostfix
+								? '[' + left + ', ' + exp + '][0]'
+								: '(' + exp + ')';
 						}
-						replaceCode(node, str);
-					} else {
-						if (/^.=$/.test(node.operator)
-								&& node.left.type !== 'Literal') {
-							var target = node.left,
-								left = getCode(target),
-								right = getCode(node.right),
-								operator = node.operator[0],
-								member = target.type === 'MemberExpression'
-									&& target.object.type !== 'Super'
-									&& target.property.type
-										!== 'PrivateIdentifier',
-								exp = member
-									? '__$assign__(' + getCode(target.object)
-										+ ', ' + (target.computed
-											? getCode(target.property)
-											: JSON.stringify(
-												target.property.name))
-										+ ', "' + operator + '", ' + right + ')'
-									: left + ' = __$__(' + left + ', "'
-										+ operator + '", ' + right + ')';
-							replaceCode(node, /^\(.*\)$/.test(getCode(node))
-									? '(' + exp + ')' : exp);
-						}
+						replaceCode(node, /^\(.*\)$/.test(getCode(node))
+								? '(' + exp + ')' : exp);
 					}
 				}
 				break;
@@ -23854,9 +24201,20 @@ Base.exports.PaperScript = function() {
 		var moduleCount = 0,
 			isModule = false;
 
-		function getImport(source, as) {
-			return '__$import__(' + JSON.stringify(source.value)
-					+ (as ? ', "' + as + '"' : '') + ')';
+		function getImport(node, as) {
+			var attributes = node.attributes || [],
+				args = [JSON.stringify(node.source.value)];
+			if (as || attributes.length)
+				args.push(as ? '"' + as + '"' : 'undefined');
+			if (attributes.length) {
+				var values = {};
+				attributes.forEach(function(attribute) {
+					var key = attribute.key;
+					values[key.name || key.value] = attribute.value.value;
+				});
+				args.push(JSON.stringify(values));
+			}
+			return '__$import__(' + args.join(', ') + ')';
 		}
 
 		function handleModules(node) {
@@ -23864,10 +24222,13 @@ Base.exports.PaperScript = function() {
 			case 'ImportExpression':
 				replaceCode(node, 'Promise.resolve().then(function() { '
 						+ 'return __$import__(' + getCode(node.source)
-						+ ', "dynamic"); })');
+						+ ', "dynamic"' + (node.options
+							? ', (' + getCode(node.options) + ' || {}).with'
+							: '')
+						+ '); })');
 				break;
 			case 'ImportDeclaration':
-				var module = getImport(node.source),
+				var module = getImport(node),
 					named = [];
 				var vars = node.specifiers.map(function(specifier) {
 					var local = specifier.local.name;
@@ -23876,7 +24237,7 @@ Base.exports.PaperScript = function() {
 								+ '__.' + specifier.imported.name);
 						return null;
 					}
-					return local + ' = ' + getImport(node.source,
+					return local + ' = ' + getImport(node,
 							specifier.type === 'ImportDefaultSpecifier'
 								? 'default' : 'namespace');
 				}).filter(Boolean);
@@ -23893,10 +24254,10 @@ Base.exports.PaperScript = function() {
 				isModule = true;
 				replaceCode(node, node.exported
 						? 'module.exports.' + node.exported.name + ' = '
-							+ getImport(node.source, 'namespace') + ';'
+							+ getImport(node, 'namespace') + ';'
 						: '(function(m) { for (var k in m) if (k !== '
 							+ '"default") module.exports[k] = m[k]; })('
-							+ getImport(node.source) + ');');
+							+ getImport(node) + ');');
 				break;
 			case 'ExportDefaultDeclaration':
 				isModule = true;
@@ -23926,7 +24287,7 @@ Base.exports.PaperScript = function() {
 									+ ';';
 						}).join(''));
 				} else if (specifiers) {
-					var source = node.source && getImport(node.source) + '.';
+					var source = node.source && getImport(node) + '.';
 					var exports = specifiers.map(function(specifier) {
 						var local = specifier.local.name,
 							exported = specifier.exported.name;
@@ -24095,12 +24456,12 @@ Base.exports.PaperScript = function() {
 		}
 		var load = options && options.load,
 			url = options && options.url;
-		function __$import__(specifier, as) {
+		function __$import__(specifier, as, attributes) {
 			if (!load) {
 				throw new Error('Unable to import \'' + specifier + '\': no '
 						+ 'loader was passed to PaperScript.execute().');
 			}
-			var exports = load(specifier, url);
+			var exports = load(specifier, url, attributes);
 			return as === 'dynamic'
 					? Promise.resolve(exports).then(function(exports) {
 						return getImported(exports, 'namespace');
