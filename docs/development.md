@@ -1,10 +1,11 @@
 # Development
 
 > **Last updated:** 2026-10-23 · **Change:** Tests: cargo xtask test, one integration-test binary per crate, the dev profile's debug info.
+> **Last updated:** 2026-10-22 · **Change:** `XMLHttpRequest` among Scriptographer's browser APIs.
 > **Last updated:** 2026-10-21 · **Change:** the interface faces as vectorcraft-ui-egui's `interface-fonts` feature, and `theme::install_fonts` for an embedder that draws the panels itself.
 > **Last updated:** 2026-10-21 · **Change:** leaving out the bundled fonts with the egui panels (vectorcraft-ui-egui's and vectorcraft-mcp's `bundled-fonts` features).
-> **Last updated:** 2026-10-14 · **Change:** leaving out the bundled fonts (`bundled-fonts` feature).
 > **Last updated:** 2026-10-20 · **Change:** what Scriptographer's JavaScript holds, and what stays in Rust.
+> **Last updated:** 2026-10-14 · **Change:** leaving out the bundled fonts (`bundled-fonts` feature).
 > **Last updated:** 2026-10-14 · **Change:** document-font registration for all explicitly supplied faces.
 
 ## Web build
@@ -62,7 +63,7 @@ pnpm run prettier:fix   # Prettier with Penere, as Dito.js formats
 
 `cargo xtask ci` checks both (its `scriptographer-js` step): the sources formatted, and the bundles in `dist/` as `src/` builds them.
 
-The runtime evaluates the bundles first, before its own classes. They hold the browser APIs outside a browser (events, fetch's classes, `Blob`, `URL`, `WebSocket`, `Worker`, storage, encoding, the File System Access API and `LocalFile`, the geometry interfaces, `DOMException`, the console), and Scriptographer's `Dialog` and `Palette`. What a browser's realm has already, it keeps. Rust keeps what needs the machine: the network, files, threads, sockets, URL parsing, the clock, random bytes and UTF-8, and what the app answers. The runtime passes these as natives in `__scriptographer` (`js/src/natives.js`), which the bundle takes off the global object, and the bundle gives back what Rust calls into (a blob's bytes, the palettes, a worker's global object; `call_bundle()`). The canvas, structured cloning, imports and the document binding stay in Rust: the renderer reads the canvas's state on every draw, and cloned values cross threads to workers.
+The runtime evaluates the bundles first, before its own classes. They hold the browser APIs outside a browser (events, fetch's classes, `XMLHttpRequest`, `Blob`, `URL`, `WebSocket`, `Worker`, storage, encoding, the File System Access API and `LocalFile`, the geometry interfaces, `DOMException`, the console), and Scriptographer's `Dialog` and `Palette`. What a browser's realm has already, it keeps. Rust keeps what needs the machine: the network, files, threads, sockets, URL parsing, the clock, random bytes and UTF-8, and what the app answers. The runtime passes these as natives in `__scriptographer` (`js/src/natives.js`), which the bundle takes off the global object, and the bundle gives back what Rust calls into (a blob's bytes, the palettes, a worker's global object; `call_bundle()`). The canvas, structured cloning, imports and the document binding stay in Rust: the renderer reads the canvas's state on every draw, and cloned values cross threads to workers.
 
 ## Desktop graphics processor
 

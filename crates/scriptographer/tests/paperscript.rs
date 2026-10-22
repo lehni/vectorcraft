@@ -435,6 +435,7 @@ fn serve(count: usize) -> String {
             reader.read_exact(&mut body).unwrap();
             let (status, content_type, answer) = match path.as_str() {
                 "/data.json" => ("200 OK", "application/json", br#"{"a": 1, "list": [1, 2]}"#.to_vec()),
+                "/data.xml" => ("200 OK", "application/xml", b"<a><b>1</b></a>".to_vec()),
                 "/lib/mod.pjs" => ("200 OK", "text/javascript", b"import { b } from '../dep.js'\nexport const a = b + new Point(1, 1)".to_vec()),
                 "/dep.js" => ("200 OK", "text/javascript", b"export const b = new Point(40, 41)".to_vec()),
                 "/echo" => ("201 Created", "text/plain", [format!("{method} {kind}\n").into_bytes(), body].concat()),
@@ -487,6 +488,66 @@ fn scripts_fetch<E: Engine>() {
     assert_eq!(
         runtime.take_output(),
         ["200 true application/json one 1 2", "404 false missing", "true true true", "201 PUT application/json\n{\"x\":1}"]
+    );
+}
+
+fn scripts_send_xml_http_requests<E: Engine>() {
+    let address = serve(4);
+    // A server that takes a connection and doesn't answer before it closes, for a timeout:
+    let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let silent_address = format!("http://{}", silent.local_addr().unwrap());
+    std::thread::spawn(move || {
+        let connection = silent.accept();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        drop(connection);
+    });
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    let script = format!(
+        "const base = '{address}'\n\
+         const types = ['readystatechange', 'loadstart', 'progress', 'load', 'error', 'abort', 'timeout', 'loadend']\n\
+         const request = (method, url, send) => new Promise(resolve => {{\n\
+             const xhr = new XMLHttpRequest()\n\
+             const events = []\n\
+             for (const type of types) xhr.addEventListener(type, () => events.push(type === 'readystatechange' ? xhr.readyState : type))\n\
+             xhr.upload.onload = event => events.push('upload ' + event.type)\n\
+             xhr.addEventListener('loadend', () => resolve({{ xhr, events: events.join() }}))\n\
+             xhr.open(method, url)\n\
+             send(xhr)\n\
+         }})\n\
+         let {{ xhr, events }} = await request('GET', base + '/data.json', xhr => {{ xhr.responseType = 'json'; xhr.send() }})\n\
+         console.log(events, xhr.status, xhr.response.list, xhr.getResponseHeader('X-Test'), xhr.responseURL === base + '/data.json')\n\
+         ;({{ xhr, events }} = await request('post', base + '/echo', xhr => {{ xhr.setRequestHeader('Content-Type', 'text/plain'); xhr.send('hello') }}))\n\
+         console.log(events, xhr.status, xhr.statusText, JSON.stringify(xhr.responseText))\n\
+         ;({{ xhr }} = await request('GET', base + '/data.xml', xhr => xhr.send()))\n\
+         console.log(xhr.responseXML.documentElement.nodeName, xhr.getAllResponseHeaders().includes('content-type: application/xml\\r\\n'))\n\
+         ;({{ xhr }} = await request('GET', base + '/missing', xhr => {{ xhr.responseType = 'blob'; xhr.send() }}))\n\
+         console.log(xhr.status, xhr.response.type, await xhr.response.text())\n\
+         ;({{ xhr, events }} = await request('GET', 'http://127.0.0.1:1/', xhr => xhr.send()))\n\
+         console.log('error', events, xhr.status)\n\
+         ;({{ xhr, events }} = await request('GET', base + '/data.json', xhr => {{ xhr.send(); xhr.abort() }}))\n\
+         console.log('abort', events, xhr.readyState)\n\
+         ;({{ xhr, events }} = await request('GET', '{silent_address}', xhr => {{ xhr.timeout = 50; xhr.send() }}))\n\
+         console.log('timeout', events)\n\
+         const name = f => {{ try {{ f() }} catch (e) {{ return e.name }} }}\n\
+         xhr = new XMLHttpRequest()\n\
+         xhr.responseType = 'json'\n\
+         console.log(name(() => xhr.open('GET', base, false)), name(() => xhr.send()), name(() => xhr.responseText), name(() => new XMLHttpRequestUpload()), String(xhr.upload))"
+    );
+    runtime.execute(&scope, &format!("(async () => {{ try {{ {script} }} catch (e) {{ console.log('error', e.name, e.message) }} }})()")).unwrap();
+    run_until_done(&mut runtime);
+    assert_eq!(
+        runtime.take_output(),
+        [
+            "1,loadstart,2,3,progress,4,load,loadend 200 [1, 2] one true",
+            "1,loadstart,upload load,2,3,progress,4,load,loadend 201 Created \"POST text/plain\\nhello\"",
+            "a true",
+            "404 text/plain missing",
+            "error 1,loadstart,4,error,loadend 0",
+            "abort 1,loadstart,4,abort,loadend 0",
+            "timeout 1,loadstart,4,timeout,loadend",
+            "InvalidAccessError InvalidStateError InvalidStateError TypeError [object XMLHttpRequestUpload]",
+        ]
     );
 }
 
@@ -1734,6 +1795,11 @@ macro_rules! engine_tests {
             #[test]
             fn scripts_fetch() {
                 super::scripts_fetch::<$engine>();
+            }
+
+            #[test]
+            fn scripts_send_xml_http_requests() {
+                super::scripts_send_xml_http_requests::<$engine>();
             }
 
             #[test]

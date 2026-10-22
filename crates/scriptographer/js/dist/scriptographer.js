@@ -58,7 +58,7 @@
   // src/abort.js
   var abort_exports = {};
   __export(abort_exports, {
-    AbortController: () => AbortController,
+    AbortController: () => AbortController2,
     AbortSignal: () => AbortSignal
   });
 
@@ -71,6 +71,7 @@
     Event: () => Event,
     EventTarget: () => EventTarget,
     MessageEvent: () => MessageEvent,
+    ProgressEvent: () => ProgressEvent,
     defineEventHandlers: () => defineEventHandlers,
     fire: () => fire
   });
@@ -357,6 +358,15 @@
       setMembers(this, init, { wasClean: false, code: 0, reason: "" });
     }
   };
+  var ProgressEvent = class extends Event {
+    static {
+      __name(this, "ProgressEvent");
+    }
+    constructor(type, init) {
+      super(...arguments);
+      setMembers(this, init, { lengthComputable: false, loaded: 0, total: 0 });
+    }
+  };
   var ErrorEvent = class extends Event {
     static {
       __name(this, "ErrorEvent");
@@ -388,6 +398,7 @@
     [CustomEvent.name]: ["detail"],
     [MessageEvent.name]: ["data", "origin", "lastEventId", "source", "ports"],
     [CloseEvent.name]: ["wasClean", "code", "reason"],
+    [ProgressEvent.name]: ["lengthComputable", "loaded", "total"],
     [ErrorEvent.name]: ["message", "filename", "lineno", "colno", "error"]
   };
   for (const Class of [
@@ -395,6 +406,7 @@
     CustomEvent,
     MessageEvent,
     CloseEvent,
+    ProgressEvent,
     ErrorEvent
   ]) {
     for (const name of fields[Class.name]) {
@@ -416,6 +428,7 @@
     CustomEvent,
     MessageEvent,
     CloseEvent,
+    ProgressEvent,
     ErrorEvent
   );
   function defineEventHandlers(target, ...types2) {
@@ -556,7 +569,7 @@
       return signal;
     }
   };
-  var AbortController = class {
+  var AbortController2 = class {
     static {
       __name(this, "AbortController");
     }
@@ -569,7 +582,7 @@
     }
   };
   defineEventHandlers(AbortSignal.prototype, "abort");
-  setToStringTag(AbortSignal, AbortController);
+  setToStringTag(AbortSignal, AbortController2);
 
   // src/blob.js
   var blob_exports = {};
@@ -801,13 +814,13 @@
       return left;
     }, "product");
     const term = /* @__PURE__ */ __name(() => {
-      const token = next();
-      if (token === "(" || token === "calc(") {
+      const token2 = next();
+      if (token2 === "(" || token2 === "calc(") {
         const value2 = sum();
         if (next() !== ")") throw syntaxError(text);
         return value2;
-      } else if (token?.type) {
-        return token;
+      } else if (token2?.type) {
+        return token2;
       } else {
         throw syntaxError(text);
       }
@@ -3007,7 +3020,7 @@ ${stack}` : ""));
   var fetch_exports = {};
   __export(fetch_exports, {
     FormData: () => FormData,
-    Headers: () => Headers,
+    Headers: () => Headers2,
     Request: () => Request,
     Response: () => Response,
     fetch: () => fetch2,
@@ -3050,7 +3063,7 @@ ${stack}` : ""));
   __name(setFirst, "setFirst");
 
   // src/fetch.js
-  var Headers = class _Headers {
+  var Headers2 = class _Headers {
     static {
       __name(this, "Headers");
     }
@@ -3123,7 +3136,7 @@ ${stack}` : ""));
       for (const [name, value] of this.#entries) yield [name, value];
     }
   };
-  for (const Class of [Headers, FormData]) {
+  for (const Class of [Headers2, FormData]) {
     inject(Class.prototype, pairIterable);
   }
   var Body = class {
@@ -3188,7 +3201,7 @@ ${stack}` : ""));
     constructor(input, init = {}) {
       const from = input instanceof _Request ? input : null;
       const method = String(init.method ?? from?.method ?? "GET").toUpperCase();
-      const headers = new Headers(init.headers ?? from?.headers);
+      const headers = new Headers2(init.headers ?? from?.headers);
       const body = init.body ?? (from && Body.getBytes(from));
       if (body != null && (method === "GET" || method === "HEAD")) {
         throw new TypeError(`Invalid Request: a ${method} request has no body.`);
@@ -3235,7 +3248,7 @@ ${stack}` : ""));
       if (!(status >= 200 && status <= 599)) {
         throw new RangeError(`Invalid Response status: '${status}'.`);
       }
-      headers = new Headers(headers);
+      headers = new Headers2(headers);
       super(body, headers);
       this.#status = status;
       this.#statusText = String(statusText);
@@ -3278,7 +3291,7 @@ ${stack}` : ""));
       );
     }
   };
-  setToStringTag(Headers, FormData, Request, Response);
+  setToStringTag(Headers2, FormData, Request, Response);
   async function fetch2(input, init) {
     const request = new Request(input, init);
     const { method, url, headers, signal, redirect } = request;
@@ -4663,6 +4676,369 @@ ${value}\r
   }
   __name(setupWorker, "setupWorker");
 
+  // src/xhr.js
+  var xhr_exports = {};
+  __export(xhr_exports, {
+    XMLHttpRequest: () => XMLHttpRequest,
+    XMLHttpRequestEventTarget: () => XMLHttpRequestEventTarget,
+    XMLHttpRequestUpload: () => XMLHttpRequestUpload
+  });
+  var states3 = {
+    UNSENT: 0,
+    OPENED: 1,
+    HEADERS_RECEIVED: 2,
+    LOADING: 3,
+    DONE: 4
+  };
+  var responseTypes = ["", "arraybuffer", "blob", "document", "json", "text"];
+  var methods = ["DELETE", "GET", "HEAD", "OPTIONS", "POST", "PUT"];
+  var forbiddenMethods = ["CONNECT", "TRACE", "TRACK"];
+  var token = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+  var XMLHttpRequestEventTarget = class extends EventTarget {
+    static {
+      __name(this, "XMLHttpRequestEventTarget");
+    }
+    constructor(key) {
+      checkInternal(
+        key,
+        "XMLHttpRequestEventTarget",
+        "XMLHttpRequest and its upload are them"
+      );
+      super();
+    }
+  };
+  var XMLHttpRequestUpload = class extends XMLHttpRequestEventTarget {
+    static {
+      __name(this, "XMLHttpRequestUpload");
+    }
+  };
+  var XMLHttpRequest = class extends XMLHttpRequestEventTarget {
+    static {
+      __name(this, "XMLHttpRequest");
+    }
+    #readyState = states3.UNSENT;
+    #method = "GET";
+    #url = null;
+    #headers = new Headers();
+    #isSent = false;
+    #isUploading = false;
+    #timeout = 0;
+    #withCredentials = false;
+    #responseType = "";
+    #mimeType = null;
+    #upload = new XMLHttpRequestUpload(internal);
+    // The request in flight, which a later one or `abort()` replaces, and how to
+    // stop it:
+    #request = null;
+    #controller = null;
+    #timer = null;
+    // What came back: a `Response` without its body, the body's bytes, and what
+    // `response` made of them.
+    #response = null;
+    #bytes = null;
+    #value;
+    constructor() {
+      super(internal);
+    }
+    get readyState() {
+      return this.#readyState;
+    }
+    get upload() {
+      return this.#upload;
+    }
+    get timeout() {
+      return this.#timeout;
+    }
+    set timeout(timeout) {
+      this.#timeout = Math.max(0, Math.trunc(Number(timeout)) || 0);
+    }
+    // There are no cookies outside a browser; it's kept for libraries that ask.
+    get withCredentials() {
+      return this.#withCredentials;
+    }
+    set withCredentials(withCredentials) {
+      if (this.#isSent || this.#readyState > states3.OPENED) {
+        throw new DOMException(
+          "Unable to set withCredentials: the request was sent.",
+          "InvalidStateError"
+        );
+      }
+      this.#withCredentials = !!withCredentials;
+    }
+    get responseType() {
+      return this.#responseType;
+    }
+    set responseType(type) {
+      this.#checkNotLoading("responseType");
+      type = String(type);
+      if (responseTypes.includes(type)) this.#responseType = type;
+    }
+    open(method, url, async = true, user, password) {
+      checkArguments(arguments, 2, "open");
+      method = String(method);
+      if (!token.test(method)) {
+        throw new DOMException(
+          `Invalid XMLHttpRequest method: '${method}'.`,
+          "SyntaxError"
+        );
+      }
+      const upper = method.toUpperCase();
+      if (forbiddenMethods.includes(upper)) {
+        throw new DOMException(
+          `Unsupported XMLHttpRequest method: '${method}'.`,
+          "SecurityError"
+        );
+      }
+      const base = globalThis.location?.href;
+      url = String(url);
+      if (!URL.canParse(url, base)) {
+        throw new DOMException(
+          `Invalid XMLHttpRequest URL: '${url}'.`,
+          "SyntaxError"
+        );
+      }
+      if (!async) {
+        throw new DOMException(
+          "Unsupported synchronous XMLHttpRequest: scripts can't wait for the network.",
+          "InvalidAccessError"
+        );
+      }
+      const parsed = new URL(url, base);
+      if (user != null) parsed.username = user;
+      if (password != null) parsed.password = password;
+      this.#stop();
+      this.#method = methods.includes(upper) ? upper : method;
+      this.#url = parsed.href;
+      this.#headers = new Headers();
+      this.#isSent = false;
+      this.#response = this.#bytes = null;
+      this.#value = void 0;
+      if (this.#readyState !== states3.OPENED) {
+        this.#readyState = states3.OPENED;
+        fire(this, new Event("readystatechange"));
+      }
+    }
+    setRequestHeader(name, value) {
+      checkArguments(arguments, 2, "setRequestHeader");
+      this.#checkOpened("setRequestHeader");
+      name = String(name);
+      if (!token.test(name)) {
+        throw new DOMException(
+          `Invalid XMLHttpRequest header: '${name}'.`,
+          "SyntaxError"
+        );
+      }
+      const values = this.#headers.get(name);
+      this.#headers.set(name, values === null ? value : `${values}, ${value}`);
+    }
+    send(body = null) {
+      this.#checkOpened("send");
+      if (this.#method === "GET" || this.#method === "HEAD") body = null;
+      const request = this.#request = {};
+      const controller = this.#controller = new AbortController();
+      this.#isSent = true;
+      this.#isUploading = body != null;
+      fireProgress(this, "loadstart");
+      if (this.#isUploading) fireProgress(this.#upload, "loadstart");
+      if (this.#timeout > 0) {
+        this.#timer = setTimeout(() => this.#fail("timeout"), this.#timeout);
+      }
+      const isCurrent = /* @__PURE__ */ __name(() => this.#request === request, "isCurrent");
+      fetch(this.#url, {
+        method: this.#method,
+        headers: this.#headers,
+        body,
+        signal: controller.signal
+      }).then(
+        async (response) => {
+          if (isCurrent()) {
+            if (this.#isUploading) {
+              this.#isUploading = false;
+              for (const type of ["progress", "load", "loadend"]) {
+                fireProgress(this.#upload, type);
+              }
+            }
+            this.#response = response;
+            this.#setState(states3.HEADERS_RECEIVED);
+            const bytes = await response.bytes();
+            if (isCurrent()) {
+              this.#bytes = bytes;
+              this.#setState(states3.LOADING);
+              const { length } = bytes;
+              fireProgress(this, "progress", length, length);
+              this.#finish();
+              this.#setState(states3.DONE);
+              fireProgress(this, "load", length, length);
+              fireProgress(this, "loadend", length, length);
+            }
+          }
+        },
+        () => {
+          if (isCurrent()) this.#fail("error");
+        }
+      );
+    }
+    abort() {
+      const state = this.#readyState;
+      if (state === states3.OPENED && this.#isSent || state === states3.HEADERS_RECEIVED || state === states3.LOADING) {
+        this.#fail("abort");
+      } else {
+        this.#stop();
+      }
+      if (this.#readyState === states3.DONE) {
+        this.#readyState = states3.UNSENT;
+        this.#response = this.#bytes = null;
+      }
+    }
+    get status() {
+      return this.#response?.status ?? 0;
+    }
+    get statusText() {
+      return this.#response?.statusText ?? "";
+    }
+    get responseURL() {
+      return this.#response?.url ?? "";
+    }
+    getResponseHeader(name) {
+      checkArguments(arguments, 1, "getResponseHeader");
+      return this.#response?.headers.get(name) ?? null;
+    }
+    // Sorted by name, in lower case, the values of a name joined:
+    getAllResponseHeaders() {
+      return [...this.#response?.headers ?? []].map(([name, value]) => `${name}: ${value}\r
+`).join("");
+    }
+    overrideMimeType(mime) {
+      checkArguments(arguments, 1, "overrideMimeType");
+      this.#checkNotLoading("overrideMimeType");
+      this.#mimeType = String(mime);
+    }
+    get responseText() {
+      if (this.#responseType !== "" && this.#responseType !== "text") {
+        throw new DOMException(
+          `Unable to read responseText of a '${this.#responseType}' response.`,
+          "InvalidStateError"
+        );
+      }
+      return this.#bytes ? new TextDecoder().decode(this.#bytes) : "";
+    }
+    get response() {
+      const type = this.#responseType;
+      return type === "" || type === "text" ? this.responseText : this.#readyState !== states3.DONE ? null : this.#value === void 0 ? this.#value = this.#getResponse(type) : this.#value;
+    }
+    get responseXML() {
+      const type = this.#responseType;
+      if (type !== "" && type !== "document") {
+        throw new DOMException(
+          `Unable to read responseXML of a '${type}' response.`,
+          "InvalidStateError"
+        );
+      }
+      return this.#readyState !== states3.DONE ? null : this.#value === void 0 ? this.#value = this.#getDocument() : this.#value;
+    }
+    #getResponse(type) {
+      const bytes = this.#bytes ?? new Uint8Array();
+      switch (type) {
+        case "json":
+          try {
+            return JSON.parse(new TextDecoder().decode(bytes));
+          } catch {
+            return null;
+          }
+        case "arraybuffer":
+          return bytes.slice().buffer;
+        case "blob":
+          return new Blob([bytes], { type: this.#getMimeType() });
+        case "document":
+          return this.#getDocument();
+      }
+    }
+    // XML as a document, and HTML when `responseType` asks for a document:
+    #getDocument() {
+      const mime = this.#getMimeType().split(";")[0].trim().toLowerCase();
+      const kind = mime === "text/html" ? this.#responseType === "document" && "text/html" : (mime === "text/xml" || mime === "application/xml" || mime.endsWith("+xml")) && "text/xml";
+      if (kind && this.#bytes) {
+        try {
+          const parser = new dom.window.DOMParser();
+          return parser.parseFromString(this.responseText, kind);
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    }
+    // The overridden type, else the response's, else XML, as the standard has it:
+    #getMimeType() {
+      return this.#mimeType ?? this.#response?.headers.get("content-type") ?? "text/xml";
+    }
+    #setState(state) {
+      this.#readyState = state;
+      fire(this, new Event("readystatechange"));
+    }
+    #checkOpened(name) {
+      if (this.#readyState !== states3.OPENED || this.#isSent) {
+        throw new DOMException(
+          `Unable to ${name}(): the request isn't opened, or was sent.`,
+          "InvalidStateError"
+        );
+      }
+    }
+    #checkNotLoading(name) {
+      if (this.#readyState >= states3.LOADING) {
+        throw new DOMException(
+          `Unable to set ${name}: the response is loading or loaded.`,
+          "InvalidStateError"
+        );
+      }
+    }
+    // The request done, its timeout cleared:
+    #finish() {
+      clearTimeout(this.#timer);
+      this.#request = this.#controller = this.#timer = null;
+      this.#isSent = false;
+    }
+    // The request in flight stopped, without an event:
+    #stop() {
+      this.#controller?.abort();
+      this.#finish();
+    }
+    // The request failed with `type`, 'error', 'abort' or 'timeout', as a network
+    // error: no response, and events to say so.
+    #fail(type) {
+      const isUploading = this.#isUploading;
+      this.#isUploading = false;
+      this.#stop();
+      this.#response = this.#bytes = null;
+      this.#setState(states3.DONE);
+      if (isUploading) {
+        fireProgress(this.#upload, type);
+        fireProgress(this.#upload, "loadend");
+      }
+      fireProgress(this, type);
+      fireProgress(this, "loadend");
+    }
+  };
+  defineConstants(XMLHttpRequest, states3);
+  defineEventHandlers(
+    XMLHttpRequestEventTarget.prototype,
+    "loadstart",
+    "progress",
+    "abort",
+    "error",
+    "load",
+    "timeout",
+    "loadend"
+  );
+  defineEventHandlers(XMLHttpRequest.prototype, "readystatechange");
+  setToStringTag(XMLHttpRequestEventTarget, XMLHttpRequestUpload, XMLHttpRequest);
+  function fireProgress(target, type, loaded = 0, total = 0) {
+    fire(
+      target,
+      new ProgressEvent(type, { lengthComputable: total > 0, loaded, total })
+    );
+  }
+  __name(fireProgress, "fireProgress");
+
   // src/index.js
   delete globalThis.__scriptographer;
   var { print } = natives;
@@ -4695,6 +5071,9 @@ ${value}\r
     const { getBody: getBody2, ...classes } = fetch_exports;
     inject(globalThis, { ...abort_exports, Blob: Blob2, File: File2, ...classes });
     Object.assign(natives, { getBytes: getBytes2 });
+  }
+  if (!globalThis.XMLHttpRequest) {
+    inject(globalThis, { ...xhr_exports });
   }
   if (!globalThis.localStorage) {
     inject(globalThis, {

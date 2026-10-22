@@ -30,6 +30,7 @@ import { URL, URLSearchParams } from './url.js'
 import { WebSocket } from './websocket.js'
 import { MessageChannel, MessagePort, makePort } from './message-port.js'
 import { Worker, setupWorker } from './worker.js'
+import * as xhr from './xhr.js'
 
 delete globalThis.__scriptographer
 const { print } = natives
@@ -67,6 +68,9 @@ if (!globalThis.fetch) {
   inject(globalThis, { ...abort, Blob, File, ...classes })
   // What the runtime reads of blobs:
   Object.assign(natives, { getBytes })
+}
+if (!globalThis.XMLHttpRequest) {
+  inject(globalThis, { ...xhr })
 }
 if (!globalThis.localStorage) {
   inject(globalThis, {

@@ -216,6 +216,13 @@ export class CloseEvent extends Event {
   }
 }
 
+export class ProgressEvent extends Event {
+  constructor(type, init) {
+    super(...arguments)
+    setMembers(this, init, { lengthComputable: false, loaded: 0, total: 0 })
+  }
+}
+
 export class ErrorEvent extends Event {
   constructor(type, init) {
     super(...arguments)
@@ -246,6 +253,7 @@ const fields = {
   [CustomEvent.name]: ['detail'],
   [MessageEvent.name]: ['data', 'origin', 'lastEventId', 'source', 'ports'],
   [CloseEvent.name]: ['wasClean', 'code', 'reason'],
+  [ProgressEvent.name]: ['lengthComputable', 'loaded', 'total'],
   [ErrorEvent.name]: ['message', 'filename', 'lineno', 'colno', 'error']
 }
 
@@ -254,6 +262,7 @@ for (const Class of [
   CustomEvent,
   MessageEvent,
   CloseEvent,
+  ProgressEvent,
   ErrorEvent
 ]) {
   for (const name of fields[Class.name]) {
@@ -277,6 +286,7 @@ setToStringTag(
   CustomEvent,
   MessageEvent,
   CloseEvent,
+  ProgressEvent,
   ErrorEvent
 )
 
