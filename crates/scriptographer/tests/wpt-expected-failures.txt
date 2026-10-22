@@ -55,40 +55,13 @@ html/canvas/offscreen/pixel-manipulation/2d.imageData.createImageBitmap.srgb.rgb
 html/canvas/offscreen/pixel-manipulation/2d.imageData.put.basic.rgba.float16.worker.js: putImageData() puts 16-bit floating point image data from getImageData() onto the canvas
 html/canvas/offscreen/text/2d.text.measure.emHeights-low-ascent.worker.js: Testing emHeights with reduced ascent metric
 html/canvas/offscreen/text/2d.text.measure.emHeights-zero-descent.worker.js: Testing emHeights with zero descent metric
-html/canvas/offscreen/text/2d.text.measure.fillTextCluster-options.tentative.worker.js: Test that fillTextCluster() correctly applies the options passed as a dictionary.
-html/canvas/offscreen/text/2d.text.measure.fillTextCluster-range.tentative.worker.js: Test that getTextClusters() and fillTextCluster() correctly render different ranges of the input text.
 html/canvas/offscreen/text/2d.text.measure.fontBoundingBox-reduced-ascent.worker.js: Testing fontBoundingBox for OffscreenCanvas with reduced ascent metric
 html/canvas/offscreen/text/2d.text.measure.fontBoundingBox-zero-descent.worker.js: Testing fontBoundingBox for OffscreenCanvas with zero descent metric
-html/canvas/offscreen/text/2d.text.measure.getActualBoundingBox-exceptions.tentative.worker.js: Check that TextMetrics::getActualBoundingBox() throws when using invalid indexes.
 html/canvas/offscreen/text/2d.text.measure.getActualBoundingBox-full-text.tentative.worker.js: Test TextMetrics::getActualBoundingBox() for the full length of the string for some edge cases, with direction ltr and directional-override
 html/canvas/offscreen/text/2d.text.measure.getActualBoundingBox-full-text.tentative.worker.js: Test TextMetrics::getActualBoundingBox() for the full length of the string for some edge cases, with direction ltr and no-directional-override
 html/canvas/offscreen/text/2d.text.measure.getActualBoundingBox-full-text.tentative.worker.js: Test TextMetrics::getActualBoundingBox() for the full length of the string for some edge cases, with direction rtl and directional-override
 html/canvas/offscreen/text/2d.text.measure.getActualBoundingBox-full-text.tentative.worker.js: Test TextMetrics::getActualBoundingBox() for the full length of the string for some edge cases, with direction rtl and no-directional-override
-html/canvas/offscreen/text/2d.text.measure.getActualBoundingBox.tentative.worker.js: Test TextMetrics::getActualBoundingBox(), with text align center , and 0px letter spacing.
-html/canvas/offscreen/text/2d.text.measure.getActualBoundingBox.tentative.worker.js: Test TextMetrics::getActualBoundingBox(), with text align center , and 10px letter spacing.
-html/canvas/offscreen/text/2d.text.measure.getActualBoundingBox.tentative.worker.js: Test TextMetrics::getActualBoundingBox(), with text align left , and 0px letter spacing.
-html/canvas/offscreen/text/2d.text.measure.getActualBoundingBox.tentative.worker.js: Test TextMetrics::getActualBoundingBox(), with text align left , and 10px letter spacing.
-html/canvas/offscreen/text/2d.text.measure.getActualBoundingBox.tentative.worker.js: Test TextMetrics::getActualBoundingBox(), with text align right , and 0px letter spacing.
-html/canvas/offscreen/text/2d.text.measure.getActualBoundingBox.tentative.worker.js: Test TextMetrics::getActualBoundingBox(), with text align right , and 10px letter spacing.
-html/canvas/offscreen/text/2d.text.measure.index-from-offset-edge-cases.tentative.worker.js: Test the edge cases for getIndexFromOffset, where the point is at the edge of glyph and at the midpoint.
-html/canvas/offscreen/text/2d.text.measure.index-from-offset-edges.tentative.worker.js: Check that TextMetrics::getIndexFromOffset() gives correct edges when the requested point is outside the range, with direction ltr and text align center.
-html/canvas/offscreen/text/2d.text.measure.index-from-offset-edges.tentative.worker.js: Check that TextMetrics::getIndexFromOffset() gives correct edges when the requested point is outside the range, with direction ltr and text align end.
-html/canvas/offscreen/text/2d.text.measure.index-from-offset-edges.tentative.worker.js: Check that TextMetrics::getIndexFromOffset() gives correct edges when the requested point is outside the range, with direction ltr and text align left.
-html/canvas/offscreen/text/2d.text.measure.index-from-offset-edges.tentative.worker.js: Check that TextMetrics::getIndexFromOffset() gives correct edges when the requested point is outside the range, with direction ltr and text align right.
-html/canvas/offscreen/text/2d.text.measure.index-from-offset-edges.tentative.worker.js: Check that TextMetrics::getIndexFromOffset() gives correct edges when the requested point is outside the range, with direction ltr and text align start.
-html/canvas/offscreen/text/2d.text.measure.index-from-offset-edges.tentative.worker.js: Check that TextMetrics::getIndexFromOffset() gives correct edges when the requested point is outside the range, with direction rtl and text align center.
-html/canvas/offscreen/text/2d.text.measure.index-from-offset-edges.tentative.worker.js: Check that TextMetrics::getIndexFromOffset() gives correct edges when the requested point is outside the range, with direction rtl and text align end.
-html/canvas/offscreen/text/2d.text.measure.index-from-offset-edges.tentative.worker.js: Check that TextMetrics::getIndexFromOffset() gives correct edges when the requested point is outside the range, with direction rtl and text align left.
-html/canvas/offscreen/text/2d.text.measure.index-from-offset-edges.tentative.worker.js: Check that TextMetrics::getIndexFromOffset() gives correct edges when the requested point is outside the range, with direction rtl and text align right.
-html/canvas/offscreen/text/2d.text.measure.index-from-offset-edges.tentative.worker.js: Check that TextMetrics::getIndexFromOffset() gives correct edges when the requested point is outside the range, with direction rtl and text align start.
 html/canvas/offscreen/text/2d.text.measure.lang.worker.js: Testing the lang attribute
-html/canvas/offscreen/text/2d.text.measure.selection-rects-baselines.tentative.worker.js: Check that TextMetrics::getSelectionRects() works correctly with textBaseline.
-html/canvas/offscreen/text/2d.text.measure.selection-rects-exceptions.tentative.worker.js: Check that TextMetrics::getSelectionRects() throws when using invalid indexes.
-html/canvas/offscreen/text/2d.text.measure.strokeTextCluster-options.tentative.worker.js: Test that strokeTextCluster() correctly applies the options passed as a dictionary.
-html/canvas/offscreen/text/2d.text.measure.strokeTextCluster-range.tentative.worker.js: Test that getTextClusters() and strokeTextCluster() correctly render different ranges of the input text.
-html/canvas/offscreen/text/2d.text.measure.text-clusters-exceptions.tentative.worker.js: Check that TextMetrics::getTextClusters() throws when using invalid indexes.
-html/canvas/offscreen/text/2d.text.measure.text-clusters-position.tentative.worker.js: Test that TextMetrics::getTextClusters() returns clusters that are positioned according to the target align and baseline passed as options.
-html/canvas/offscreen/text/2d.text.measure.text-clusters-split.tentative.worker.js: Test that getTextClusters() splits the input correctly into the minimal clusters, keeping emojis together.
 html/canvas/offscreen/wide-gamut-canvas/2d.color.space.getImageData.convert.worker.js: Test getImageData color conversions from a display-p3 canvas
 html/canvas/offscreen/wide-gamut-canvas/2d.color.space.getImageData.convert.worker.js: Test getImageData color conversions from a display-p3-linear canvas
 html/canvas/offscreen/wide-gamut-canvas/2d.color.space.getImageData.convert.worker.js: Test getImageData color conversions from a srgb canvas

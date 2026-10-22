@@ -1531,6 +1531,44 @@ fn canvases_encode_transfer_and_stay_opaque<E: Engine>() {
     );
 }
 
+fn text_metrics_give_clusters_bounds_and_offsets<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "const ctx = new OffscreenCanvas(100, 60).getContext('2d')\n\
+             ctx.font = '40px \"Source Sans 3\"'\n\
+             const near = (a, b) => Math.abs(a - b) < 0.01\n\
+             const tm = ctx.measureText('AB\\r\\nC')\n\
+             const clusters = tm.getTextClusters()\n\
+             const [a, b] = clusters\n\
+             console.log(tm instanceof TextMetrics, clusters.map(c => c.start + '-' + c.end).join(' '), a.text, near(b.x, ctx.measureText('A').width))\n\
+             const box = tm.getActualBoundingBox(0, 5)\n\
+             console.log(near(box.x, -tm.actualBoundingBoxLeft), near(box.width, tm.actualBoundingBoxLeft + tm.actualBoundingBoxRight))\n\
+             const [rect] = tm.getSelectionRects(0, 2)\n\
+             console.log(near(rect.height, tm.fontBoundingBoxAscent + tm.fontBoundingBoxDescent), tm.getSelectionRects(2, 1).length)\n\
+             console.log(tm.getIndexFromOffset(-5), tm.getIndexFromOffset(a.x + 1), tm.getIndexFromOffset(1000))\n\
+             try { tm.getTextClusters(3, 1) } catch (e) { console.log(e.name) }\n\
+             ctx.fillStyle = '#0f0'\n\
+             ctx.fillTextCluster(a, 0, 0, { baseline: 'top' })\n\
+             console.log(ctx.getImageData(0, 0, 100, 60).data.some((v, i) => i % 4 === 1 && v > 0))",
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.take_output(),
+        [
+            // CR and LF are spaces by then, two clusters.
+            "true 0-1 1-2 2-3 3-4 4-5 A true",
+            "true true",
+            "true 0",
+            "0 0 5",
+            "IndexSizeError",
+            "true",
+        ]
+    );
+}
+
 fn runtimes_live_side_by_side<E: Engine>() {
     // As the app runs them: a second script starts while the first keeps running, and the first
     // stops first.
@@ -1791,6 +1829,11 @@ macro_rules! engine_tests {
             #[test]
             fn workers_run_scripts_on_their_threads() {
                 super::workers_run_scripts_on_their_threads::<$engine>(stringify!($module));
+            }
+
+            #[test]
+            fn text_metrics_give_clusters_bounds_and_offsets() {
+                super::text_metrics_give_clusters_bounds_and_offsets::<$engine>();
             }
 
             #[test]

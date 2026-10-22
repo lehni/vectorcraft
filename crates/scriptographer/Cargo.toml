@@ -29,6 +29,8 @@ vello_common = { version = "0.2", default-features = false }
 image = { workspace = true }
 # Naming each script's `localStorage` file for its path.
 sha2 = { version = "0.10", default-features = false }
+# The grapheme clusters of `TextMetrics`, as the app's text editing has them.
+unicode-segmentation = "1.13"
 # `atob` and `btoa`.
 vectorcraft-format = { workspace = true }
 # Resolving `import` specifiers against modules from the web.

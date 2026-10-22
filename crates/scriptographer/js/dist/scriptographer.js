@@ -673,8 +673,1076 @@
     OffscreenCanvas: () => OffscreenCanvas,
     OffscreenCanvasRenderingContext2D: () => OffscreenCanvasRenderingContext2D,
     Path2D: () => Path2D,
+    TextCluster: () => TextCluster,
+    TextMetrics: () => TextMetrics,
     createImageBitmap: () => createImageBitmap
   });
+
+  // src/geometry.js
+  var geometry_exports = {};
+  __export(geometry_exports, {
+    DOMMatrix: () => DOMMatrix2,
+    DOMMatrixReadOnly: () => DOMMatrixReadOnly,
+    DOMPoint: () => DOMPoint,
+    DOMPointReadOnly: () => DOMPointReadOnly,
+    DOMQuad: () => DOMQuad,
+    DOMRect: () => DOMRect,
+    DOMRectReadOnly: () => DOMRectReadOnly,
+    getGeometryValues: () => getGeometryValues
+  });
+
+  // src/css-transform.js
+  var functions = {
+    matrix: Array(6).fill("number"),
+    matrix3d: Array(16).fill("number"),
+    translate: ["length", "length?"],
+    translatex: ["length"],
+    translatey: ["length"],
+    translatez: ["length"],
+    translate3d: ["length", "length", "length"],
+    scale: ["scale", "scale?"],
+    scalex: ["scale"],
+    scaley: ["scale"],
+    scalez: ["scale"],
+    scale3d: ["scale", "scale", "scale"],
+    rotate: ["angle"],
+    rotatex: ["angle"],
+    rotatey: ["angle"],
+    rotatez: ["angle"],
+    rotate3d: ["number", "number", "number", "angle"],
+    skew: ["angle", "angle?"],
+    skewx: ["angle"],
+    skewy: ["angle"],
+    perspective: ["length"]
+  };
+  var units = {
+    "": ["number", 1],
+    "%": ["percentage", 1],
+    "px": ["length", 1],
+    "cm": ["length", 96 / 2.54],
+    "mm": ["length", 96 / 25.4],
+    "q": ["length", 96 / 101.6],
+    "in": ["length", 96],
+    "pc": ["length", 16],
+    "pt": ["length", 4 / 3],
+    "deg": ["angle", 1],
+    "rad": ["angle", 180 / Math.PI],
+    "grad": ["angle", 0.9],
+    "turn": ["angle", 360]
+  };
+  function parseTransformList(text) {
+    let rest = String(text).replace(/\/\*[^]*?\*\//g, "").trim();
+    if (/^none$/i.test(rest)) return [];
+    const list = [];
+    do {
+      const match = /^([a-z0-9]+)\(/i.exec(rest);
+      const name = match?.[1].toLowerCase();
+      const types2 = functions[name];
+      if (!types2) throw syntaxError(text);
+      const end = getClosing(rest, match[0].length, text);
+      const args = split(rest.slice(match[0].length, end)).map(
+        (arg) => parseValue(arg, text)
+      );
+      list.push({ name, args: getArguments(args, types2, text) });
+      rest = rest.slice(end + 1).trimStart();
+    } while (rest);
+    return list;
+  }
+  __name(parseTransformList, "parseTransformList");
+  function getArguments(args, types2, text) {
+    const needed = types2.filter((type) => !type.endsWith("?")).length;
+    if (args.length < needed || args.length > types2.length) {
+      throw syntaxError(text);
+    }
+    return args.map(({ type, value }, index) => {
+      const wanted = types2[index].replace("?", "");
+      if (type === wanted || // A length or an angle may be a plain 0:
+      type === "number" && value === 0 && wanted !== "number") {
+        return value;
+      } else if (wanted === "scale" && (type === "number" || type === "percentage")) {
+        return type === "percentage" ? value / 100 : value;
+      } else {
+        throw syntaxError(text);
+      }
+    });
+  }
+  __name(getArguments, "getArguments");
+  function parseValue(source, text) {
+    const tokens = tokenize(source.trim(), text);
+    let at = 0;
+    const peek = /* @__PURE__ */ __name(() => tokens[at], "peek");
+    const next = /* @__PURE__ */ __name(() => tokens[at++], "next");
+    const sum = /* @__PURE__ */ __name(() => {
+      let left = product();
+      while (peek() === "+" || peek() === "-") {
+        const sign = next() === "+" ? 1 : -1;
+        const right = product();
+        if (left.type !== right.type) throw syntaxError(text);
+        left = { type: left.type, value: left.value + sign * right.value };
+      }
+      return left;
+    }, "sum");
+    const product = /* @__PURE__ */ __name(() => {
+      let left = term();
+      while (peek() === "*" || peek() === "/") {
+        const operator = next();
+        const right = term();
+        if (operator === "*" && left.type === "number") {
+          left = { type: right.type, value: left.value * right.value };
+        } else if (right.type === "number") {
+          left = {
+            type: left.type,
+            value: operator === "*" ? left.value * right.value : left.value / right.value
+          };
+        } else {
+          throw syntaxError(text);
+        }
+      }
+      return left;
+    }, "product");
+    const term = /* @__PURE__ */ __name(() => {
+      const token = next();
+      if (token === "(" || token === "calc(") {
+        const value2 = sum();
+        if (next() !== ")") throw syntaxError(text);
+        return value2;
+      } else if (token?.type) {
+        return token;
+      } else {
+        throw syntaxError(text);
+      }
+    }, "term");
+    const value = tokens[0] === "calc(" ? term() : next();
+    if (!value?.type || at !== tokens.length) throw syntaxError(text);
+    return value;
+  }
+  __name(parseValue, "parseValue");
+  function tokenize(source, text) {
+    const tokens = [];
+    const pattern = /\s*(?:([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)([a-z%]*)|(calc\()|([()*/])|(\s[+-]\s))/iy;
+    while (pattern.lastIndex < source.length) {
+      const match = pattern.exec(source);
+      if (!match) throw syntaxError(text);
+      const [, number, unit, calc, symbol, operator] = match;
+      if (number !== void 0) {
+        const known = units[unit.toLowerCase()];
+        if (!known) throw syntaxError(text);
+        const [type, factor] = known;
+        tokens.push({ type, value: Number(number) * factor });
+      } else {
+        tokens.push(calc?.toLowerCase() ?? symbol ?? operator.trim());
+      }
+    }
+    return tokens;
+  }
+  __name(tokenize, "tokenize");
+  function getClosing(source, start, text) {
+    let depth = 1;
+    for (let index = start; index < source.length; index++) {
+      if (source[index] === "(") depth++;
+      else if (source[index] === ")" && --depth === 0) return index;
+    }
+    throw syntaxError(text);
+  }
+  __name(getClosing, "getClosing");
+  function split(source) {
+    const args = [];
+    let depth = 0;
+    let start = 0;
+    for (let index = 0; index < source.length; index++) {
+      const char = source[index];
+      if (char === "(") depth++;
+      else if (char === ")") depth--;
+      else if (char === "," && depth === 0) {
+        args.push(source.slice(start, index));
+        start = index + 1;
+      }
+    }
+    args.push(source.slice(start));
+    return args;
+  }
+  __name(split, "split");
+  function syntaxError(text) {
+    return new DOMException(
+      `Invalid transform list: '${text}'.`,
+      "SyntaxError"
+    );
+  }
+  __name(syntaxError, "syntaxError");
+
+  // src/geometry.js
+  var identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  var aliases = [
+    ["a", "m11", 0],
+    ["b", "m12", 1],
+    ["c", "m21", 4],
+    ["d", "m22", 5],
+    ["e", "m41", 12],
+    ["f", "m42", 13]
+  ];
+  var threeD = [
+    ["m13", 2, 0],
+    ["m14", 3, 0],
+    ["m23", 6, 0],
+    ["m24", 7, 0],
+    ["m31", 8, 0],
+    ["m32", 9, 0],
+    ["m33", 10, 1],
+    ["m34", 11, 0],
+    ["m43", 14, 0],
+    ["m44", 15, 1]
+  ];
+  var names = [
+    "m11",
+    "m12",
+    "m13",
+    "m14",
+    "m21",
+    "m22",
+    "m23",
+    "m24",
+    "m31",
+    "m32",
+    "m33",
+    "m34",
+    "m41",
+    "m42",
+    "m43",
+    "m44"
+  ];
+  var getPoint;
+  var getRect;
+  var getQuad;
+  var getMatrix;
+  var setMatrix;
+  var DOMPointReadOnly = class {
+    static {
+      __name(this, "DOMPointReadOnly");
+    }
+    #values;
+    constructor(x = 0, y = 0, z = 0, w = 1) {
+      this.#values = [+x, +y, +z, +w];
+    }
+    static {
+      getPoint = /* @__PURE__ */ __name((point) => point.#values, "getPoint");
+    }
+    matrixTransform(matrix = {}) {
+      return DOMMatrixReadOnly.fromMatrix(matrix).transformPoint(this);
+    }
+    toJSON() {
+      const { x, y, z, w } = this;
+      return { x, y, z, w };
+    }
+    static fromPoint(point) {
+      const { x, y, z, w } = getPointInit(point);
+      return new this(x, y, z, w);
+    }
+  };
+  var DOMPoint = class extends DOMPointReadOnly {
+    static {
+      __name(this, "DOMPoint");
+    }
+  };
+  var DOMRectReadOnly = class {
+    static {
+      __name(this, "DOMRectReadOnly");
+    }
+    #values;
+    constructor(x = 0, y = 0, width = 0, height = 0) {
+      this.#values = [+x, +y, +width, +height];
+    }
+    static {
+      getRect = /* @__PURE__ */ __name((rect) => rect.#values, "getRect");
+    }
+    // `Math.min()` and `max()` are NaN when either value is, as the sides are:
+    get top() {
+      return Math.min(this.y, this.y + this.height);
+    }
+    get right() {
+      return Math.max(this.x, this.x + this.width);
+    }
+    get bottom() {
+      return Math.max(this.y, this.y + this.height);
+    }
+    get left() {
+      return Math.min(this.x, this.x + this.width);
+    }
+    toJSON() {
+      const { x, y, width, height, top, right, bottom, left } = this;
+      return { x, y, width, height, top, right, bottom, left };
+    }
+    static fromRect(rect) {
+      const { x, y, width, height } = getRectInit(rect);
+      return new this(x, y, width, height);
+    }
+  };
+  var DOMRect = class extends DOMRectReadOnly {
+    static {
+      __name(this, "DOMRect");
+    }
+  };
+  var DOMQuad = class {
+    static {
+      __name(this, "DOMQuad");
+    }
+    #points;
+    constructor(p1, p2, p3, p4) {
+      this.#points = [p1, p2, p3, p4].map((point) => DOMPoint.fromPoint(point));
+    }
+    static {
+      getQuad = /* @__PURE__ */ __name((quad) => quad.#points, "getQuad");
+    }
+    get p1() {
+      return this.#points[0];
+    }
+    get p2() {
+      return this.#points[1];
+    }
+    get p3() {
+      return this.#points[2];
+    }
+    get p4() {
+      return this.#points[3];
+    }
+    getBounds() {
+      const xs = this.#points.map((point) => point.x);
+      const ys = this.#points.map((point) => point.y);
+      const left = Math.min(...xs);
+      const top = Math.min(...ys);
+      return new DOMRect(left, top, Math.max(...xs) - left, Math.max(...ys) - top);
+    }
+    toJSON() {
+      const { p1, p2, p3, p4 } = this;
+      return { p1, p2, p3, p4 };
+    }
+    static fromRect(rect) {
+      const { x, y, width, height } = getRectInit(rect);
+      return new this(
+        { x, y },
+        { x: x + width, y },
+        { x: x + width, y: y + height },
+        { x, y: y + height }
+      );
+    }
+    static fromQuad(quad) {
+      const { p1, p2, p3, p4 } = getDictionary(quad, "DOMQuadInit") ?? {};
+      return new this(p1, p2, p3, p4);
+    }
+  };
+  var DOMMatrixReadOnly = class {
+    static {
+      __name(this, "DOMMatrixReadOnly");
+    }
+    #m;
+    #is2D;
+    // From a list of 6 numbers (2D) or 16, or else, as WebIDL converts it, from
+    // text: CSS's transform functions (another matrix as it writes itself).
+    constructor(init) {
+      if (init === void 0) {
+        this.#m = [...identity];
+        this.#is2D = true;
+      } else if (typeof init?.[Symbol.iterator] === "function" && typeof init !== "string") {
+        ;
+        [this.#m, this.#is2D] = getMatrixFromList(init);
+      } else {
+        ;
+        [this.#m, this.#is2D] = getMatrixFromCSS(String(init));
+      }
+    }
+    static {
+      getMatrix = /* @__PURE__ */ __name((matrix) => [matrix.#m, matrix.#is2D], "getMatrix");
+      setMatrix = /* @__PURE__ */ __name((matrix, [m, is2D]) => {
+        matrix.#m = m;
+        matrix.#is2D = is2D;
+        return matrix;
+      }, "setMatrix");
+    }
+    get is2D() {
+      return this.#is2D;
+    }
+    get isIdentity() {
+      return this.#m.every((value, index) => value === identity[index]);
+    }
+    // The operations on the read-only class give a new matrix, the writable
+    // class's change it (`translateSelf()`):
+    translate(tx = 0, ty = 0, tz = 0) {
+      return operate(this, translation(+tx, +ty, +tz));
+    }
+    scale(sx = 1, sy = sx, sz = 1, ox = 0, oy = 0, oz = 0) {
+      return operate(this, scalingAround(+sx, +sy, +sz, +ox, +oy, +oz));
+    }
+    scaleNonUniform(sx = 1, sy = 1) {
+      return operate(this, scaling(+sx, +sy, 1));
+    }
+    scale3d(scale = 1, ox = 0, oy = 0, oz = 0) {
+      return operate(this, scalingAround(+scale, +scale, +scale, +ox, +oy, +oz));
+    }
+    rotate(rx = 0, ry, rz) {
+      return operate(this, rotationXYZ(rx, ry, rz));
+    }
+    rotateFromVector(x = 0, y = 0) {
+      return operate(this, rotationFromVector(+x, +y));
+    }
+    rotateAxisAngle(x = 0, y = 0, z = 0, angle = 0) {
+      return operate(this, rotation(+x, +y, +z, +angle));
+    }
+    skewX(sx = 0) {
+      return operate(this, get2D([1, 0, Math.tan(toRadians(+sx)), 1, 0, 0]));
+    }
+    skewY(sy = 0) {
+      return operate(this, get2D([1, Math.tan(toRadians(+sy)), 0, 1, 0, 0]));
+    }
+    multiply(other = {}) {
+      return operate(this, getMatrixInit(other));
+    }
+    flipX() {
+      return operate(this, get2D([-1, 0, 0, 1, 0, 0]));
+    }
+    flipY() {
+      return operate(this, get2D([1, 0, 0, -1, 0, 0]));
+    }
+    inverse() {
+      return setMatrix(new DOMMatrix2(), invert(getMatrix(this)));
+    }
+    transformPoint(point) {
+      const { x, y, z, w } = getPointInit(point);
+      const m = this.#m;
+      const row = /* @__PURE__ */ __name((r) => m[r] * x + m[4 + r] * y + m[8 + r] * z + m[12 + r] * w, "row");
+      return new DOMPoint(row(0), row(1), row(2), row(3));
+    }
+    toFloat32Array() {
+      return new Float32Array(this.#m);
+    }
+    toFloat64Array() {
+      return new Float64Array(this.#m);
+    }
+    toJSON() {
+      const json = {};
+      for (const [name] of aliases) json[name] = this[name];
+      for (const name of names) json[name] = this[name];
+      json.is2D = this.is2D;
+      json.isIdentity = this.isIdentity;
+      return json;
+    }
+    // `matrix(a, b, c, d, e, f)` or `matrix3d(...)`, its numbers as JavaScript
+    // writes them.
+    toString() {
+      const m = this.#m;
+      if (!m.every(Number.isFinite)) {
+        throw new DOMException(
+          "Unable to write a matrix that is not finite.",
+          "InvalidStateError"
+        );
+      }
+      return this.#is2D ? `matrix(${aliases.map(([, , index]) => m[index]).join(", ")})` : `matrix3d(${m.join(", ")})`;
+    }
+    static fromMatrix(other) {
+      return setMatrix(new this(), getMatrixInit(other));
+    }
+    static fromFloat32Array(array) {
+      return fromArray(this, array);
+    }
+    static fromFloat64Array(array) {
+      return fromArray(this, array);
+    }
+  };
+  var DOMMatrix2 = class extends DOMMatrixReadOnly {
+    static {
+      __name(this, "DOMMatrix");
+    }
+    translateSelf(tx = 0, ty = 0, tz = 0) {
+      return change(this, this.translate(tx, ty, tz));
+    }
+    scaleSelf(sx = 1, sy = sx, sz = 1, ox = 0, oy = 0, oz = 0) {
+      return change(this, this.scale(sx, sy, sz, ox, oy, oz));
+    }
+    scale3dSelf(scale = 1, ox = 0, oy = 0, oz = 0) {
+      return change(this, this.scale3d(scale, ox, oy, oz));
+    }
+    rotateSelf(rx = 0, ry, rz) {
+      return change(this, this.rotate(rx, ry, rz));
+    }
+    rotateFromVectorSelf(x = 0, y = 0) {
+      return change(this, this.rotateFromVector(x, y));
+    }
+    rotateAxisAngleSelf(x = 0, y = 0, z = 0, angle = 0) {
+      return change(this, this.rotateAxisAngle(x, y, z, angle));
+    }
+    skewXSelf(sx = 0) {
+      return change(this, this.skewX(sx));
+    }
+    skewYSelf(sy = 0) {
+      return change(this, this.skewY(sy));
+    }
+    multiplySelf(other = {}) {
+      return change(this, this.multiply(other));
+    }
+    preMultiplySelf(other = {}) {
+      return setMatrix(this, multiply(getMatrixInit(other), getMatrix(this)));
+    }
+    invertSelf() {
+      return setMatrix(this, invert(getMatrix(this)));
+    }
+    setMatrixValue(transformList) {
+      return setMatrix(this, getMatrixFromCSS(String(transformList)));
+    }
+  };
+  defineAttributes(
+    DOMPointReadOnly,
+    DOMPoint,
+    ["x", "y", "z", "w"].map((name, index) => [name, index]),
+    (point) => getPoint(point)
+  );
+  defineAttributes(
+    DOMRectReadOnly,
+    DOMRect,
+    ["x", "y", "width", "height"].map((name, index) => [name, index]),
+    (rect) => getRect(rect)
+  );
+  defineAttributes(
+    DOMMatrixReadOnly,
+    DOMMatrix2,
+    [
+      ...aliases.map(([name, , index]) => [name, index]),
+      ...names.map((name, index) => [name, index])
+    ],
+    (matrix) => getMatrix(matrix)[0],
+    // A matrix that gets a 3D value isn't 2D anymore:
+    (matrix, index, value) => {
+      if (threeD.some(([, i, value2D]) => i === index && value !== value2D)) {
+        setMatrix(matrix, [getMatrix(matrix)[0], false]);
+      }
+    }
+  );
+  setToStringTag(
+    DOMPointReadOnly,
+    DOMPoint,
+    DOMRectReadOnly,
+    DOMRect,
+    DOMQuad,
+    DOMMatrixReadOnly,
+    DOMMatrix2
+  );
+  function defineAttributes(ReadOnly, Writable, entries, getValues3, changed) {
+    for (const [name, index] of entries) {
+      inject(
+        ReadOnly.prototype,
+        {
+          get [name]() {
+            return getValues3(this)[index];
+          }
+        },
+        { enumerable: true }
+      );
+      inject(
+        Writable.prototype,
+        {
+          get [name]() {
+            return getValues3(this)[index];
+          },
+          set [name](value) {
+            getValues3(this)[index] = +value;
+            changed?.(this, index, +value);
+          }
+        },
+        { enumerable: true }
+      );
+    }
+  }
+  __name(defineAttributes, "defineAttributes");
+  function change(matrix, result) {
+    return setMatrix(matrix, getMatrix(result));
+  }
+  __name(change, "change");
+  function operate(matrix, other) {
+    return setMatrix(new DOMMatrix2(), multiply(getMatrix(matrix), other));
+  }
+  __name(operate, "operate");
+  function multiply([a, is2DA], [b, is2DB]) {
+    const m = [];
+    for (let i = 0; i < 16; i++) {
+      const column = Math.floor(i / 4);
+      const row = i % 4;
+      let value = 0;
+      for (let k = 0; k < 4; k++) value += a[k * 4 + row] * b[column * 4 + k];
+      m.push(value);
+    }
+    return [m, is2DA && is2DB];
+  }
+  __name(multiply, "multiply");
+  function getMatrixFromCSS(text) {
+    return (text === "" ? [] : parseTransformList(text)).map(({ name, args }) => getTransform(name, args)).reduce(multiply, [[...identity], true]);
+  }
+  __name(getMatrixFromCSS, "getMatrixFromCSS");
+  function getTransform(name, args) {
+    const [a, b, c, d] = args;
+    const tan = /* @__PURE__ */ __name((degrees) => Math.tan(toRadians(degrees)), "tan");
+    const [m, is2D] = {
+      matrix: /* @__PURE__ */ __name(() => get2D(args), "matrix"),
+      matrix3d: /* @__PURE__ */ __name(() => [args, false], "matrix3d"),
+      translate: /* @__PURE__ */ __name(() => translation(a, b ?? 0, 0), "translate"),
+      translatex: /* @__PURE__ */ __name(() => translation(a, 0, 0), "translatex"),
+      translatey: /* @__PURE__ */ __name(() => translation(0, a, 0), "translatey"),
+      translatez: /* @__PURE__ */ __name(() => translation(0, 0, a), "translatez"),
+      translate3d: /* @__PURE__ */ __name(() => translation(a, b, c), "translate3d"),
+      scale: /* @__PURE__ */ __name(() => scaling(a, b ?? a, 1), "scale"),
+      scalex: /* @__PURE__ */ __name(() => scaling(a, 1, 1), "scalex"),
+      scaley: /* @__PURE__ */ __name(() => scaling(1, a, 1), "scaley"),
+      scalez: /* @__PURE__ */ __name(() => scaling(1, 1, a), "scalez"),
+      scale3d: /* @__PURE__ */ __name(() => scaling(a, b, c), "scale3d"),
+      rotate: /* @__PURE__ */ __name(() => rotation(0, 0, 1, a), "rotate"),
+      rotatex: /* @__PURE__ */ __name(() => rotation(1, 0, 0, a), "rotatex"),
+      rotatey: /* @__PURE__ */ __name(() => rotation(0, 1, 0, a), "rotatey"),
+      rotatez: /* @__PURE__ */ __name(() => rotation(0, 0, 1, a), "rotatez"),
+      rotate3d: /* @__PURE__ */ __name(() => rotation(a, b, c, d), "rotate3d"),
+      skew: /* @__PURE__ */ __name(() => get2D([1, tan(b ?? 0), tan(a), 1, 0, 0]), "skew"),
+      skewx: /* @__PURE__ */ __name(() => get2D([1, 0, tan(a), 1, 0, 0]), "skewx"),
+      skewy: /* @__PURE__ */ __name(() => get2D([1, tan(a), 0, 1, 0, 0]), "skewy"),
+      // `m34`, of a distance of 1 at least:
+      perspective: /* @__PURE__ */ __name(() => {
+        const m2 = [...identity];
+        m2[11] = -1 / Math.max(a, 1);
+        return [m2, false];
+      }, "perspective")
+    }[name]();
+    return [m, is2D && !/3d$|z$|^rotate[xy]$|^perspective$/.test(name)];
+  }
+  __name(getTransform, "getTransform");
+  function get2D([a, b, c, d, e, f]) {
+    const m = [...identity];
+    [m[0], m[1], m[4], m[5], m[12], m[13]] = [a, b, c, d, e, f];
+    return [m, true];
+  }
+  __name(get2D, "get2D");
+  function translation(x, y, z) {
+    const m = [...identity];
+    [m[12], m[13], m[14]] = [x, y, z];
+    return [m, z === 0];
+  }
+  __name(translation, "translation");
+  function scaling(x, y, z) {
+    const m = [...identity];
+    [m[0], m[5], m[10]] = [x, y, z];
+    return [m, z === 1];
+  }
+  __name(scaling, "scaling");
+  function scalingAround(sx, sy, sz, ox, oy, oz) {
+    return multiply(
+      multiply(translation(ox, oy, oz), scaling(sx, sy, sz)),
+      translation(-ox, -oy, -oz)
+    );
+  }
+  __name(scalingAround, "scalingAround");
+  function rotationXYZ(rx, ry, rz) {
+    const [x, y, z] = ry === void 0 && rz === void 0 ? [0, 0, +rx] : [+rx, +(ry ?? 0), +(rz ?? 0)];
+    let result = rotation(0, 0, 1, z);
+    if (y !== 0) result = multiply(result, rotation(0, 1, 0, y));
+    if (x !== 0) result = multiply(result, rotation(1, 0, 0, x));
+    return result;
+  }
+  __name(rotationXYZ, "rotationXYZ");
+  function rotationFromVector(x, y) {
+    return rotation(
+      0,
+      0,
+      1,
+      x === 0 && y === 0 ? 0 : Math.atan2(y, x) * 180 / Math.PI
+    );
+  }
+  __name(rotationFromVector, "rotationFromVector");
+  function rotation(x, y, z, degrees) {
+    const is2D = x === 0 && y === 0;
+    const length = Math.hypot(x, y, z);
+    if (length === 0 || !Number.isFinite(length)) return [[...identity], is2D];
+    [x, y, z] = [x / length, y / length, z / length];
+    const half = toRadians(degrees) / 2;
+    const sc = Math.sin(half) * Math.cos(half);
+    const sq = Math.sin(half) ** 2;
+    const m = [
+      1 - 2 * (y * y + z * z) * sq,
+      2 * (x * y * sq + z * sc),
+      2 * (x * z * sq - y * sc),
+      0,
+      2 * (x * y * sq - z * sc),
+      1 - 2 * (x * x + z * z) * sq,
+      2 * (y * z * sq + x * sc),
+      0,
+      2 * (x * z * sq + y * sc),
+      2 * (y * z * sq - x * sc),
+      1 - 2 * (x * x + y * y) * sq,
+      0,
+      0,
+      0,
+      0,
+      1
+    ];
+    return [m, is2D];
+  }
+  __name(rotation, "rotation");
+  function invert([m, is2D]) {
+    const singular = [new Array(16).fill(NaN), false];
+    if (!m.every(Number.isFinite)) return singular;
+    if (is2D) {
+      const [a, b, c, d, e, f] = aliases.map(([, , index]) => m[index]);
+      const det2 = a * d - b * c;
+      return det2 === 0 ? singular : get2D([
+        d / det2,
+        -b / det2,
+        -c / det2,
+        a / det2,
+        (c * f - d * e) / det2,
+        (b * e - a * f) / det2
+      ]);
+    }
+    const i = [
+      m[5] * m[10] * m[15] - m[5] * m[11] * m[14] - m[9] * m[6] * m[15] + m[9] * m[7] * m[14] + m[13] * m[6] * m[11] - m[13] * m[7] * m[10],
+      -m[1] * m[10] * m[15] + m[1] * m[11] * m[14] + m[9] * m[2] * m[15] - m[9] * m[3] * m[14] - m[13] * m[2] * m[11] + m[13] * m[3] * m[10],
+      m[1] * m[6] * m[15] - m[1] * m[7] * m[14] - m[5] * m[2] * m[15] + m[5] * m[3] * m[14] + m[13] * m[2] * m[7] - m[13] * m[3] * m[6],
+      -m[1] * m[6] * m[11] + m[1] * m[7] * m[10] + m[5] * m[2] * m[11] - m[5] * m[3] * m[10] - m[9] * m[2] * m[7] + m[9] * m[3] * m[6],
+      -m[4] * m[10] * m[15] + m[4] * m[11] * m[14] + m[8] * m[6] * m[15] - m[8] * m[7] * m[14] - m[12] * m[6] * m[11] + m[12] * m[7] * m[10],
+      m[0] * m[10] * m[15] - m[0] * m[11] * m[14] - m[8] * m[2] * m[15] + m[8] * m[3] * m[14] + m[12] * m[2] * m[11] - m[12] * m[3] * m[10],
+      -m[0] * m[6] * m[15] + m[0] * m[7] * m[14] + m[4] * m[2] * m[15] - m[4] * m[3] * m[14] - m[12] * m[2] * m[7] + m[12] * m[3] * m[6],
+      m[0] * m[6] * m[11] - m[0] * m[7] * m[10] - m[4] * m[2] * m[11] + m[4] * m[3] * m[10] + m[8] * m[2] * m[7] - m[8] * m[3] * m[6],
+      m[4] * m[9] * m[15] - m[4] * m[11] * m[13] - m[8] * m[5] * m[15] + m[8] * m[7] * m[13] + m[12] * m[5] * m[11] - m[12] * m[7] * m[9],
+      -m[0] * m[9] * m[15] + m[0] * m[11] * m[13] + m[8] * m[1] * m[15] - m[8] * m[3] * m[13] - m[12] * m[1] * m[11] + m[12] * m[3] * m[9],
+      m[0] * m[5] * m[15] - m[0] * m[7] * m[13] - m[4] * m[1] * m[15] + m[4] * m[3] * m[13] + m[12] * m[1] * m[7] - m[12] * m[3] * m[5],
+      -m[0] * m[5] * m[11] + m[0] * m[7] * m[9] + m[4] * m[1] * m[11] - m[4] * m[3] * m[9] - m[8] * m[1] * m[7] + m[8] * m[3] * m[5],
+      -m[4] * m[9] * m[14] + m[4] * m[10] * m[13] + m[8] * m[5] * m[14] - m[8] * m[6] * m[13] - m[12] * m[5] * m[10] + m[12] * m[6] * m[9],
+      m[0] * m[9] * m[14] - m[0] * m[10] * m[13] - m[8] * m[1] * m[14] + m[8] * m[2] * m[13] + m[12] * m[1] * m[10] - m[12] * m[2] * m[9],
+      -m[0] * m[5] * m[14] + m[0] * m[6] * m[13] + m[4] * m[1] * m[14] - m[4] * m[2] * m[13] - m[12] * m[1] * m[6] + m[12] * m[2] * m[5],
+      m[0] * m[5] * m[10] - m[0] * m[6] * m[9] - m[4] * m[1] * m[10] + m[4] * m[2] * m[9] + m[8] * m[1] * m[6] - m[8] * m[2] * m[5]
+    ];
+    const det = m[0] * i[0] + m[1] * i[4] + m[2] * i[8] + m[3] * i[12];
+    return det !== 0 && Number.isFinite(det) ? [i.map((value) => value / det), false] : singular;
+  }
+  __name(invert, "invert");
+  function toRadians(degrees) {
+    return degrees * Math.PI / 180;
+  }
+  __name(toRadians, "toRadians");
+  function getDictionary(value, name) {
+    if (value == null) return null;
+    if (typeof value !== "object" && typeof value !== "function") {
+      throw new TypeError(`Invalid ${name}: '${value}'.`);
+    }
+    return value;
+  }
+  __name(getDictionary, "getDictionary");
+  function getPointInit(point) {
+    const {
+      x = 0,
+      y = 0,
+      z = 0,
+      w = 1
+    } = getDictionary(point, "DOMPointInit") ?? {};
+    return { x: +x, y: +y, z: +z, w: +w };
+  }
+  __name(getPointInit, "getPointInit");
+  function getRectInit(rect) {
+    const {
+      x = 0,
+      y = 0,
+      width = 0,
+      height = 0
+    } = getDictionary(rect, "DOMRectInit") ?? {};
+    return { x: +x, y: +y, width: +width, height: +height };
+  }
+  __name(getRectInit, "getRectInit");
+  function getMatrixInit(init) {
+    init = getDictionary(init, "DOMMatrixInit") ?? {};
+    const m = [...identity];
+    for (const [alias, name, index] of aliases) {
+      const aliasValue = init[alias] === void 0 ? void 0 : +init[alias];
+      const value = init[name] === void 0 ? void 0 : +init[name];
+      if (aliasValue !== void 0 && value !== void 0 && // Agreeing, as 0 and -0 do, and NaN and NaN:
+      aliasValue !== value && !Object.is(aliasValue, value)) {
+        throw new TypeError(`Invalid matrix: its ${name} and ${alias} disagree.`);
+      }
+      m[index] = value ?? aliasValue ?? m[index];
+    }
+    let hasThreeD = false;
+    for (const [name, index, default2D] of threeD) {
+      if (init[name] !== void 0) {
+        m[index] = +init[name];
+        hasThreeD ||= m[index] !== default2D;
+      }
+    }
+    const is2D = init.is2D === void 0 ? void 0 : !!init.is2D;
+    if (is2D && hasThreeD) {
+      throw new TypeError("Invalid matrix: a 2D matrix has 3D values.");
+    }
+    return [m, is2D ?? !hasThreeD];
+  }
+  __name(getMatrixInit, "getMatrixInit");
+  function getMatrixFromList(list) {
+    const values = Array.from(list ?? [], Number);
+    if (values.length === 6) return get2D(values);
+    if (values.length === 16) return [values, false];
+    throw new TypeError("Invalid matrix: it takes 6 or 16 numbers.");
+  }
+  __name(getMatrixFromList, "getMatrixFromList");
+  function fromArray(Class, array) {
+    if (!ArrayBuffer.isView(array)) {
+      throw new TypeError(`Invalid array: '${array}', not a typed array.`);
+    }
+    return setMatrix(new Class(), getMatrixFromList(array));
+  }
+  __name(fromArray, "fromArray");
+  function getGeometryValues(object) {
+    return object instanceof DOMPointReadOnly ? getPoint(object) : object instanceof DOMRectReadOnly ? getRect(object) : object instanceof DOMQuad ? getQuad(object).flatMap(getPoint) : object instanceof DOMMatrixReadOnly ? [...getMatrix(object)[0], getMatrix(object)[1] ? 1 : 0] : null;
+  }
+  __name(getGeometryValues, "getGeometryValues");
+
+  // src/text-metrics.js
+  var numbers = [
+    "width",
+    "actualBoundingBoxLeft",
+    "actualBoundingBoxRight",
+    "actualBoundingBoxAscent",
+    "actualBoundingBoxDescent",
+    "fontBoundingBoxAscent",
+    "fontBoundingBoxDescent",
+    "emHeightAscent",
+    "emHeightDescent",
+    "hangingBaseline",
+    "alphabeticBaseline",
+    "ideographicBaseline"
+  ];
+  var textSettings = [
+    "font",
+    "letterSpacing",
+    "wordSpacing",
+    "fontKerning",
+    "fontVariantCaps",
+    "direction",
+    "lang"
+  ];
+  var getValues;
+  var getClusterSettings;
+  var TextMetrics = class {
+    static {
+      __name(this, "TextMetrics");
+    }
+    #values;
+    #text;
+    #settings;
+    // Each cluster's start and end, left and advance, and its ink's left, right,
+    // top and bottom (heights):
+    #clusters = [];
+    constructor(key, values, text, settings) {
+      checkInternal(key, "TextMetrics", "measureText() makes them");
+      this.#values = values;
+      this.#text = text;
+      this.#settings = settings;
+      const { clusters } = values;
+      for (let at = 0; at < clusters.length; at += 8) {
+        const [start, end, left, advance, inkLeft, inkRight, top, bottom] = clusters.subarray(at, at + 8);
+        this.#clusters.push({
+          start,
+          end,
+          left,
+          advance,
+          inkLeft,
+          inkRight,
+          top,
+          bottom
+        });
+      }
+    }
+    static {
+      getValues = /* @__PURE__ */ __name((metrics) => metrics.#values, "getValues");
+    }
+    // The clusters of the text from `start` to `end`, positioned by `align` and
+    // `baseline`, by default the context's when it was measured.
+    getTextClusters(...args) {
+      const [start, end, options = {}] = args.length > 1 ? args : [0, this.#text.length, args[0]];
+      const {
+        align = this.#settings.textAlign,
+        baseline = this.#settings.textBaseline
+      } = options;
+      const y = -this.#getBaselineHeight(baseline);
+      return this.#getClusters(start, end, "getTextClusters").map(
+        (cluster) => new TextCluster(
+          internal,
+          {
+            text: this.#text.slice(cluster.start, cluster.end),
+            x: cluster.left + getAlignOffset(align, cluster.advance, this.#settings),
+            y,
+            start: cluster.start,
+            end: cluster.end,
+            align,
+            baseline
+          },
+          this.#settings
+        )
+      );
+    }
+    // The bounds of the ink of the text from `start` to `end`:
+    getActualBoundingBox(start, end) {
+      checkArguments(arguments, 2, "getActualBoundingBox");
+      const inked = this.#getClusters(start, end, "getActualBoundingBox").filter(
+        (cluster) => cluster.inkRight > cluster.inkLeft
+      );
+      if (!inked.length) {
+        return new DOMRectReadOnly();
+      }
+      const left = Math.min(...inked.map((cluster) => cluster.inkLeft));
+      const right = Math.max(...inked.map((cluster) => cluster.inkRight));
+      const top = Math.max(...inked.map((cluster) => cluster.top));
+      const bottom = Math.min(...inked.map((cluster) => cluster.bottom));
+      return new DOMRectReadOnly(left, -top, right - left, top - bottom);
+    }
+    // The rectangles that select the text from `start` to `end`, as tall as the
+    // font's bounding box:
+    getSelectionRects(start, end) {
+      checkArguments(arguments, 2, "getSelectionRects");
+      const { fontBoundingBoxAscent: ascent, fontBoundingBoxDescent: descent } = this.#values;
+      const rects = [];
+      for (const { left, advance } of this.#getClusters(
+        start,
+        end,
+        "getSelectionRects"
+      )) {
+        const last = rects.at(-1);
+        if (last && Math.abs(last.right - left) < 1e-6) {
+          last.width += advance;
+        } else {
+          rects.push(new DOMRect(left, -ascent, advance, ascent + descent));
+        }
+      }
+      return rects;
+    }
+    // The index of the character position nearest to `offset`, from the text's
+    // position: before a cluster up to its middle, after it beyond, in the
+    // cluster's own direction, which the next character shows.
+    getIndexFromOffset(offset) {
+      checkArguments(arguments, 1, "getIndexFromOffset");
+      offset = Number(offset);
+      const clusters = this.#clusters;
+      const isRightToLeft = /* @__PURE__ */ __name((index) => {
+        const [cluster, next, previous] = [index, index + 1, index - 1].map(
+          (i) => clusters[i]
+        );
+        return next ? next.left < cluster.left : previous ? previous.left > cluster.left : this.#settings.direction === "rtl";
+      }, "isRightToLeft");
+      const visual = clusters.map((cluster, index) => ({ ...cluster, rtl: isRightToLeft(index) })).sort((a, b) => a.left - b.left);
+      for (const { start, end, left, advance, rtl } of visual) {
+        if (offset <= left + advance / 2) {
+          return rtl ? end : start;
+        }
+      }
+      return this.#settings.direction === "rtl" ? 0 : this.#text.length;
+    }
+    // A start after the end selects nothing for `getSelectionRects()`.
+    #getClusters(start, end, name) {
+      start = getIndex(start, name);
+      end = getIndex(end, name);
+      const { length } = this.#text;
+      if (start > length || end > length || start > end && name !== "getSelectionRects") {
+        throw new DOMException(
+          `Invalid ${name}(): ${start} to ${end} isn't in the text.`,
+          "IndexSizeError"
+        );
+      }
+      return this.#clusters.filter(
+        (cluster) => cluster.start < end && cluster.end > start
+      );
+    }
+    // The height of the baseline above the text's position:
+    #getBaselineHeight(baseline) {
+      const values = this.#values;
+      return {
+        top: values.emHeightAscent,
+        hanging: values.hangingBaseline,
+        middle: (values.emHeightAscent - values.emHeightDescent) / 2,
+        alphabetic: values.alphabeticBaseline,
+        ideographic: values.ideographicBaseline,
+        bottom: -values.emHeightDescent
+      }[baseline] ?? values.alphabeticBaseline;
+    }
+  };
+  for (const name of numbers) {
+    inject(
+      TextMetrics.prototype,
+      {
+        get [name]() {
+          return getValues(this)[name];
+        }
+      },
+      { enumerable: true }
+    );
+  }
+  var TextCluster = class {
+    static {
+      __name(this, "TextCluster");
+    }
+    #values;
+    #settings;
+    constructor(key, values, settings) {
+      checkInternal(key, "TextCluster", "getTextClusters() makes them");
+      this.#values = values;
+      this.#settings = settings;
+    }
+    static {
+      getClusterSettings = /* @__PURE__ */ __name((cluster) => cluster.#settings, "getClusterSettings");
+    }
+    get text() {
+      return this.#values.text;
+    }
+    get x() {
+      return this.#values.x;
+    }
+    get y() {
+      return this.#values.y;
+    }
+    get start() {
+      return this.#values.start;
+    }
+    get end() {
+      return this.#values.end;
+    }
+    get align() {
+      return this.#values.align;
+    }
+    get baseline() {
+      return this.#values.baseline;
+    }
+  };
+  setToStringTag(TextMetrics, TextCluster);
+  function drawCluster(context, draw, cluster, x, y, options = {}) {
+    if (!(cluster instanceof TextCluster)) {
+      throw new TypeError(`Invalid text cluster: '${cluster}'.`);
+    }
+    const {
+      align = cluster.align,
+      baseline = cluster.baseline,
+      x: dx = cluster.x,
+      y: dy = cluster.y
+    } = options;
+    context.save();
+    Object.assign(context, getClusterSettings(cluster), {
+      textAlign: align,
+      textBaseline: baseline
+    });
+    context[draw](cluster.text, Number(x) + dx, Number(y) + dy);
+    context.restore();
+  }
+  __name(drawCluster, "drawCluster");
+  function getAlignOffset(align, advance, { direction }) {
+    const rtl = direction === "rtl";
+    return align === "center" ? advance / 2 : align === "right" || align === "end" && !rtl || align === "start" && rtl ? advance : 0;
+  }
+  __name(getAlignOffset, "getAlignOffset");
+  function getIndex(value, name) {
+    const index = Math.trunc(Number(value));
+    if (!(index >= 0 && index <= 2 ** 32 - 1)) {
+      throw new TypeError(`Invalid ${name}(): '${value}' isn't an index.`);
+    }
+    return index;
+  }
+  __name(getIndex, "getIndex");
+
+  // src/canvas.js
   var { canvas } = natives;
   var getCanvasSurface;
   var getBitmapSurface;
@@ -799,6 +1867,30 @@
     getContextAttributes() {
       return { ...this.#attributes };
     }
+    measureText(text) {
+      checkArguments(arguments, 1, "measureText");
+      text = String(text);
+      const settings = Object.fromEntries(
+        [...textSettings, "textAlign", "textBaseline"].map((key) => [
+          key,
+          this[key]
+        ])
+      );
+      return new TextMetrics(
+        internal,
+        canvas.methods.measureText.call(this.#surface, text),
+        text,
+        settings
+      );
+    }
+    fillTextCluster(cluster, x, y, options) {
+      checkArguments(arguments, 3, "fillTextCluster");
+      drawCluster(this, "fillText", cluster, x, y, options);
+    }
+    strokeTextCluster(cluster, x, y, options) {
+      checkArguments(arguments, 3, "strokeTextCluster");
+      drawCluster(this, "strokeText", cluster, x, y, options);
+    }
     // Transparent black, of a size, either way round, or of another
     // `ImageData`'s.
     createImageData(widthOrImage, height) {
@@ -881,7 +1973,6 @@
     }
   };
   var contextMethods = {
-    measureText: 1,
     beginPath: 0,
     closePath: 0,
     moveTo: 2,
@@ -933,7 +2024,7 @@
         checkOverloads(args, counts, name);
         return canvas.methods[name].call(
           getContextSurface(this),
-          ...getArguments(name, args, counts)
+          ...getArguments2(name, args, counts)
         );
       }
     });
@@ -1039,7 +2130,7 @@
         checkOverloads(args, counts, name);
         return canvas.pathMethods[name].call(
           getPath(this),
-          ...getArguments(name, args, counts)
+          ...getArguments2(name, args, counts)
         );
       }
     });
@@ -1166,10 +2257,10 @@
     return canvas.methods[name].call(surface, path, ...args);
   }
   __name(callWithPath, "callWithPath");
-  function getArguments(name, args, count) {
+  function getArguments2(name, args, count) {
     return numberMethods.has(name) ? args.map((arg, index) => index < count ? Number(arg) : arg) : args;
   }
-  __name(getArguments, "getArguments");
+  __name(getArguments2, "getArguments");
   function getFillRule(value = "nonzero") {
     const rule = String(value);
     if (rule !== "nonzero" && rule !== "evenodd") {
@@ -1212,8 +2303,8 @@
       const { x: rx = 0, y: ry = 0 } = isObject(radius) || radius === void 0 ? radius ?? {} : { x: radius, y: radius };
       return [+rx, +ry];
     });
-    const numbers = [+x, +y, +w, +h, ...corners.flat()];
-    if (!numbers.every(Number.isFinite)) return null;
+    const numbers2 = [+x, +y, +w, +h, ...corners.flat()];
+    if (!numbers2.every(Number.isFinite)) return null;
     if (corners.flat().some((r) => r < 0)) {
       throw new RangeError("Invalid roundRect() radius: it is negative.");
     }
@@ -1602,7 +2693,7 @@ ${stack}` : ""));
         const list = getComponents(components, values);
         return then(
           natives.ask({ type: "prompt", title: String(title), components: list }),
-          (answer) => getValues(list, answer, values)
+          (answer) => getValues2(list, answer, values)
         );
       },
       // A prompt with one colour: the colour picked, or `null`.
@@ -1669,7 +2760,7 @@ ${stack}` : ""));
     return component.type === "color" && typeof value === "string" ? new paper.Color(value) : value;
   }
   __name(getValue, "getValue");
-  function getValues(list, answer, values) {
+  function getValues2(list, answer, values) {
     if (answer && typeof answer === "object") {
       const result = values ?? {};
       for (const component of list) {
@@ -1682,7 +2773,7 @@ ${stack}` : ""));
       return null;
     }
   }
-  __name(getValues, "getValues");
+  __name(getValues2, "getValues");
   function getTexts(args) {
     const [title, message] = args.length > 1 ? args : [defaultTitle, args[0] ?? ""];
     return { title: String(title), message: String(message) };
@@ -2713,821 +3804,6 @@ ${value}\r
   }
   __name(getFilters, "getFilters");
 
-  // src/geometry.js
-  var geometry_exports = {};
-  __export(geometry_exports, {
-    DOMMatrix: () => DOMMatrix2,
-    DOMMatrixReadOnly: () => DOMMatrixReadOnly,
-    DOMPoint: () => DOMPoint,
-    DOMPointReadOnly: () => DOMPointReadOnly,
-    DOMQuad: () => DOMQuad,
-    DOMRect: () => DOMRect,
-    DOMRectReadOnly: () => DOMRectReadOnly,
-    getGeometryValues: () => getGeometryValues
-  });
-
-  // src/css-transform.js
-  var functions = {
-    matrix: Array(6).fill("number"),
-    matrix3d: Array(16).fill("number"),
-    translate: ["length", "length?"],
-    translatex: ["length"],
-    translatey: ["length"],
-    translatez: ["length"],
-    translate3d: ["length", "length", "length"],
-    scale: ["scale", "scale?"],
-    scalex: ["scale"],
-    scaley: ["scale"],
-    scalez: ["scale"],
-    scale3d: ["scale", "scale", "scale"],
-    rotate: ["angle"],
-    rotatex: ["angle"],
-    rotatey: ["angle"],
-    rotatez: ["angle"],
-    rotate3d: ["number", "number", "number", "angle"],
-    skew: ["angle", "angle?"],
-    skewx: ["angle"],
-    skewy: ["angle"],
-    perspective: ["length"]
-  };
-  var units = {
-    "": ["number", 1],
-    "%": ["percentage", 1],
-    "px": ["length", 1],
-    "cm": ["length", 96 / 2.54],
-    "mm": ["length", 96 / 25.4],
-    "q": ["length", 96 / 101.6],
-    "in": ["length", 96],
-    "pc": ["length", 16],
-    "pt": ["length", 4 / 3],
-    "deg": ["angle", 1],
-    "rad": ["angle", 180 / Math.PI],
-    "grad": ["angle", 0.9],
-    "turn": ["angle", 360]
-  };
-  function parseTransformList(text) {
-    let rest = String(text).replace(/\/\*[^]*?\*\//g, "").trim();
-    if (/^none$/i.test(rest)) return [];
-    const list = [];
-    do {
-      const match = /^([a-z0-9]+)\(/i.exec(rest);
-      const name = match?.[1].toLowerCase();
-      const types2 = functions[name];
-      if (!types2) throw syntaxError(text);
-      const end = getClosing(rest, match[0].length, text);
-      const args = split(rest.slice(match[0].length, end)).map(
-        (arg) => parseValue(arg, text)
-      );
-      list.push({ name, args: getArguments2(args, types2, text) });
-      rest = rest.slice(end + 1).trimStart();
-    } while (rest);
-    return list;
-  }
-  __name(parseTransformList, "parseTransformList");
-  function getArguments2(args, types2, text) {
-    const needed = types2.filter((type) => !type.endsWith("?")).length;
-    if (args.length < needed || args.length > types2.length) {
-      throw syntaxError(text);
-    }
-    return args.map(({ type, value }, index) => {
-      const wanted = types2[index].replace("?", "");
-      if (type === wanted || // A length or an angle may be a plain 0:
-      type === "number" && value === 0 && wanted !== "number") {
-        return value;
-      } else if (wanted === "scale" && (type === "number" || type === "percentage")) {
-        return type === "percentage" ? value / 100 : value;
-      } else {
-        throw syntaxError(text);
-      }
-    });
-  }
-  __name(getArguments2, "getArguments");
-  function parseValue(source, text) {
-    const tokens = tokenize(source.trim(), text);
-    let at = 0;
-    const peek = /* @__PURE__ */ __name(() => tokens[at], "peek");
-    const next = /* @__PURE__ */ __name(() => tokens[at++], "next");
-    const sum = /* @__PURE__ */ __name(() => {
-      let left = product();
-      while (peek() === "+" || peek() === "-") {
-        const sign = next() === "+" ? 1 : -1;
-        const right = product();
-        if (left.type !== right.type) throw syntaxError(text);
-        left = { type: left.type, value: left.value + sign * right.value };
-      }
-      return left;
-    }, "sum");
-    const product = /* @__PURE__ */ __name(() => {
-      let left = term();
-      while (peek() === "*" || peek() === "/") {
-        const operator = next();
-        const right = term();
-        if (operator === "*" && left.type === "number") {
-          left = { type: right.type, value: left.value * right.value };
-        } else if (right.type === "number") {
-          left = {
-            type: left.type,
-            value: operator === "*" ? left.value * right.value : left.value / right.value
-          };
-        } else {
-          throw syntaxError(text);
-        }
-      }
-      return left;
-    }, "product");
-    const term = /* @__PURE__ */ __name(() => {
-      const token = next();
-      if (token === "(" || token === "calc(") {
-        const value2 = sum();
-        if (next() !== ")") throw syntaxError(text);
-        return value2;
-      } else if (token?.type) {
-        return token;
-      } else {
-        throw syntaxError(text);
-      }
-    }, "term");
-    const value = tokens[0] === "calc(" ? term() : next();
-    if (!value?.type || at !== tokens.length) throw syntaxError(text);
-    return value;
-  }
-  __name(parseValue, "parseValue");
-  function tokenize(source, text) {
-    const tokens = [];
-    const pattern = /\s*(?:([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)([a-z%]*)|(calc\()|([()*/])|(\s[+-]\s))/iy;
-    while (pattern.lastIndex < source.length) {
-      const match = pattern.exec(source);
-      if (!match) throw syntaxError(text);
-      const [, number, unit, calc, symbol, operator] = match;
-      if (number !== void 0) {
-        const known = units[unit.toLowerCase()];
-        if (!known) throw syntaxError(text);
-        const [type, factor] = known;
-        tokens.push({ type, value: Number(number) * factor });
-      } else {
-        tokens.push(calc?.toLowerCase() ?? symbol ?? operator.trim());
-      }
-    }
-    return tokens;
-  }
-  __name(tokenize, "tokenize");
-  function getClosing(source, start, text) {
-    let depth = 1;
-    for (let index = start; index < source.length; index++) {
-      if (source[index] === "(") depth++;
-      else if (source[index] === ")" && --depth === 0) return index;
-    }
-    throw syntaxError(text);
-  }
-  __name(getClosing, "getClosing");
-  function split(source) {
-    const args = [];
-    let depth = 0;
-    let start = 0;
-    for (let index = 0; index < source.length; index++) {
-      const char = source[index];
-      if (char === "(") depth++;
-      else if (char === ")") depth--;
-      else if (char === "," && depth === 0) {
-        args.push(source.slice(start, index));
-        start = index + 1;
-      }
-    }
-    args.push(source.slice(start));
-    return args;
-  }
-  __name(split, "split");
-  function syntaxError(text) {
-    return new DOMException(
-      `Invalid transform list: '${text}'.`,
-      "SyntaxError"
-    );
-  }
-  __name(syntaxError, "syntaxError");
-
-  // src/geometry.js
-  var identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
-  var aliases = [
-    ["a", "m11", 0],
-    ["b", "m12", 1],
-    ["c", "m21", 4],
-    ["d", "m22", 5],
-    ["e", "m41", 12],
-    ["f", "m42", 13]
-  ];
-  var threeD = [
-    ["m13", 2, 0],
-    ["m14", 3, 0],
-    ["m23", 6, 0],
-    ["m24", 7, 0],
-    ["m31", 8, 0],
-    ["m32", 9, 0],
-    ["m33", 10, 1],
-    ["m34", 11, 0],
-    ["m43", 14, 0],
-    ["m44", 15, 1]
-  ];
-  var names = [
-    "m11",
-    "m12",
-    "m13",
-    "m14",
-    "m21",
-    "m22",
-    "m23",
-    "m24",
-    "m31",
-    "m32",
-    "m33",
-    "m34",
-    "m41",
-    "m42",
-    "m43",
-    "m44"
-  ];
-  var getPoint;
-  var getRect;
-  var getQuad;
-  var getMatrix;
-  var setMatrix;
-  var DOMPointReadOnly = class {
-    static {
-      __name(this, "DOMPointReadOnly");
-    }
-    #values;
-    constructor(x = 0, y = 0, z = 0, w = 1) {
-      this.#values = [+x, +y, +z, +w];
-    }
-    static {
-      getPoint = /* @__PURE__ */ __name((point) => point.#values, "getPoint");
-    }
-    matrixTransform(matrix = {}) {
-      return DOMMatrixReadOnly.fromMatrix(matrix).transformPoint(this);
-    }
-    toJSON() {
-      const { x, y, z, w } = this;
-      return { x, y, z, w };
-    }
-    static fromPoint(point) {
-      const { x, y, z, w } = getPointInit(point);
-      return new this(x, y, z, w);
-    }
-  };
-  var DOMPoint = class extends DOMPointReadOnly {
-    static {
-      __name(this, "DOMPoint");
-    }
-  };
-  var DOMRectReadOnly = class {
-    static {
-      __name(this, "DOMRectReadOnly");
-    }
-    #values;
-    constructor(x = 0, y = 0, width = 0, height = 0) {
-      this.#values = [+x, +y, +width, +height];
-    }
-    static {
-      getRect = /* @__PURE__ */ __name((rect) => rect.#values, "getRect");
-    }
-    // `Math.min()` and `max()` are NaN when either value is, as the sides are:
-    get top() {
-      return Math.min(this.y, this.y + this.height);
-    }
-    get right() {
-      return Math.max(this.x, this.x + this.width);
-    }
-    get bottom() {
-      return Math.max(this.y, this.y + this.height);
-    }
-    get left() {
-      return Math.min(this.x, this.x + this.width);
-    }
-    toJSON() {
-      const { x, y, width, height, top, right, bottom, left } = this;
-      return { x, y, width, height, top, right, bottom, left };
-    }
-    static fromRect(rect) {
-      const { x, y, width, height } = getRectInit(rect);
-      return new this(x, y, width, height);
-    }
-  };
-  var DOMRect = class extends DOMRectReadOnly {
-    static {
-      __name(this, "DOMRect");
-    }
-  };
-  var DOMQuad = class {
-    static {
-      __name(this, "DOMQuad");
-    }
-    #points;
-    constructor(p1, p2, p3, p4) {
-      this.#points = [p1, p2, p3, p4].map((point) => DOMPoint.fromPoint(point));
-    }
-    static {
-      getQuad = /* @__PURE__ */ __name((quad) => quad.#points, "getQuad");
-    }
-    get p1() {
-      return this.#points[0];
-    }
-    get p2() {
-      return this.#points[1];
-    }
-    get p3() {
-      return this.#points[2];
-    }
-    get p4() {
-      return this.#points[3];
-    }
-    getBounds() {
-      const xs = this.#points.map((point) => point.x);
-      const ys = this.#points.map((point) => point.y);
-      const left = Math.min(...xs);
-      const top = Math.min(...ys);
-      return new DOMRect(left, top, Math.max(...xs) - left, Math.max(...ys) - top);
-    }
-    toJSON() {
-      const { p1, p2, p3, p4 } = this;
-      return { p1, p2, p3, p4 };
-    }
-    static fromRect(rect) {
-      const { x, y, width, height } = getRectInit(rect);
-      return new this(
-        { x, y },
-        { x: x + width, y },
-        { x: x + width, y: y + height },
-        { x, y: y + height }
-      );
-    }
-    static fromQuad(quad) {
-      const { p1, p2, p3, p4 } = getDictionary(quad, "DOMQuadInit") ?? {};
-      return new this(p1, p2, p3, p4);
-    }
-  };
-  var DOMMatrixReadOnly = class {
-    static {
-      __name(this, "DOMMatrixReadOnly");
-    }
-    #m;
-    #is2D;
-    // From a list of 6 numbers (2D) or 16, or else, as WebIDL converts it, from
-    // text: CSS's transform functions (another matrix as it writes itself).
-    constructor(init) {
-      if (init === void 0) {
-        this.#m = [...identity];
-        this.#is2D = true;
-      } else if (typeof init?.[Symbol.iterator] === "function" && typeof init !== "string") {
-        ;
-        [this.#m, this.#is2D] = getMatrixFromList(init);
-      } else {
-        ;
-        [this.#m, this.#is2D] = getMatrixFromCSS(String(init));
-      }
-    }
-    static {
-      getMatrix = /* @__PURE__ */ __name((matrix) => [matrix.#m, matrix.#is2D], "getMatrix");
-      setMatrix = /* @__PURE__ */ __name((matrix, [m, is2D]) => {
-        matrix.#m = m;
-        matrix.#is2D = is2D;
-        return matrix;
-      }, "setMatrix");
-    }
-    get is2D() {
-      return this.#is2D;
-    }
-    get isIdentity() {
-      return this.#m.every((value, index) => value === identity[index]);
-    }
-    // The operations on the read-only class give a new matrix, the writable
-    // class's change it (`translateSelf()`):
-    translate(tx = 0, ty = 0, tz = 0) {
-      return operate(this, translation(+tx, +ty, +tz));
-    }
-    scale(sx = 1, sy = sx, sz = 1, ox = 0, oy = 0, oz = 0) {
-      return operate(this, scalingAround(+sx, +sy, +sz, +ox, +oy, +oz));
-    }
-    scaleNonUniform(sx = 1, sy = 1) {
-      return operate(this, scaling(+sx, +sy, 1));
-    }
-    scale3d(scale = 1, ox = 0, oy = 0, oz = 0) {
-      return operate(this, scalingAround(+scale, +scale, +scale, +ox, +oy, +oz));
-    }
-    rotate(rx = 0, ry, rz) {
-      return operate(this, rotationXYZ(rx, ry, rz));
-    }
-    rotateFromVector(x = 0, y = 0) {
-      return operate(this, rotationFromVector(+x, +y));
-    }
-    rotateAxisAngle(x = 0, y = 0, z = 0, angle = 0) {
-      return operate(this, rotation(+x, +y, +z, +angle));
-    }
-    skewX(sx = 0) {
-      return operate(this, get2D([1, 0, Math.tan(toRadians(+sx)), 1, 0, 0]));
-    }
-    skewY(sy = 0) {
-      return operate(this, get2D([1, Math.tan(toRadians(+sy)), 0, 1, 0, 0]));
-    }
-    multiply(other = {}) {
-      return operate(this, getMatrixInit(other));
-    }
-    flipX() {
-      return operate(this, get2D([-1, 0, 0, 1, 0, 0]));
-    }
-    flipY() {
-      return operate(this, get2D([1, 0, 0, -1, 0, 0]));
-    }
-    inverse() {
-      return setMatrix(new DOMMatrix2(), invert(getMatrix(this)));
-    }
-    transformPoint(point) {
-      const { x, y, z, w } = getPointInit(point);
-      const m = this.#m;
-      const row = /* @__PURE__ */ __name((r) => m[r] * x + m[4 + r] * y + m[8 + r] * z + m[12 + r] * w, "row");
-      return new DOMPoint(row(0), row(1), row(2), row(3));
-    }
-    toFloat32Array() {
-      return new Float32Array(this.#m);
-    }
-    toFloat64Array() {
-      return new Float64Array(this.#m);
-    }
-    toJSON() {
-      const json = {};
-      for (const [name] of aliases) json[name] = this[name];
-      for (const name of names) json[name] = this[name];
-      json.is2D = this.is2D;
-      json.isIdentity = this.isIdentity;
-      return json;
-    }
-    // `matrix(a, b, c, d, e, f)` or `matrix3d(...)`, its numbers as JavaScript
-    // writes them.
-    toString() {
-      const m = this.#m;
-      if (!m.every(Number.isFinite)) {
-        throw new DOMException(
-          "Unable to write a matrix that is not finite.",
-          "InvalidStateError"
-        );
-      }
-      return this.#is2D ? `matrix(${aliases.map(([, , index]) => m[index]).join(", ")})` : `matrix3d(${m.join(", ")})`;
-    }
-    static fromMatrix(other) {
-      return setMatrix(new this(), getMatrixInit(other));
-    }
-    static fromFloat32Array(array) {
-      return fromArray(this, array);
-    }
-    static fromFloat64Array(array) {
-      return fromArray(this, array);
-    }
-  };
-  var DOMMatrix2 = class extends DOMMatrixReadOnly {
-    static {
-      __name(this, "DOMMatrix");
-    }
-    translateSelf(tx = 0, ty = 0, tz = 0) {
-      return change(this, this.translate(tx, ty, tz));
-    }
-    scaleSelf(sx = 1, sy = sx, sz = 1, ox = 0, oy = 0, oz = 0) {
-      return change(this, this.scale(sx, sy, sz, ox, oy, oz));
-    }
-    scale3dSelf(scale = 1, ox = 0, oy = 0, oz = 0) {
-      return change(this, this.scale3d(scale, ox, oy, oz));
-    }
-    rotateSelf(rx = 0, ry, rz) {
-      return change(this, this.rotate(rx, ry, rz));
-    }
-    rotateFromVectorSelf(x = 0, y = 0) {
-      return change(this, this.rotateFromVector(x, y));
-    }
-    rotateAxisAngleSelf(x = 0, y = 0, z = 0, angle = 0) {
-      return change(this, this.rotateAxisAngle(x, y, z, angle));
-    }
-    skewXSelf(sx = 0) {
-      return change(this, this.skewX(sx));
-    }
-    skewYSelf(sy = 0) {
-      return change(this, this.skewY(sy));
-    }
-    multiplySelf(other = {}) {
-      return change(this, this.multiply(other));
-    }
-    preMultiplySelf(other = {}) {
-      return setMatrix(this, multiply(getMatrixInit(other), getMatrix(this)));
-    }
-    invertSelf() {
-      return setMatrix(this, invert(getMatrix(this)));
-    }
-    setMatrixValue(transformList) {
-      return setMatrix(this, getMatrixFromCSS(String(transformList)));
-    }
-  };
-  defineAttributes(
-    DOMPointReadOnly,
-    DOMPoint,
-    ["x", "y", "z", "w"].map((name, index) => [name, index]),
-    (point) => getPoint(point)
-  );
-  defineAttributes(
-    DOMRectReadOnly,
-    DOMRect,
-    ["x", "y", "width", "height"].map((name, index) => [name, index]),
-    (rect) => getRect(rect)
-  );
-  defineAttributes(
-    DOMMatrixReadOnly,
-    DOMMatrix2,
-    [
-      ...aliases.map(([name, , index]) => [name, index]),
-      ...names.map((name, index) => [name, index])
-    ],
-    (matrix) => getMatrix(matrix)[0],
-    // A matrix that gets a 3D value isn't 2D anymore:
-    (matrix, index, value) => {
-      if (threeD.some(([, i, value2D]) => i === index && value !== value2D)) {
-        setMatrix(matrix, [getMatrix(matrix)[0], false]);
-      }
-    }
-  );
-  setToStringTag(
-    DOMPointReadOnly,
-    DOMPoint,
-    DOMRectReadOnly,
-    DOMRect,
-    DOMQuad,
-    DOMMatrixReadOnly,
-    DOMMatrix2
-  );
-  function defineAttributes(ReadOnly, Writable, entries, getValues2, changed) {
-    for (const [name, index] of entries) {
-      inject(
-        ReadOnly.prototype,
-        {
-          get [name]() {
-            return getValues2(this)[index];
-          }
-        },
-        { enumerable: true }
-      );
-      inject(
-        Writable.prototype,
-        {
-          get [name]() {
-            return getValues2(this)[index];
-          },
-          set [name](value) {
-            getValues2(this)[index] = +value;
-            changed?.(this, index, +value);
-          }
-        },
-        { enumerable: true }
-      );
-    }
-  }
-  __name(defineAttributes, "defineAttributes");
-  function change(matrix, result) {
-    return setMatrix(matrix, getMatrix(result));
-  }
-  __name(change, "change");
-  function operate(matrix, other) {
-    return setMatrix(new DOMMatrix2(), multiply(getMatrix(matrix), other));
-  }
-  __name(operate, "operate");
-  function multiply([a, is2DA], [b, is2DB]) {
-    const m = [];
-    for (let i = 0; i < 16; i++) {
-      const column = Math.floor(i / 4);
-      const row = i % 4;
-      let value = 0;
-      for (let k = 0; k < 4; k++) value += a[k * 4 + row] * b[column * 4 + k];
-      m.push(value);
-    }
-    return [m, is2DA && is2DB];
-  }
-  __name(multiply, "multiply");
-  function getMatrixFromCSS(text) {
-    return (text === "" ? [] : parseTransformList(text)).map(({ name, args }) => getTransform(name, args)).reduce(multiply, [[...identity], true]);
-  }
-  __name(getMatrixFromCSS, "getMatrixFromCSS");
-  function getTransform(name, args) {
-    const [a, b, c, d] = args;
-    const tan = /* @__PURE__ */ __name((degrees) => Math.tan(toRadians(degrees)), "tan");
-    const [m, is2D] = {
-      matrix: /* @__PURE__ */ __name(() => get2D(args), "matrix"),
-      matrix3d: /* @__PURE__ */ __name(() => [args, false], "matrix3d"),
-      translate: /* @__PURE__ */ __name(() => translation(a, b ?? 0, 0), "translate"),
-      translatex: /* @__PURE__ */ __name(() => translation(a, 0, 0), "translatex"),
-      translatey: /* @__PURE__ */ __name(() => translation(0, a, 0), "translatey"),
-      translatez: /* @__PURE__ */ __name(() => translation(0, 0, a), "translatez"),
-      translate3d: /* @__PURE__ */ __name(() => translation(a, b, c), "translate3d"),
-      scale: /* @__PURE__ */ __name(() => scaling(a, b ?? a, 1), "scale"),
-      scalex: /* @__PURE__ */ __name(() => scaling(a, 1, 1), "scalex"),
-      scaley: /* @__PURE__ */ __name(() => scaling(1, a, 1), "scaley"),
-      scalez: /* @__PURE__ */ __name(() => scaling(1, 1, a), "scalez"),
-      scale3d: /* @__PURE__ */ __name(() => scaling(a, b, c), "scale3d"),
-      rotate: /* @__PURE__ */ __name(() => rotation(0, 0, 1, a), "rotate"),
-      rotatex: /* @__PURE__ */ __name(() => rotation(1, 0, 0, a), "rotatex"),
-      rotatey: /* @__PURE__ */ __name(() => rotation(0, 1, 0, a), "rotatey"),
-      rotatez: /* @__PURE__ */ __name(() => rotation(0, 0, 1, a), "rotatez"),
-      rotate3d: /* @__PURE__ */ __name(() => rotation(a, b, c, d), "rotate3d"),
-      skew: /* @__PURE__ */ __name(() => get2D([1, tan(b ?? 0), tan(a), 1, 0, 0]), "skew"),
-      skewx: /* @__PURE__ */ __name(() => get2D([1, 0, tan(a), 1, 0, 0]), "skewx"),
-      skewy: /* @__PURE__ */ __name(() => get2D([1, tan(a), 0, 1, 0, 0]), "skewy"),
-      // `m34`, of a distance of 1 at least:
-      perspective: /* @__PURE__ */ __name(() => {
-        const m2 = [...identity];
-        m2[11] = -1 / Math.max(a, 1);
-        return [m2, false];
-      }, "perspective")
-    }[name]();
-    return [m, is2D && !/3d$|z$|^rotate[xy]$|^perspective$/.test(name)];
-  }
-  __name(getTransform, "getTransform");
-  function get2D([a, b, c, d, e, f]) {
-    const m = [...identity];
-    [m[0], m[1], m[4], m[5], m[12], m[13]] = [a, b, c, d, e, f];
-    return [m, true];
-  }
-  __name(get2D, "get2D");
-  function translation(x, y, z) {
-    const m = [...identity];
-    [m[12], m[13], m[14]] = [x, y, z];
-    return [m, z === 0];
-  }
-  __name(translation, "translation");
-  function scaling(x, y, z) {
-    const m = [...identity];
-    [m[0], m[5], m[10]] = [x, y, z];
-    return [m, z === 1];
-  }
-  __name(scaling, "scaling");
-  function scalingAround(sx, sy, sz, ox, oy, oz) {
-    return multiply(
-      multiply(translation(ox, oy, oz), scaling(sx, sy, sz)),
-      translation(-ox, -oy, -oz)
-    );
-  }
-  __name(scalingAround, "scalingAround");
-  function rotationXYZ(rx, ry, rz) {
-    const [x, y, z] = ry === void 0 && rz === void 0 ? [0, 0, +rx] : [+rx, +(ry ?? 0), +(rz ?? 0)];
-    let result = rotation(0, 0, 1, z);
-    if (y !== 0) result = multiply(result, rotation(0, 1, 0, y));
-    if (x !== 0) result = multiply(result, rotation(1, 0, 0, x));
-    return result;
-  }
-  __name(rotationXYZ, "rotationXYZ");
-  function rotationFromVector(x, y) {
-    return rotation(
-      0,
-      0,
-      1,
-      x === 0 && y === 0 ? 0 : Math.atan2(y, x) * 180 / Math.PI
-    );
-  }
-  __name(rotationFromVector, "rotationFromVector");
-  function rotation(x, y, z, degrees) {
-    const is2D = x === 0 && y === 0;
-    const length = Math.hypot(x, y, z);
-    if (length === 0 || !Number.isFinite(length)) return [[...identity], is2D];
-    [x, y, z] = [x / length, y / length, z / length];
-    const half = toRadians(degrees) / 2;
-    const sc = Math.sin(half) * Math.cos(half);
-    const sq = Math.sin(half) ** 2;
-    const m = [
-      1 - 2 * (y * y + z * z) * sq,
-      2 * (x * y * sq + z * sc),
-      2 * (x * z * sq - y * sc),
-      0,
-      2 * (x * y * sq - z * sc),
-      1 - 2 * (x * x + z * z) * sq,
-      2 * (y * z * sq + x * sc),
-      0,
-      2 * (x * z * sq + y * sc),
-      2 * (y * z * sq - x * sc),
-      1 - 2 * (x * x + y * y) * sq,
-      0,
-      0,
-      0,
-      0,
-      1
-    ];
-    return [m, is2D];
-  }
-  __name(rotation, "rotation");
-  function invert([m, is2D]) {
-    const singular = [new Array(16).fill(NaN), false];
-    if (!m.every(Number.isFinite)) return singular;
-    if (is2D) {
-      const [a, b, c, d, e, f] = aliases.map(([, , index]) => m[index]);
-      const det2 = a * d - b * c;
-      return det2 === 0 ? singular : get2D([
-        d / det2,
-        -b / det2,
-        -c / det2,
-        a / det2,
-        (c * f - d * e) / det2,
-        (b * e - a * f) / det2
-      ]);
-    }
-    const i = [
-      m[5] * m[10] * m[15] - m[5] * m[11] * m[14] - m[9] * m[6] * m[15] + m[9] * m[7] * m[14] + m[13] * m[6] * m[11] - m[13] * m[7] * m[10],
-      -m[1] * m[10] * m[15] + m[1] * m[11] * m[14] + m[9] * m[2] * m[15] - m[9] * m[3] * m[14] - m[13] * m[2] * m[11] + m[13] * m[3] * m[10],
-      m[1] * m[6] * m[15] - m[1] * m[7] * m[14] - m[5] * m[2] * m[15] + m[5] * m[3] * m[14] + m[13] * m[2] * m[7] - m[13] * m[3] * m[6],
-      -m[1] * m[6] * m[11] + m[1] * m[7] * m[10] + m[5] * m[2] * m[11] - m[5] * m[3] * m[10] - m[9] * m[2] * m[7] + m[9] * m[3] * m[6],
-      -m[4] * m[10] * m[15] + m[4] * m[11] * m[14] + m[8] * m[6] * m[15] - m[8] * m[7] * m[14] - m[12] * m[6] * m[11] + m[12] * m[7] * m[10],
-      m[0] * m[10] * m[15] - m[0] * m[11] * m[14] - m[8] * m[2] * m[15] + m[8] * m[3] * m[14] + m[12] * m[2] * m[11] - m[12] * m[3] * m[10],
-      -m[0] * m[6] * m[15] + m[0] * m[7] * m[14] + m[4] * m[2] * m[15] - m[4] * m[3] * m[14] - m[12] * m[2] * m[7] + m[12] * m[3] * m[6],
-      m[0] * m[6] * m[11] - m[0] * m[7] * m[10] - m[4] * m[2] * m[11] + m[4] * m[3] * m[10] + m[8] * m[2] * m[7] - m[8] * m[3] * m[6],
-      m[4] * m[9] * m[15] - m[4] * m[11] * m[13] - m[8] * m[5] * m[15] + m[8] * m[7] * m[13] + m[12] * m[5] * m[11] - m[12] * m[7] * m[9],
-      -m[0] * m[9] * m[15] + m[0] * m[11] * m[13] + m[8] * m[1] * m[15] - m[8] * m[3] * m[13] - m[12] * m[1] * m[11] + m[12] * m[3] * m[9],
-      m[0] * m[5] * m[15] - m[0] * m[7] * m[13] - m[4] * m[1] * m[15] + m[4] * m[3] * m[13] + m[12] * m[1] * m[7] - m[12] * m[3] * m[5],
-      -m[0] * m[5] * m[11] + m[0] * m[7] * m[9] + m[4] * m[1] * m[11] - m[4] * m[3] * m[9] - m[8] * m[1] * m[7] + m[8] * m[3] * m[5],
-      -m[4] * m[9] * m[14] + m[4] * m[10] * m[13] + m[8] * m[5] * m[14] - m[8] * m[6] * m[13] - m[12] * m[5] * m[10] + m[12] * m[6] * m[9],
-      m[0] * m[9] * m[14] - m[0] * m[10] * m[13] - m[8] * m[1] * m[14] + m[8] * m[2] * m[13] + m[12] * m[1] * m[10] - m[12] * m[2] * m[9],
-      -m[0] * m[5] * m[14] + m[0] * m[6] * m[13] + m[4] * m[1] * m[14] - m[4] * m[2] * m[13] - m[12] * m[1] * m[6] + m[12] * m[2] * m[5],
-      m[0] * m[5] * m[10] - m[0] * m[6] * m[9] - m[4] * m[1] * m[10] + m[4] * m[2] * m[9] + m[8] * m[1] * m[6] - m[8] * m[2] * m[5]
-    ];
-    const det = m[0] * i[0] + m[1] * i[4] + m[2] * i[8] + m[3] * i[12];
-    return det !== 0 && Number.isFinite(det) ? [i.map((value) => value / det), false] : singular;
-  }
-  __name(invert, "invert");
-  function toRadians(degrees) {
-    return degrees * Math.PI / 180;
-  }
-  __name(toRadians, "toRadians");
-  function getDictionary(value, name) {
-    if (value == null) return null;
-    if (typeof value !== "object" && typeof value !== "function") {
-      throw new TypeError(`Invalid ${name}: '${value}'.`);
-    }
-    return value;
-  }
-  __name(getDictionary, "getDictionary");
-  function getPointInit(point) {
-    const {
-      x = 0,
-      y = 0,
-      z = 0,
-      w = 1
-    } = getDictionary(point, "DOMPointInit") ?? {};
-    return { x: +x, y: +y, z: +z, w: +w };
-  }
-  __name(getPointInit, "getPointInit");
-  function getRectInit(rect) {
-    const {
-      x = 0,
-      y = 0,
-      width = 0,
-      height = 0
-    } = getDictionary(rect, "DOMRectInit") ?? {};
-    return { x: +x, y: +y, width: +width, height: +height };
-  }
-  __name(getRectInit, "getRectInit");
-  function getMatrixInit(init) {
-    init = getDictionary(init, "DOMMatrixInit") ?? {};
-    const m = [...identity];
-    for (const [alias, name, index] of aliases) {
-      const aliasValue = init[alias] === void 0 ? void 0 : +init[alias];
-      const value = init[name] === void 0 ? void 0 : +init[name];
-      if (aliasValue !== void 0 && value !== void 0 && // Agreeing, as 0 and -0 do, and NaN and NaN:
-      aliasValue !== value && !Object.is(aliasValue, value)) {
-        throw new TypeError(`Invalid matrix: its ${name} and ${alias} disagree.`);
-      }
-      m[index] = value ?? aliasValue ?? m[index];
-    }
-    let hasThreeD = false;
-    for (const [name, index, default2D] of threeD) {
-      if (init[name] !== void 0) {
-        m[index] = +init[name];
-        hasThreeD ||= m[index] !== default2D;
-      }
-    }
-    const is2D = init.is2D === void 0 ? void 0 : !!init.is2D;
-    if (is2D && hasThreeD) {
-      throw new TypeError("Invalid matrix: a 2D matrix has 3D values.");
-    }
-    return [m, is2D ?? !hasThreeD];
-  }
-  __name(getMatrixInit, "getMatrixInit");
-  function getMatrixFromList(list) {
-    const values = Array.from(list ?? [], Number);
-    if (values.length === 6) return get2D(values);
-    if (values.length === 16) return [values, false];
-    throw new TypeError("Invalid matrix: it takes 6 or 16 numbers.");
-  }
-  __name(getMatrixFromList, "getMatrixFromList");
-  function fromArray(Class, array) {
-    if (!ArrayBuffer.isView(array)) {
-      throw new TypeError(`Invalid array: '${array}', not a typed array.`);
-    }
-    return setMatrix(new Class(), getMatrixFromList(array));
-  }
-  __name(fromArray, "fromArray");
-  function getGeometryValues(object) {
-    return object instanceof DOMPointReadOnly ? getPoint(object) : object instanceof DOMRectReadOnly ? getRect(object) : object instanceof DOMQuad ? getQuad(object).flatMap(getPoint) : object instanceof DOMMatrixReadOnly ? [...getMatrix(object)[0], getMatrix(object)[1] ? 1 : 0] : null;
-  }
-  __name(getGeometryValues, "getGeometryValues");
-
   // src/font-face.js
   var defaults = {
     style: "normal",
@@ -4261,7 +4537,7 @@ ${value}\r
     }
     postMessage(message, transfer) {
       checkArguments(arguments, 1, "postMessage");
-      postWith(transfer, (ports, numbers) => {
+      postWith(transfer, (ports, numbers2) => {
         if (this.#number !== null) {
           if (ports.includes(this)) {
             throw new DOMException(
@@ -4269,7 +4545,7 @@ ${value}\r
               "DataCloneError"
             );
           }
-          natives.port.post(this.#number, message, ports, numbers);
+          natives.port.post(this.#number, message, ports, numbers2);
         }
       });
     }
@@ -4345,7 +4621,7 @@ ${value}\r
     postMessage(data, transfer) {
       postWith(
         transfer,
-        (ports, numbers) => natives.worker.post(this.#number, data, ports, numbers)
+        (ports, numbers2) => natives.worker.post(this.#number, data, ports, numbers2)
       );
     }
     terminate() {
@@ -4373,7 +4649,7 @@ ${value}\r
       postMessage(data, transfer) {
         postWith(
           transfer,
-          (ports, numbers) => natives.worker.self.postMessage(data, ports, numbers)
+          (ports, numbers2) => natives.worker.self.postMessage(data, ports, numbers2)
         );
       },
       close,

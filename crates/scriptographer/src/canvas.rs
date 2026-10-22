@@ -444,7 +444,9 @@ fn measure_text<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value
         None => String::new(),
     };
     let style = text_style(call, this)?;
-    let (_, measured) = outline(&text, &style);
+    let text = canvas_text(&text);
+    let laid = layout(&text, &style);
+    let measured = measure_layout(&laid, &style.font);
     let (x, y) = measured.anchor(&style);
     let metrics = call.new_object()?;
     for (key, value) in [
@@ -463,7 +465,33 @@ fn measure_text<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value
     ] {
         call.set(&metrics, key, &Value::Number(value))?;
     }
+    let clusters = call.new_float64_array(&clusters(&text, &laid, (x, y)))?;
+    call.set(&metrics, "clusters", &Value::Js(clusters))?;
     Ok(Value::Js(metrics))
+}
+
+/// The grapheme clusters of `text` as `laid` out, eight numbers each: the cluster's start and end
+/// in UTF-16 code units, its left and its advance, and its ink's left, right, top and bottom,
+/// from `anchor` (heights above it).
+fn clusters(text: &str, laid: &vectorcraft_text::TextLayout, (x, y): (f64, f64)) -> Vec<f64> {
+    use unicode_segmentation::UnicodeSegmentation as _;
+    use vectorcraft_geom::Shape as _;
+    let start = laid.glyphs.first().map_or(0.0, |g| g.origin.x);
+    let baseline = laid.lines.first().map_or(0.0, |l| l.baseline);
+    let (mut out, mut unit, mut pen) = (Vec::new(), 0, 0.0);
+    for (at, grapheme) in text.grapheme_indices(true) {
+        let glyphs: Vec<_> = laid.glyphs.iter().filter(|g| (at..at + grapheme.len()).contains(&g.byte)).collect();
+        let left = glyphs.iter().map(|g| g.origin.x - start).reduce(f64::min).unwrap_or(pen);
+        let advance: f64 = glyphs.iter().map(|g| g.advance).sum();
+        pen = left + advance;
+        let ink = glyphs.iter().filter(|g| !g.outline.elements().is_empty()).map(|g| g.outline.bounding_box()).reduce(|a, b| a.union(b));
+        let (ink_left, ink_right, top, bottom) =
+            ink.map_or((left, left, 0.0, 0.0), |ink| (ink.x0 - start, ink.x1 - start, baseline - ink.y0, baseline - ink.y1));
+        let units = grapheme.encode_utf16().count();
+        out.extend([unit as f64, (unit + units) as f64, left - x, advance, ink_left - x, ink_right - x, top - y, bottom - y]);
+        unit += units;
+    }
+    out
 }
 
 /// A CSS `font` shorthand as the canvas reads it: `[style] [variant] [weight] [stretch]
@@ -808,12 +836,17 @@ impl Measured {
     }
 }
 
-/// `text` laid out on one line in `style`, as the app lays out point type, with the canvas's
-/// `letterSpacing` after each character and its `wordSpacing` after each space (CSS lengths, an
-/// `em` the font's size). Its whitespace is spaces, and a NUL takes none, as in browsers.
+/// `text` as the canvas sets it: its whitespace spaces, and a NUL a zero-width space, as in
+/// browsers, its UTF-16 offsets kept.
+fn canvas_text(text: &str) -> String {
+    text.replace(['\t', '\n', '\x0c', '\r'], " ").replace('\0', "\u{200b}")
+}
+
+/// `text` (as [`canvas_text`] gives it) laid out on one line in `style`, as the app lays out point
+/// type, with the canvas's `letterSpacing` after each character and its `wordSpacing` after each
+/// space (CSS lengths, an `em` the font's size).
 fn layout(text: &str, style: &TextStyle) -> vectorcraft_text::TextLayout {
-    let text = text.replace(['\t', '\n', '\x0c', '\r'], " ").replace('\0', "");
-    let font = &style.font;
+    let (font, rtl) = (&style.font, style.rtl);
     let (letter, word) = &style.spacing;
     let style = vectorcraft_doc::CharStyle {
         font_family: font.family(),
@@ -824,7 +857,9 @@ fn layout(text: &str, style: &TextStyle) -> vectorcraft_text::TextLayout {
         small_caps: style.small_caps.then_some(70.0),
         ..Default::default()
     };
-    let object = vectorcraft_doc::TextObject::point(vectorcraft_geom::Point::ZERO, &text, style);
+    let mut object = vectorcraft_doc::TextObject::point(vectorcraft_geom::Point::ZERO, text, style);
+    // The paragraph runs as `direction` says, left to right without an element to inherit from.
+    object.para.direction = Some(if rtl { vectorcraft_doc::ParaDirection::RightToLeft } else { vectorcraft_doc::ParaDirection::LeftToRight });
     let mut laid = vectorcraft_text::layout(vectorcraft_text::FontDb::global(), &object);
     let (letter, word) = (drawing::css_length(letter, font.size).unwrap_or(0.0), drawing::css_length(word, font.size).unwrap_or(0.0));
     if letter != 0.0 || word != 0.0 {
@@ -897,7 +932,7 @@ fn set_font_face<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Val
 /// The outlines of `text` in `style`, the start of its baseline at the origin, and its
 /// measurements: what `fillText` draws.
 pub(crate) fn outline(text: &str, style: &TextStyle) -> (vectorcraft_geom::BezPath, Measured) {
-    let laid = layout(text, style);
+    let laid = layout(&canvas_text(text), style);
     let measured = measure_layout(&laid, &style.font);
     let start = laid.glyphs.first().map_or(0.0, |g| g.origin.x);
     let baseline = laid.lines.first().map_or(0.0, |l| l.baseline);

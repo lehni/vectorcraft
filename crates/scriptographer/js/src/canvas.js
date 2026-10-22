@@ -6,6 +6,12 @@ import {
   setToStringTag
 } from './define.js'
 import { natives } from './natives.js'
+import {
+  TextCluster,
+  TextMetrics,
+  drawCluster,
+  textSettings
+} from './text-metrics.js'
 
 // `OffscreenCanvas` and its kin for scripts outside a browser, with pixels: its
 // `OffscreenCanvasRenderingContext2D` draws as the browser's does. The runtime
@@ -157,6 +163,33 @@ export class OffscreenCanvasRenderingContext2D {
     return { ...this.#attributes }
   }
 
+  measureText(text) {
+    checkArguments(arguments, 1, 'measureText')
+    text = String(text)
+    const settings = Object.fromEntries(
+      [...textSettings, 'textAlign', 'textBaseline'].map(key => [
+        key,
+        this[key]
+      ])
+    )
+    return new TextMetrics(
+      internal,
+      canvas.methods.measureText.call(this.#surface, text),
+      text,
+      settings
+    )
+  }
+
+  fillTextCluster(cluster, x, y, options) {
+    checkArguments(arguments, 3, 'fillTextCluster')
+    drawCluster(this, 'fillText', cluster, x, y, options)
+  }
+
+  strokeTextCluster(cluster, x, y, options) {
+    checkArguments(arguments, 3, 'strokeTextCluster')
+    drawCluster(this, 'strokeText', cluster, x, y, options)
+  }
+
   // Transparent black, of a size, either way round, or of another
   // `ImageData`'s.
   createImageData(widthOrImage, height) {
@@ -255,7 +288,6 @@ export class OffscreenCanvasRenderingContext2D {
 // What the context does with numbers and text alone, and how many arguments
 // each needs, or the counts of its overloads:
 const contextMethods = {
-  measureText: 1,
   beginPath: 0,
   closePath: 0,
   moveTo: 2,
@@ -520,6 +552,8 @@ export class CanvasPattern {
     canvas.setPatternTransform.call(this.#paint, a, b, c, d, e, f)
   }
 }
+
+export { TextCluster, TextMetrics }
 
 setToStringTag(
   OffscreenCanvas,
