@@ -59,7 +59,7 @@ pub(crate) fn store<T>(slots: &mut Vec<Option<T>>, item: T) -> usize {
 
 /// The natives `js/src/canvas.js` makes its classes of, each with the slot it's for as `this`:
 /// `create(width, height)`, a canvas's slot, `width()`, `height()`, `resize(width, height)`,
-/// `toPNG()`, the context's `properties` with `get(name)` and `set(name, value, slot)`, and its
+/// `encode(type, quality)`, `setOpaque()`, `clear()`, the context's `properties` with `get(name)` and `set(name, value, slot)`, and its
 /// `methods`; `createGradient(kind, …)`, `addColorStop()`, `createPattern(image, repetition)` and
 /// `setPatternTransform(a, b, c, d, e, f)`; `createPath(source)` and the `pathMethods` of a `Path2D`;
 /// `createImageBitmap(source, …)`; and `release(kind, slot)` for the slots the script dropped.
@@ -121,7 +121,9 @@ pub(crate) fn natives<E: Engine>(engine: &mut E) -> Result<Vec<(&'static str, E:
         ("width", |call, this, _| Ok(Value::Number(f64::from(with_pixmap(call, this, |p| p.width())?)))),
         ("height", |call, this, _| Ok(Value::Number(f64::from(with_pixmap(call, this, |p| p.height())?)))),
         ("resize", resize),
-        ("toPNG", to_png),
+        ("encode", encode),
+        ("setOpaque", |call, this, _| with_surface(call, this, |surface| surface.set_opaque(true)).map(|()| Value::Undefined)),
+        ("clear", |call, this, _| with_surface(call, this, Surface::clear).map(|()| Value::Undefined)),
         ("get", drawing::get_property),
         ("set", drawing::set_property),
         ("createGradient", |call, _, args| {
@@ -365,7 +367,9 @@ fn put_image_data<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Val
         return Ok(Value::Undefined);
     }
     let (dx, dy) = (dx.round() as i64, dy.round() as i64);
-    with_pixmap(call, this, |pixmap| {
+    with_surface(call, this, |surface| {
+        surface.flush();
+        let pixmap = &mut surface.pixmap;
         for row in y0..y1 {
             for column in x0..x1 {
                 let (px, py) = (dx + column as i64, dy + row as i64);
@@ -378,14 +382,49 @@ fn put_image_data<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Val
                 }
             }
         }
+        surface.keep_opaque();
     })?;
     Ok(Value::Undefined)
 }
 
-/// `toPNG()`: the canvas as PNG bytes, for `convertToBlob()`.
-fn to_png<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, _args: &[Value<H>]) -> Result<Value<H>, Error> {
-    let png = with_pixmap(call, this, |pixmap| pixmap.clone().into_png())?.map_err(|e| Error::Script(format!("convertToBlob: {e}")))?;
-    Ok(Value::Js(call.new_uint8_array(&png)?))
+/// `encode(type, quality)`: the canvas as a file of `type`, PNG, JPEG or WebP, PNG for any other,
+/// as `convertToBlob()` makes it, and its type. JPEG, which has no alpha, has the pixels on black;
+/// `quality` from 0 to 1 is its quality, else 0.92, as in browsers. WebP is lossless.
+fn encode<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    use image::ImageEncoder as _;
+    let kind = call.to_string(args.first().unwrap_or(&Value::Undefined))?.to_ascii_lowercase();
+    let quality = match args.get(1) {
+        Some(Value::Number(q)) if (0.0..=1.0).contains(q) => *q,
+        _ => 0.92,
+    };
+    let (width, height, premultiplied, straight) = with_pixmap(call, this, |pixmap| {
+        let straight: Vec<u8> = pixmap.clone().take_unpremultiplied().iter().flat_map(|p| [p.r, p.g, p.b, p.a]).collect();
+        (u32::from(pixmap.width()), u32::from(pixmap.height()), pixmap.data_as_u8_slice().to_vec(), straight)
+    })?;
+    let mut bytes = Vec::new();
+    let failed = |e: image::ImageError| Error::Script(format!("convertToBlob: {e}"));
+    let kind = match kind.as_str() {
+        "image/jpeg" => {
+            // Premultiplied colours are the colours on black.
+            let rgb: Vec<u8> = premultiplied.as_chunks::<4>().0.iter().flat_map(|&[r, g, b, _]| [r, g, b]).collect();
+            let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, (quality * 100.0).round() as u8);
+            encoder.write_image(&rgb, width, height, image::ExtendedColorType::Rgb8).map_err(failed)?;
+            "image/jpeg"
+        }
+        "image/webp" => {
+            let encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut bytes);
+            encoder.write_image(&straight, width, height, image::ExtendedColorType::Rgba8).map_err(failed)?;
+            "image/webp"
+        }
+        _ => {
+            let encoder = image::codecs::png::PngEncoder::new(&mut bytes);
+            encoder.write_image(&straight, width, height, image::ExtendedColorType::Rgba8).map_err(failed)?;
+            "image/png"
+        }
+    };
+    let array = crate::global_class(call, "Array")?;
+    let bytes = Value::Js(call.new_uint8_array(&bytes)?);
+    crate::method(call, &array, "of", &[bytes, Value::String(kind.into())])
 }
 
 /// The CSS `font` shorthand `css` as a context keeps it, or `None` when it isn't one.

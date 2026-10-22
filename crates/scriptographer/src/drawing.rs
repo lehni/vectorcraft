@@ -297,6 +297,8 @@ pub(crate) struct Surface<H> {
     dash: Vec<f64>,
     properties: Properties<H>,
     saved: Vec<Saved<H>>,
+    /// A context's `alpha: false`: the pixels are composited onto black, as they come.
+    opaque: bool,
 }
 
 /// What `save()` keeps.
@@ -318,6 +320,7 @@ impl<H> Surface<H> {
             dash: Vec::new(),
             properties: Properties::new(),
             saved: Vec::new(),
+            opaque: false,
         }
     }
 
@@ -326,12 +329,37 @@ impl<H> Surface<H> {
         if let Some(mut scene) = self.scene.take() {
             scene.flush();
             scene.render(&mut self.pixmap, &mut Resources::default());
+            self.keep_opaque();
         }
     }
 
     /// Cleared to `width` × `height`, its state reset, as setting a canvas's size does.
     pub(crate) fn resize(&mut self, width: u16, height: u16) {
+        let opaque = self.opaque;
         *self = Self::new(width, height);
+        self.set_opaque(opaque);
+    }
+
+    /// Its pixels cleared, and what's drawn but not rendered dropped; its state as it is.
+    pub(crate) fn clear(&mut self) {
+        self.scene = None;
+        self.pixmap = Pixmap::new(self.pixmap.width(), self.pixmap.height());
+        self.keep_opaque();
+    }
+
+    /// Opaque from now on, or not: an opaque canvas starts black.
+    pub(crate) fn set_opaque(&mut self, opaque: bool) {
+        self.opaque = opaque;
+        self.keep_opaque();
+    }
+
+    /// An opaque canvas's pixels composited onto black: as they're premultiplied, at full alpha.
+    pub(crate) fn keep_opaque(&mut self) {
+        if self.opaque {
+            for [_, _, _, alpha] in self.pixmap.data_as_u8_slice_mut().as_chunks_mut::<4>().0 {
+                *alpha = 255;
+            }
+        }
     }
 
     /// The scene, which starts from the pixels as they are: composite operations other than

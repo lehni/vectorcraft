@@ -1479,6 +1479,58 @@ fn canvas_text_is_placed_by_its_anchor<E: Engine>() {
     );
 }
 
+fn canvases_encode_transfer_and_stay_opaque<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime
+        .execute(
+            &scope,
+            "const canvas = new OffscreenCanvas(4, 2)\n\
+             const ctx = canvas.getContext('2d')\n\
+             ctx.fillStyle = 'red'\n\
+             ctx.fillRect(0, 0, 4, 2)\n\
+             const head = async (type, quality) => {\n\
+                 const blob = await canvas.convertToBlob({ type, quality })\n\
+                 return blob.type + ' ' + [...new Uint8Array(await blob.arrayBuffer())].slice(0, 4).join(',')\n\
+             }\n\
+             console.log(await head('image/jpeg', 0.5), await head('image/webp'), await head('image/nope'))\n\
+             await new OffscreenCanvas(0, 2).convertToBlob().catch(e => console.log(e.name))\n\
+             try { new OffscreenCanvas(1, 1).transferToImageBitmap() } catch (e) { console.log(e.name) }\n\
+             ctx.translate(1, 0)\n\
+             const bitmap = canvas.transferToImageBitmap()\n\
+             const pixel = (ctx, x, y) => [...ctx.getImageData(x, y, 1, 1).data].join(',')\n\
+             console.log(bitmap.width, bitmap.height, pixel(ctx, 0, 0), ctx.getTransform().e)\n\
+             const other = new OffscreenCanvas(4, 2).getContext('2d')\n\
+             other.drawImage(bitmap, 0, 0)\n\
+             console.log(pixel(other, 1, 1))\n\
+             const opaque = new OffscreenCanvas(2, 2).getContext('2d', { alpha: false, willReadFrequently: true })\n\
+             const { alpha, colorSpace, willReadFrequently } = opaque.getContextAttributes()\n\
+             console.log(alpha, colorSpace, willReadFrequently, pixel(opaque, 0, 0))\n\
+             opaque.fillStyle = 'rgba(255, 0, 0, 0.5)'\n\
+             opaque.fillRect(0, 0, 1, 1)\n\
+             opaque.clearRect(1, 0, 1, 1)\n\
+             opaque.putImageData(new ImageData(1, 1), 0, 1)\n\
+             console.log(pixel(opaque, 0, 0), pixel(opaque, 1, 0), pixel(opaque, 0, 1))",
+        )
+        .unwrap();
+    run_until_done(&mut runtime);
+    assert_eq!(
+        runtime.take_output(),
+        [
+            // JPEG's and WebP's signatures; another type is PNG.
+            "image/jpeg 255,216,255,224 image/webp 82,73,70,70 image/png 137,80,78,71",
+            "IndexSizeError",
+            "InvalidStateError",
+            // The canvas is cleared, its state kept.
+            "4 2 0,0,0,0 1",
+            "255,0,0,255",
+            // Opaque canvases start black and stay opaque, half red on black, cleared to black.
+            "false srgb true 0,0,0,255",
+            "128,0,0,255 0,0,0,255 0,0,0,255",
+        ]
+    );
+}
+
 fn runtimes_live_side_by_side<E: Engine>() {
     // As the app runs them: a second script starts while the first keeps running, and the first
     // stops first.
@@ -1739,6 +1791,11 @@ macro_rules! engine_tests {
             #[test]
             fn workers_run_scripts_on_their_threads() {
                 super::workers_run_scripts_on_their_threads::<$engine>(stringify!($module));
+            }
+
+            #[test]
+            fn canvases_encode_transfer_and_stay_opaque() {
+                super::canvases_encode_transfer_and_stay_opaque::<$engine>();
             }
 
             #[test]

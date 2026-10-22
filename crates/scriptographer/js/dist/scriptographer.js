@@ -704,18 +704,27 @@
     static {
       getCanvasSurface = /* @__PURE__ */ __name((canvas2) => canvas2.#surface, "getCanvasSurface");
     }
-    // The same 2D context each time, `null` for the other kinds.
+    // The same 2D context each time, made with the options it's first asked
+    // for with; `null` for the other kinds.
     getContext(type, options) {
       checkArguments(arguments, 1, "getContext");
       type = String(type);
       if (!contextTypes.includes(type)) {
         throw new TypeError(`Invalid context type: '${type}'.`);
       }
-      return type === "2d" ? this.#context ??= new OffscreenCanvasRenderingContext2D(
-        internal,
-        this,
-        this.#surface
-      ) : null;
+      if (type === "2d" && !this.#context) {
+        const attributes = getContextAttributes(options);
+        if (!attributes.alpha) {
+          canvas.setOpaque.call(this.#surface);
+        }
+        this.#context = new OffscreenCanvasRenderingContext2D(
+          internal,
+          this,
+          this.#surface,
+          attributes
+        );
+      }
+      return type === "2d" ? this.#context : null;
     }
     get width() {
       return this.#width;
@@ -732,9 +741,35 @@
       this.#height = getSize(height);
       canvas.resize.call(this.#surface, this.#width, this.#height);
     }
-    async convertToBlob() {
-      const png = canvas.toPNG.call(this.#surface);
-      return new globalThis.Blob([png], { type: "image/png" });
+    // A PNG, JPEG or WebP file of the canvas, PNG for other types:
+    async convertToBlob({ type = "image/png", quality } = {}) {
+      if (this.#width === 0 || this.#height === 0) {
+        throw new DOMException(
+          "Invalid convertToBlob(): a canvas of no size.",
+          "IndexSizeError"
+        );
+      }
+      const [bytes, kind] = canvas.encode.call(
+        this.#surface,
+        String(type),
+        quality
+      );
+      return new globalThis.Blob([bytes], { type: kind });
+    }
+    // What the canvas shows, as an `ImageBitmap`, the canvas cleared:
+    transferToImageBitmap() {
+      if (!this.#context) {
+        throw new DOMException(
+          "Invalid transferToImageBitmap(): the canvas has no context.",
+          "InvalidStateError"
+        );
+      }
+      const bitmap = new ImageBitmap(
+        internal,
+        canvas.createImageBitmap(this.#surface)
+      );
+      canvas.clear.call(this.#surface);
+      return bitmap;
     }
   };
   var getContextSurface;
@@ -744,7 +779,8 @@
     }
     #canvas;
     #surface;
-    constructor(key, offscreen, surface) {
+    #attributes;
+    constructor(key, offscreen, surface, attributes) {
       checkInternal(
         key,
         "OffscreenCanvasRenderingContext2D",
@@ -752,12 +788,16 @@
       );
       this.#canvas = offscreen;
       this.#surface = surface;
+      this.#attributes = attributes;
     }
     static {
       getContextSurface = /* @__PURE__ */ __name((context) => context.#surface, "getContextSurface");
     }
     get canvas() {
       return this.#canvas;
+    }
+    getContextAttributes() {
+      return { ...this.#attributes };
     }
     // Transparent black, of a size, either way round, or of another
     // `ImageData`'s.
@@ -1184,6 +1224,24 @@
     return [+x, +y, +w, +h, ...ul, ...ur, ...lr, ...ll];
   }
   __name(getRoundRect, "getRoundRect");
+  function getContextAttributes(options) {
+    const {
+      alpha = true,
+      colorSpace = "srgb",
+      desynchronized = false,
+      willReadFrequently = false
+    } = isObject(options) ? options : {};
+    if (colorSpace !== "srgb" && colorSpace !== "display-p3") {
+      throw new TypeError(`Invalid color space: '${colorSpace}'.`);
+    }
+    return {
+      alpha: !!alpha,
+      colorSpace,
+      desynchronized: !!desynchronized,
+      willReadFrequently: !!willReadFrequently
+    };
+  }
+  __name(getContextAttributes, "getContextAttributes");
   function getFinite(value) {
     const number = Number(value);
     if (!Number.isFinite(number)) {
