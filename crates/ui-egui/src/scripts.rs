@@ -36,7 +36,7 @@ use crate::state::ScriptFolder;
 use crate::{FilePick, VectorcraftApp};
 
 /// Script files.
-const EXTS: &[&str] = &["js"];
+const EXTS: &[&str] = &["js", "pjs"];
 
 /// How long the app waits for a script it runs before it goes on, and the script with it.
 const RUN_WAIT: Duration = Duration::from_secs(2);

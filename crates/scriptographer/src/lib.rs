@@ -395,7 +395,8 @@ impl<E: Engine> Runtime<E> {
             let paperscript = object(call, paper, "PaperScript")?;
             modules::set_up(call, paper, &scope.0, load.clone())?;
             let url = host.borrow().file.as_ref().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
-            let options = modules::options(call, &url)?;
+            // The script itself is PaperScript, whatever its name.
+            let options = modules::options(call, &url, true)?;
             let exports = method(call, &paperscript, "execute", &[Value::String(source.to_owned()), Value::Js(scope.0.clone()), Value::Js(options)])?;
             // A script with top-level `await` gives a Promise of its exports.
             match &exports {

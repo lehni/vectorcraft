@@ -1,9 +1,10 @@
 //! `import` in scripts: PaperScript compiles `import … from 'specifier'` into calls to the loader
 //! [`load`], which resolves a path against the importing file's folder (the script's for its own
 //! imports), or a URL (an `https:` specifier, or a relative one in a module from the web, which
-//! loads on desktop and shows in the console), compiles the module as PaperScript in the script's
-//! scope, with operator overloading and `export`, and gives back its exports. Each module runs
-//! once per runtime; a cycle throws.
+//! loads on desktop and shows in the console), compiles the module in the script's scope, with
+//! `export`, and gives back its exports. A `.pjs` module is PaperScript, with operator overloading,
+//! any other plain JavaScript, unless the import says which with `with { type: 'paperscript' }` or
+//! `with { type: 'javascript' }`. Each module runs once per runtime, per kind; a cycle throws.
 
 use std::path::{Path, PathBuf};
 
@@ -13,6 +14,8 @@ use crate::{Call, Error, Value, method, object};
 pub(crate) struct Module<H> {
     /// Its canonical path, or its URL.
     key: String,
+    /// Whether it runs as PaperScript.
+    paperscript: bool,
     /// Its exports, once it ran: whatever `module.exports` became.
     exports: Option<Value<H>>,
 }
@@ -26,9 +29,14 @@ pub(crate) struct Loader<H> {
 }
 
 /// The `options` of `PaperScript.execute()` for code at `url`: the [`HANDLERS`](crate::HANDLERS)
-/// it may define, and the loader.
-pub(crate) fn options<H: Clone>(call: &mut dyn Call<H>, url: &str) -> Result<H, Error> {
+/// it may define, the loader, and without `paperscript`, no operator overloading.
+pub(crate) fn options<H: Clone>(call: &mut dyn Call<H>, url: &str, paperscript: bool) -> Result<H, Error> {
     let options = call.new_object()?;
+    if !paperscript {
+        let features = call.new_object()?;
+        call.set(&features, "operatorOverloading", &Value::Bool(false))?;
+        call.set(&options, "paperFeatures", &Value::Js(features))?;
+    }
     let names: Vec<Value<H>> = crate::HANDLERS.iter().map(|h| Value::String((*h).into())).collect();
     let names = call.new_array(&names)?;
     call.set(&options, "handlers", &Value::Js(names))?;
@@ -40,8 +48,8 @@ pub(crate) fn options<H: Clone>(call: &mut dyn Call<H>, url: &str) -> Result<H, 
     Ok(options)
 }
 
-/// `load(specifier, url)`: the exports of the module `specifier` names, imported by the code at
-/// `url`.
+/// `load(specifier, url, attributes)`: the exports of the module `specifier` names, imported by
+/// the code at `url`, as the import's `attributes` say, `{ type }`.
 pub(crate) fn load<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let specifier = match args.first() {
         Some(specifier) => call.to_string(specifier)?,
@@ -54,7 +62,18 @@ pub(crate) fn load<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[V
     let directory = call.host()?.borrow().directory.clone();
     // One module, however its importers spell its path or URL.
     let key = locate(&specifier, importer.as_deref(), directory)?;
-    let known = call.host()?.borrow().modules.iter().find(|m| m.key == key).map(|m| m.exports.clone());
+    let as_paperscript = match args.get(2) {
+        Some(Value::Js(attributes)) => match call.get(attributes, "type")? {
+            Value::Undefined => is_paperscript(&key),
+            kind => match call.to_string(&kind)?.as_str() {
+                "paperscript" => true,
+                "javascript" => false,
+                kind => return Err(Error::Type(format!("import '{specifier}': '{kind}' isn't a type of module"))),
+            },
+        },
+        _ => is_paperscript(&key),
+    };
+    let known = call.host()?.borrow().modules.iter().find(|m| m.key == key && m.paperscript == as_paperscript).map(|m| m.exports.clone());
     match known {
         Some(Some(exports)) => return Ok(exports),
         Some(None) => return Err(Error::Script(format!("import '{specifier}': it imports itself, through its imports"))),
@@ -71,18 +90,18 @@ pub(crate) fn load<H: Clone>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[V
         let loader = host.loader.as_ref().ok_or_else(|| Error::Script("import: no script is running".into()))?;
         (loader.paperscript.clone(), loader.scope.clone())
     };
-    call.host()?.borrow_mut().modules.push(Module { key: key.clone(), exports: None });
-    let options = options(call, &key)?;
+    call.host()?.borrow_mut().modules.push(Module { key: key.clone(), paperscript: as_paperscript, exports: None });
+    let options = options(call, &key, as_paperscript)?;
     let exports = method(call, &paperscript, "execute", &[Value::String(source), Value::Js(scope), Value::Js(options)]);
     let exports = match exports {
         Ok(exports) => exports,
         Err(e) => {
             // A module that failed loads again the next time it's imported.
-            call.host()?.borrow_mut().modules.retain(|m| m.key != key);
+            call.host()?.borrow_mut().modules.retain(|m| m.key != key || m.paperscript != as_paperscript);
             return Err(e);
         }
     };
-    if let Some(module) = call.host()?.borrow_mut().modules.iter_mut().find(|m| m.key == key) {
+    if let Some(module) = call.host()?.borrow_mut().modules.iter_mut().find(|m| m.key == key && m.paperscript == as_paperscript) {
         module.exports = Some(exports.clone());
     }
     Ok(exports)
@@ -114,6 +133,12 @@ pub(crate) fn locate(specifier: &str, importer: Option<&str>, directory: Option<
     };
     let path = std::fs::canonicalize(&path).map_err(|e| fail(&e))?;
     Ok(path.to_string_lossy().into_owned())
+}
+
+/// Whether the module at `key` is PaperScript by its name: a `.pjs` file.
+fn is_paperscript(key: &str) -> bool {
+    let path = key.split(['?', '#']).next().unwrap_or(key);
+    path.rsplit_once('.').is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("pjs"))
 }
 
 fn is_web(key: &str) -> bool {

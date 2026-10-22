@@ -352,11 +352,15 @@ fn scripts_import_modules<E: Engine>(name: &str) {
     let _ = std::fs::remove_dir_all(&folder);
     std::fs::create_dir_all(folder.join("lib")).unwrap();
     let write = |file: &str, code: &str| std::fs::write(folder.join(file), code).unwrap();
+    // A `.pjs` module is PaperScript, with operator overloading; any other plain JavaScript.
     write(
-        "shapes.js",
+        "shapes.pjs",
         "console.log('shapes runs')\nexport const size = 10\nexport function twice(point) { return point * 2 }\nexport default 'shapes'",
     );
-    write("lib/util.js", "import { size, twice } from '../shapes.js'\nexport const big = twice(new Point(size, 1))");
+    write(
+        "lib/util.js",
+        "import { size, twice } from '../shapes.pjs'\nexport const big = twice(new Point(size, 1))\nexport const plain = new Point(1, 2) + 1",
+    );
     write("a.js", "import { b } from './b.js'\nexport const a = 1");
     write("b.js", "import { a } from './a.js'\nexport const b = 2");
     let mut runtime = Runtime::<E>::new().unwrap();
@@ -365,13 +369,13 @@ fn scripts_import_modules<E: Engine>(name: &str) {
     runtime
         .execute(
             &scope,
-            "import shapes, { size } from './shapes.js'\n\
+            "import shapes, { size } from './shapes.pjs'\n\
              import * as util from './lib/util.js'\n\
-             console.log(shapes, size, util.big)",
+             console.log(shapes, size, util.big, util.plain)",
         )
         .unwrap();
-    assert_eq!(runtime.take_output(), ["shapes runs", "shapes 10 { x: 20, y: 2 }"], "shapes.js ran once, for both importers");
-    runtime.execute(&scope, "import('./shapes.js').then(m => console.log('dynamic', m.default, m.size))").unwrap();
+    assert_eq!(runtime.take_output(), ["shapes runs", "shapes 10 { x: 20, y: 2 } { x: 1, y: 2 }1"], "shapes.pjs ran once, for both importers");
+    runtime.execute(&scope, "import('./shapes.pjs').then(m => console.log('dynamic', m.default, m.size))").unwrap();
     assert_eq!(runtime.take_output(), ["dynamic shapes 10"], "the same module, already loaded");
     runtime.execute(&scope, "import('./missing.js').catch(e => console.log('rejected'))").unwrap();
     assert_eq!(runtime.take_output(), ["rejected"]);
@@ -417,7 +421,7 @@ fn serve(count: usize) -> String {
             reader.read_exact(&mut body).unwrap();
             let (status, content_type, answer) = match path.as_str() {
                 "/data.json" => ("200 OK", "application/json", br#"{"a": 1, "list": [1, 2]}"#.to_vec()),
-                "/lib/mod.js" => ("200 OK", "text/javascript", b"import { b } from '../dep.js'\nexport const a = b + new Point(1, 1)".to_vec()),
+                "/lib/mod.pjs" => ("200 OK", "text/javascript", b"import { b } from '../dep.js'\nexport const a = b + new Point(1, 1)".to_vec()),
                 "/dep.js" => ("200 OK", "text/javascript", b"export const b = new Point(40, 41)".to_vec()),
                 "/echo" => ("201 Created", "text/plain", [format!("{method} {kind}\n").into_bytes(), body].concat()),
                 // Not modified when asked for the copy it gave, whose `ETag` the head names.
@@ -476,8 +480,8 @@ fn scripts_import_from_the_web<E: Engine>() {
     let address = serve(2);
     let mut runtime = Runtime::<E>::new().unwrap();
     let scope = runtime.create_scope(800.0, 600.0).unwrap();
-    runtime.execute(&scope, &format!("import {{ a }} from '{address}/lib/mod.js'\nconsole.log(a)")).unwrap();
-    assert_eq!(runtime.take_output(), [format!("import {address}/lib/mod.js"), format!("import {address}/dep.js"), "{ x: 41, y: 42 }".to_owned()]);
+    runtime.execute(&scope, &format!("import {{ a }} from '{address}/lib/mod.pjs'\nconsole.log(a)")).unwrap();
+    assert_eq!(runtime.take_output(), [format!("import {address}/lib/mod.pjs"), format!("import {address}/dep.js"), "{ x: 41, y: 42 }".to_owned()]);
 }
 
 fn scripts_have_urls<E: Engine>() {
