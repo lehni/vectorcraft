@@ -539,36 +539,3 @@ macro_rules! engine_tests {
 engine_tests!(boa, vectorcraft_scriptographer::Boa);
 #[cfg(all(feature = "v8", not(target_arch = "wasm32")))]
 engine_tests!(v8, vectorcraft_scriptographer::V8);
-
-#[test]
-fn zz_after_delete() {
-    use vectorcraft_scriptographer::{Modifiers, MouseEvent, V8};
-    let (mut s, a, b) = document();
-    let st = s.active().unwrap();
-    let mut runtime = Runtime::<V8>::new().unwrap();
-    let scope = runtime.create_scope(400.0, 300.0).unwrap();
-    runtime.bind(&scope, st.doc.clone(), st.selection.clone()).unwrap();
-    runtime.execute(&scope, "var worm\nfunction onMouseDown(e) { worm = new Path(); worm.add(e.point); console.log('down', worm.parent && worm.parent.key, worm.isInserted(), project.layers.length) }\nfunction onMouseDrag(e) { worm.add(e.point) }").unwrap();
-    let step = |s: &mut Session, runtime: &mut Runtime<V8>, ev, x: f64| {
-        let st = s.active().unwrap();
-        runtime.update(&scope, st.doc.clone(), st.selection.clone()).unwrap();
-        runtime.mouse_event(&scope, ev, (x, 50.0), Modifiers::default(), 0.0).unwrap();
-        if let Some(patch) = runtime.take_patch(&scope).unwrap() {
-            println!("patch {}", patch.params);
-            let result = s.execute("document.patch", &patch.params).unwrap();
-            let st = s.active().unwrap();
-            runtime.apply_ids(&scope, patch, &result, st.doc.clone(), st.selection.clone(), false).unwrap();
-        } else {
-            println!("no patch");
-        }
-    };
-    // Touch the existing objects first, as the hover and the earlier worms did.
-    runtime.execute(&scope, "console.log(project.activeLayer.children.length)").unwrap();
-    s.execute("select.set", &json!({"ids": [a.0, b.0]})).unwrap();
-    step(&mut s, &mut runtime, MouseEvent::Move, 5.0);
-    s.execute("edit.clear", &json!({})).unwrap();
-    step(&mut s, &mut runtime, MouseEvent::Move, 6.0);
-    step(&mut s, &mut runtime, MouseEvent::Down, 10.0);
-    step(&mut s, &mut runtime, MouseEvent::Move, 30.0);
-    println!("{:?}", runtime.take_output());
-}
