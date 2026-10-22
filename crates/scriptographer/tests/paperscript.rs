@@ -1287,6 +1287,31 @@ fn web_sockets_talk<E: Engine>() {
     assert!(!runtime.is_running(), "a closed socket keeps the script running no more");
 }
 
+fn web_sockets_drop_what_they_send_while_the_server_closes_them<E: Engine>() {
+    // A server that says `go` and closes the socket at once, then keeps the connection a while:
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = format!("ws://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut socket = tungstenite::accept(stream).unwrap();
+        socket.write(tungstenite::Message::text("go")).unwrap();
+        socket.close(Some(tungstenite::protocol::CloseFrame { code: 1000.into(), reason: "bye".into() })).unwrap();
+        while socket.read().is_ok() {}
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    });
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    let source = format!(
+        "const socket = new WebSocket('{address}')\n\
+         socket.onmessage = event => socket.send('late')\n\
+         socket.onerror = () => console.log('error')\n\
+         socket.onclose = event => console.log('close', event.code, event.reason, event.wasClean)"
+    );
+    runtime.execute(&scope, &source).unwrap();
+    run_until_done(&mut runtime);
+    assert_eq!(runtime.take_output(), ["close 1000 bye true"]);
+}
+
 fn web_sockets_that_cant_connect_close<E: Engine>() {
     // A port nothing listens on.
     let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
@@ -1844,6 +1869,11 @@ macro_rules! engine_tests {
             #[test]
             fn web_sockets_talk() {
                 super::web_sockets_talk::<$engine>();
+            }
+
+            #[test]
+            fn web_sockets_drop_what_they_send_while_the_server_closes_them() {
+                super::web_sockets_drop_what_they_send_while_the_server_closes_them::<$engine>();
             }
 
             #[test]

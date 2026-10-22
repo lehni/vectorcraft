@@ -8,6 +8,7 @@ use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 use std::time::Duration;
 
 use tungstenite::client::IntoClientRequest;
+use tungstenite::error::ProtocolError;
 use tungstenite::protocol::CloseFrame;
 use tungstenite::protocol::frame::coding::CloseCode;
 use tungstenite::stream::MaybeTlsStream;
@@ -146,8 +147,10 @@ fn run(url: &str, protocols: &[String], commands: &Receiver<Command>, incoming: 
                     return;
                 }
             };
-            if let Err(e) = sent {
-                return unclean(incoming, e.to_string());
+            match sent {
+                // What the script sends while the server closes the socket is dropped, as in browsers.
+                Ok(()) | Err(tungstenite::Error::Protocol(ProtocolError::SendAfterClosing)) => {}
+                Err(e) => return unclean(incoming, e.to_string()),
             }
         }
         let message = match socket.read() {
