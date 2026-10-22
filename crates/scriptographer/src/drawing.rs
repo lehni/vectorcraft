@@ -1342,7 +1342,9 @@ pub(crate) fn clip<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Va
 /// `isPointInPath(path, x, y, fillRule)`: whether the point (in pixels) is inside the path.
 pub(crate) fn is_point_in_path<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
     let (path, args) = path_argument(call, this, args)?;
-    let Some([x, y]) = finite(args, 0) else {
+    // A transform that flattens everything leaves no inside, as in browsers.
+    let invertible = surface(call, this, |s| s.transform.determinant().abs() >= 1e-12)?;
+    let (Some([x, y]), true) = (finite(args, 0), invertible) else {
         return Ok(Value::Bool(false));
     };
     Ok(Value::Bool(contains(&path, Point::new(x, y), fill_rule(args))))
@@ -1374,11 +1376,21 @@ fn contains(path: &BezPath, point: Point, rule: Fill) -> bool {
             closed.push(PathEl::ClosePath);
         }
     };
+    // Coordinates are kept far enough from infinity to compute with: a path scaled to infinity
+    // still has an inside.
+    const FAR: f64 = 1e150;
+    let finite = |p: Point| Point::new(p.x.clamp(-FAR, FAR), p.y.clamp(-FAR, FAR));
     for el in path.elements() {
         if matches!(el, PathEl::MoveTo(_)) {
             close(&mut closed);
         }
-        closed.push(*el);
+        closed.push(match *el {
+            PathEl::MoveTo(p) => PathEl::MoveTo(finite(p)),
+            PathEl::LineTo(p) => PathEl::LineTo(finite(p)),
+            PathEl::QuadTo(a, b) => PathEl::QuadTo(finite(a), finite(b)),
+            PathEl::CurveTo(a, b, c) => PathEl::CurveTo(finite(a), finite(b), finite(c)),
+            PathEl::ClosePath => PathEl::ClosePath,
+        });
     }
     close(&mut closed);
     let winding = closed.winding(point);

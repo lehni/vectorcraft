@@ -50,7 +50,6 @@ html/canvas/offscreen/layers/2d.layer.valid-calls.beginLayer-save.worker.js: No 
 html/canvas/offscreen/layers/2d.layer.valid-calls.beginLayer.worker.js: No exception raised on lone beginLayer() calls.
 html/canvas/offscreen/layers/2d.layer.valid-calls.save-beginLayer.worker.js: No exception raised on save() + beginLayer().
 html/canvas/offscreen/line-styles/2d.line.cross.worker.js: Untitled
-html/canvas/offscreen/path-objects/2d.path.isPointInPath.basic.worker.js: Verify the winding rule in isPointInPath works for for rect path.
 html/canvas/offscreen/pixel-manipulation/2d.imageData.createImageBitmap.srgb.rgba.float16.worker.js: Verify round-trip of 16-bit float sRGB data ImageData through ImageBitmap
 html/canvas/offscreen/pixel-manipulation/2d.imageData.put.basic.rgba.float16.worker.js: putImageData() puts 16-bit floating point image data from getImageData() onto the canvas
 html/canvas/offscreen/text/2d.text.measure.emHeights-low-ascent.worker.js: Testing emHeights with reduced ascent metric

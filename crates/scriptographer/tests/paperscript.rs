@@ -842,7 +842,11 @@ fn canvases_draw_path2d<E: Engine>() {
              ctx.scale(2, 2)\n\
              console.log(ctx.isPointInStroke(line, 20, 43), ctx.isPointInStroke(line, 20, 45))\n\
              ctx.beginPath(); ctx.moveTo(0, 5); ctx.lineTo(10, 5)\n\
-             console.log(ctx.isPointInStroke(5, 10), ctx.isPointInStroke(5, 20))",
+             console.log(ctx.isPointInStroke(5, 10), ctx.isPointInStroke(5, 20))\n\
+             ctx.resetTransform(); ctx.scale(Number.MAX_VALUE, Number.MAX_VALUE); ctx.beginPath(); ctx.rect(-10, -10, 20, 20)\n\
+             const huge = ctx.isPointInPath(0, 0)\n\
+             ctx.resetTransform(); ctx.scale(0, 0); ctx.beginPath(); ctx.rect(-10, -10, 20, 20)\n\
+             console.log(huge, ctx.isPointInPath(0, 0))",
         )
         .unwrap();
     assert_eq!(
@@ -856,6 +860,8 @@ fn canvases_draw_path2d<E: Engine>() {
             // The line is in user space, its width scaled with it.
             "true false",
             "true false",
+            "true false",
+            // A path scaled to infinity has an inside; a flattening transform leaves none.
             "true false",
         ]
     );
