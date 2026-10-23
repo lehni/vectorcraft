@@ -226,6 +226,44 @@ pub(crate) fn add_pattern(d: &mut Document, def: PatternDef) {
     d.patterns.push(def);
 }
 
+/// Pattern `name` with `art` and `tile`, for callers that keep their own copy of the patterns
+/// (`document.patch`): a new one with its swatch, the tile the art's bounds unless given; an
+/// existing one with what's given replaced, its other options kept. A tile given is the caller's,
+/// so Size Tile to Art turns off; art alone refits a tile sized to it.
+pub(crate) fn set_pattern(d: &mut Document, name: &str, tile: Option<Rect>, art: Option<&[Node]>) -> std::result::Result<(), String> {
+    if d.pattern_edit.as_ref().is_some_and(|e| e.pattern == name) {
+        return Err(format!("pattern `{name}` is being edited"));
+    }
+    let art: Option<Vec<Arc<Node>>> = art.map(|art| art.iter().map(|n| Arc::new(d.reid(n))).collect());
+    match d.pattern_mut(name) {
+        Some(def) => {
+            if let Some(art) = art {
+                def.art = art;
+            }
+            match tile {
+                Some(tile) => {
+                    def.tile = tile;
+                    def.size_tile_to_art = false;
+                }
+                None if def.size_tile_to_art => def.fit_tile_to_art(),
+                None => {}
+            }
+        }
+        None => {
+            if name.trim().is_empty() {
+                return Err("a pattern needs a name".into());
+            }
+            if d.swatch_name_taken(name) {
+                return Err(format!("a swatch is named `{name}` already"));
+            }
+            let mut def = PatternDef::new(name, art.ok_or_else(|| format!("new pattern `{name}` needs its art"))?);
+            def.tile = tile.unwrap_or(def.tile);
+            add_pattern(d, def);
+        }
+    }
+    Ok(())
+}
+
 /// Fresh-id deep copies of `nodes`.
 fn copies(d: &mut Document, nodes: &[Arc<Node>]) -> Vec<Node> {
     nodes.iter().map(|n| d.reid(n)).collect()

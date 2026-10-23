@@ -2,11 +2,12 @@
 //! form `document.node` returns). For callers that keep their own copy of the art and write back
 //! what changed, such as scripts, where one command per change would not scale.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
 use serde_json::{Value, json};
 use vectorcraft_doc::{Document, Node, NodeId, NodeKind};
+use vectorcraft_geom::Rect;
 
 use super::{CommandSpec, bad, cmd, has_doc};
 use crate::{Result, Session};
@@ -19,7 +20,7 @@ pub fn specs() -> Vec<CommandSpec> {
         "Patch Document",
         [],
         None,
-        "{label?: undo step name (default \"Edit\"), extend?: true adds to the newest undo step instead of recording one (for a caller whose last edit that step is), remove?: [ids], insert?: [{parent: id|null|{new: k} (null: the layer list; {new: k}: the k-th insert, an earlier one), index?: position among the parent's children (bottom first; default: on top), node: object JSON as document.node returns it (its ids are replaced with new ones)}], replace?: [object JSON with its id (a container sent without its children keeps them)], order?: [{parent: id|null|{new: k}, children: [id|{new: k}]}] (the parent's children become exactly these, bottom first; listed objects from elsewhere move here; {new: k} places the k-th insert), threads?: [[id|{new: k}]] (each list of frames, area type or type on a path, becomes one thread, in that order, which the threads they were in lose; a list of one frame takes it out of its thread; the stories flow again), keep?: {objects: [ids], lists: [parent id|null]} (what changed since the caller's copy of the document, which the patch leaves out)} applied in that order, as one undo step; during an interaction (a drag) it applies beneath it, leaving out the objects the interaction changed too → {ids: [the new id of each insert], skipped?: [the objects left out]}",
+        "{label?: undo step name (default \"Edit\"), extend?: true adds to the newest undo step instead of recording one (for a caller whose last edit that step is), remove?: [ids], insert?: [{parent: id|null|{new: k} (null: the layer list; {new: k}: the k-th insert, an earlier one), index?: position among the parent's children (bottom first; default: on top), node: object JSON as document.node returns it (its ids are replaced with new ones)}], replace?: [object JSON with its id (a container sent without its children keeps them)], order?: [{parent: id|null|{new: k}, children: [id|{new: k}]}] (the parent's children become exactly these, bottom first; listed objects from elsewhere move here; {new: k} places the k-th insert), threads?: [[id|{new: k}]] (each list of frames, area type or type on a path, becomes one thread, in that order, which the threads they were in lose; a list of one frame takes it out of its thread; the stories flow again), keep?: {objects: [ids], lists: [parent id|null], patterns?: [names], symbols?: [names]} (what changed since the caller's copy of the document, which the patch leaves out), patterns?: [{name, tile?: [x, y, width, height], art?: [object JSON]}] (a new pattern swatch, or an existing one's tile and art replaced and its other options kept; a tile given turns Size Tile to Art off), symbols?: [{name, art: object JSON}] (a new symbol, or an existing one's art, in the symbol's space, replaced: its instances keep their transforms)} applied in that order, the patterns and symbols first, as one undo step; during an interaction (a drag) it applies beneath it, leaving out the objects, patterns and symbols the interaction changed too → {ids: [the new id of each insert], skipped?: [the objects left out], skippedPatterns?: [names], skippedSymbols?: [names]}",
         has_doc,
         patch
     )]
@@ -47,6 +48,17 @@ struct Ops {
     replaces: Vec<(Node, bool)>,
     orders: Vec<(Parent, Vec<Slot>)>,
     threads: Vec<Vec<Slot>>,
+    /// Each pattern's name, and its tile and art when given.
+    patterns: Vec<(String, Option<Rect>, Option<Vec<Node>>)>,
+    symbols: Vec<(String, Node)>,
+}
+
+/// What a patch left out: objects, and patterns and symbols by name.
+#[derive(Default)]
+struct Skipped {
+    objects: Vec<u64>,
+    patterns: Vec<String>,
+    symbols: Vec<String>,
 }
 
 fn patch(s: &mut Session, p: &Value) -> Result<Value> {
@@ -54,7 +66,7 @@ fn patch(s: &mut Session, p: &Value) -> Result<Value> {
     let mut ops = parse(p)?;
     let keep = p.get("keep").map(Touched::parse).transpose()?;
     if s.in_interaction() {
-        return beneath_interaction(s, &mut ops, keep.unwrap_or_default()).map(|(ids, skipped)| json!({ "ids": ids, "skipped": skipped }));
+        return beneath_interaction(s, &mut ops, keep.unwrap_or_default()).map(|(ids, skipped)| result(&ids, Some(skipped)));
     }
     let skipped = keep.map(|keep| leave_out(&mut ops, &keep));
     let extending = p.get("extend").and_then(Value::as_bool).unwrap_or(false) && s.extend_newest_undo_step();
@@ -62,10 +74,21 @@ fn patch(s: &mut Session, p: &Value) -> Result<Value> {
     if extending {
         s.end_undo_group(false);
     }
-    Ok(match skipped {
-        Some(skipped) => json!({ "ids": ids?, "skipped": skipped }),
-        None => json!({ "ids": ids? }),
-    })
+    Ok(result(&ids?, skipped))
+}
+
+fn result(ids: &[u64], skipped: Option<Skipped>) -> Value {
+    let mut result = json!({ "ids": ids });
+    if let Some(skipped) = skipped {
+        result["skipped"] = json!(skipped.objects);
+        if !skipped.patterns.is_empty() {
+            result["skippedPatterns"] = json!(skipped.patterns);
+        }
+        if !skipped.symbols.is_empty() {
+            result["skippedSymbols"] = json!(skipped.symbols);
+        }
+    }
+    result
 }
 
 fn parse(p: &Value) -> Result<Ops> {
@@ -108,7 +131,29 @@ fn parse(p: &Value) -> Result<Ops> {
             frames.iter().map(|f| slot(f, inserts.len(), "threads")).collect::<Result<Vec<_>>>()
         })
         .collect::<Result<Vec<_>>>()?;
-    Ok(Ops { remove, inserts, replaces, orders, threads })
+    let patterns = list(p, "patterns")?
+        .iter()
+        .map(|entry| {
+            let tile = match entry.get("tile") {
+                None | Some(Value::Null) => None,
+                Some(tile) => Some(rect(tile).ok_or_else(|| bad(CMD, "patterns: a tile is [x, y, width, height], its size above 0"))?),
+            };
+            let art = match entry.get("art") {
+                None | Some(Value::Null) => None,
+                Some(Value::Array(art)) => Some(art.iter().map(|node| parse_node(node.clone(), "patterns")).collect::<Result<Vec<_>>>()?),
+                Some(_) => return Err(bad(CMD, "patterns: art must be an array of objects")),
+            };
+            Ok((name(entry, "patterns")?, tile, art))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let symbols = list(p, "symbols")?
+        .iter()
+        .map(|entry| {
+            let art = entry.get("art").ok_or_else(|| bad(CMD, "each symbol needs its art"))?;
+            Ok((name(entry, "symbols")?, parse_node(art.clone(), "symbols")?))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(Ops { remove, inserts, replaces, orders, threads, patterns, symbols })
 }
 
 /// An object of a list: an existing object's id, or `{new: k}`, the k-th of `inserts` inserts.
@@ -126,6 +171,13 @@ fn slot(value: &Value, inserts: usize, what: &str) -> Result<Slot> {
 
 /// Applies `ops` to `doc`. Returns the new ids of the inserts.
 fn apply(doc: &mut Document, ops: &Ops) -> Result<Vec<u64>> {
+    // Patterns and symbols first, so the objects can use the new ones:
+    for (name, tile, art) in &ops.patterns {
+        super::patterncmds::set_pattern(doc, name, *tile, art.as_deref()).map_err(|e| bad(CMD, format!("patterns: {e}")))?;
+    }
+    for (name, art) in &ops.symbols {
+        super::brushsym::set_symbol(doc, name, art).map_err(|e| bad(CMD, format!("symbols: {e}")))?;
+    }
     doc.remove_many(&ops.remove).map_err(|e| bad(CMD, format!("remove: {e}")))?;
     // New objects get new ids and go in at once, an order list then puts them in their place.
     let mut fresh = Vec::with_capacity(ops.inserts.len());
@@ -192,13 +244,14 @@ impl From<&Slot> for Parent {
 /// preview shown now. What the interaction changed wins: the patch leaves out the objects whose
 /// node it changed and the parents whose children it changed. It records no undo step of its own:
 /// undoing the interaction goes back to the document with the patch.
-/// Returns the new ids, and the objects whose changes it left out, with those in `keep`.
-fn beneath_interaction(s: &mut Session, ops: &mut Ops, mut keep: Touched) -> Result<(Vec<u64>, Vec<u64>)> {
+/// Returns the new ids, and what it left out, with what's in `keep`.
+fn beneath_interaction(s: &mut Session, ops: &mut Ops, mut keep: Touched) -> Result<(Vec<u64>, Skipped)> {
     let st = s.doc_mut()?;
     let Some(it) = st.interaction.as_mut() else {
         return Err(bad(CMD, "no interaction in progress"));
     };
     keep.children(None, &it.doc.layers, &st.doc.layers);
+    keep.definitions(&it.doc, &st.doc);
     let skipped = leave_out(ops, &keep);
     // The same new ids in both documents: both count on from the higher of their counters. Both
     // change, or neither.
@@ -217,9 +270,11 @@ fn beneath_interaction(s: &mut Session, ops: &mut Ops, mut keep: Touched) -> Res
     Ok((ids, skipped))
 }
 
-/// Leaves the objects and child lists in `touched` out of `ops`. Returns the objects left out.
-fn leave_out(ops: &mut Ops, touched: &Touched) -> Vec<u64> {
-    let mut skipped: Vec<u64> =
+/// Leaves what's in `touched` out of `ops`. Returns what it left out.
+fn leave_out(ops: &mut Ops, touched: &Touched) -> Skipped {
+    let patterns = ops.patterns.extract_if(.., |(name, ..)| touched.patterns.contains(name)).map(|(name, ..)| name).collect();
+    let symbols = ops.symbols.extract_if(.., |(name, _)| touched.symbols.contains(name)).map(|(name, _)| name).collect();
+    let mut objects: Vec<u64> =
         ops.remove.iter().chain(ops.replaces.iter().map(|(n, _)| &n.id)).filter(|id| touched.nodes.contains(id)).map(|id| id.0).collect();
     ops.remove.retain(|id| !touched.nodes.contains(id));
     ops.replaces.retain(|(node, _)| !touched.nodes.contains(&node.id));
@@ -231,7 +286,7 @@ fn leave_out(ops: &mut Ops, touched: &Touched) -> Vec<u64> {
         Parent::New(_) => false,
     };
     let unordered: Vec<(Parent, Vec<Slot>)> = ops.orders.extract_if(.., |(parent, _)| touches(parent)).collect();
-    skipped.extend(unordered.iter().filter_map(|(parent, _)| match parent {
+    objects.extend(unordered.iter().filter_map(|(parent, _)| match parent {
         Parent::Old(id) => Some(id.0),
         _ => None,
     }));
@@ -242,7 +297,7 @@ fn leave_out(ops: &mut Ops, touched: &Touched) -> Vec<u64> {
             insert.1 = None;
         }
     }
-    skipped
+    Skipped { objects, patterns, symbols }
 }
 
 /// What changed between two versions of a document, as `document.patch`'s `keep` takes it: for a
@@ -251,29 +306,40 @@ fn leave_out(ops: &mut Ops, touched: &Touched) -> Vec<u64> {
 pub fn changes_between(before: &Document, now: &Document) -> Value {
     let mut touched = Touched::default();
     touched.children(None, &before.layers, &now.layers);
+    touched.definitions(before, now);
     let mut objects: Vec<u64> = touched.nodes.iter().map(|id| id.0).collect();
     let mut lists: Vec<Option<u64>> = touched.lists.iter().map(|id| id.map(|id| id.0)).collect();
     objects.sort_unstable();
     lists.sort_unstable();
-    json!({ "objects": objects, "lists": lists })
+    json!({ "objects": objects, "lists": lists, "patterns": touched.patterns, "symbols": touched.symbols })
 }
 
 /// What changed between two versions of a document: the nodes whose node is not the same
 /// (leaves; containers count only for their child lists), and the parents (`None`: the layer
-/// list) whose children are not the same.
+/// list) whose children are not the same, and the patterns and symbols that are not.
 #[derive(Default)]
 struct Touched {
     nodes: HashSet<NodeId>,
     lists: HashSet<Option<NodeId>>,
+    patterns: BTreeSet<String>,
+    symbols: BTreeSet<String>,
 }
 
 impl Touched {
-    /// `keep`'s `{objects, lists}`.
+    /// `keep`'s `{objects, lists, patterns, symbols}`.
     fn parse(keep: &Value) -> Result<Self> {
         let nodes = list(keep, "objects")?.iter().map(|v| node_id(v, "keep objects")).collect::<Result<_>>()?;
         let lists =
             list(keep, "lists")?.iter().map(|v| if v.is_null() { Ok(None) } else { node_id(v, "keep lists").map(Some) }).collect::<Result<_>>()?;
-        Ok(Self { nodes, lists })
+        let names = |key| -> Result<BTreeSet<String>> {
+            list(keep, key)?.iter().map(|v| v.as_str().map(str::to_owned).ok_or_else(|| bad(CMD, format!("keep {key}: names are strings")))).collect()
+        };
+        Ok(Self { nodes, lists, patterns: names("patterns")?, symbols: names("symbols")? })
+    }
+
+    fn definitions(&mut self, before: &Document, now: &Document) {
+        self.patterns.extend(now.changed_patterns(before));
+        self.symbols.extend(now.changed_symbols(before));
     }
 
     fn children(&mut self, parent: Option<NodeId>, before: &[Arc<Node>], now: &[Arc<Node>]) {
@@ -325,6 +391,17 @@ fn parent(entry: &Value, inserts: usize) -> Result<Parent> {
             None => node_id(v, "parent").map(Parent::Old),
         },
     }
+}
+
+/// An entry's `name`.
+fn name(entry: &Value, key: &str) -> Result<String> {
+    entry.get("name").and_then(Value::as_str).map(str::to_owned).ok_or_else(|| bad(CMD, format!("{key}: each entry needs a name")))
+}
+
+/// `[x, y, width, height]` as a rectangle, its numbers finite and its size above 0.
+fn rect(v: &Value) -> Option<Rect> {
+    let [x, y, w, h] = v.as_array()?.iter().map(Value::as_f64).collect::<Option<Vec<_>>>()?.try_into().ok()?;
+    ([x, y, w, h].iter().all(|n| n.is_finite()) && w > 0.0 && h > 0.0).then(|| Rect::new(x, y, x + w, y + h))
 }
 
 fn parse_node(json: Value, key: &str) -> Result<Node> {

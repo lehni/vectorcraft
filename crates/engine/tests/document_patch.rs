@@ -172,7 +172,7 @@ fn keep_leaves_out_what_changed_since_the_callers_copy() {
     let copy = s.active().unwrap().doc.clone();
     s.execute("object.move", &json!({"ids": [a], "dx": 100, "dy": 0})).unwrap();
     let keep = vectorcraft_engine::cmd::patch::changes_between(&copy, &s.active().unwrap().doc);
-    assert_eq!(keep, json!({"objects": [a], "lists": []}));
+    assert_eq!(keep, json!({"objects": [a], "lists": [], "patterns": [], "symbols": []}));
     let mut old_a = serde_json::to_value(copy.node(NodeId(a)).unwrap()).unwrap();
     old_a["name"] = json!("script");
     let mut old_b = serde_json::to_value(copy.node(NodeId(b)).unwrap()).unwrap();
@@ -279,4 +279,142 @@ fn threads_take_area_type_once() {
     assert!(s.execute("document.patch", &json!({"threads": [[a, point]]})).is_err());
     assert!(s.execute("document.patch", &json!({"threads": [[a, b], [b, c]]})).is_err());
     assert_eq!(document(&mut s), before);
+}
+
+/// Rectangle a as a pattern "Tiles" 40 × 20, of grid tiles with Size Tile to Art off.
+fn tiles() -> (Session, [u64; 3]) {
+    let (mut s, _, ids) = three_rectangles();
+    s.execute("object.pattern.make", &json!({"ids": [ids[0]], "name": "Tiles", "width": 40, "height": 20, "edit": false})).unwrap();
+    (s, ids)
+}
+
+fn tile(s: &Session, name: &str) -> [f64; 4] {
+    let tile = s.active().unwrap().doc.pattern(name).unwrap().tile;
+    [tile.x0, tile.y0, tile.width(), tile.height()]
+}
+
+#[test]
+fn patterns_are_made_with_their_swatch() {
+    let (mut s, _, [a, ..]) = three_rectangles();
+    let art = node(&mut s, a);
+    s.execute("document.patch", &json!({"patterns": [{"name": "Dots", "art": [art]}]})).unwrap();
+    let doc = &s.active().unwrap().doc;
+    assert_eq!(doc.pattern("Dots").unwrap().art.len(), 1);
+    assert_ne!(doc.pattern("Dots").unwrap().art[0].id.0, a, "the art gets new ids");
+    assert!(doc.swatch_name_taken("Dots"), "as Make does, it gets a swatch");
+    assert_eq!(tile(&s, "Dots"), [10.0, 10.0, 30.0, 30.0], "without a tile, the art's bounds");
+}
+
+#[test]
+fn patterns_keep_what_isnt_given() {
+    let (mut s, [_, b, _]) = tiles();
+    s.execute("pattern.options", &json!({"name": "Tiles", "tileType": "brickByRow", "hSpacing": 4})).unwrap();
+    let before = document(&mut s);
+    let art = node(&mut s, b);
+    s.execute("document.patch", &json!({"patterns": [{"name": "Tiles", "art": [art]}]})).unwrap();
+    let def = s.active().unwrap().doc.pattern("Tiles").unwrap().clone();
+    assert_eq!(def.art[0].geometric_bounds().unwrap().x0, 50.0, "the art is b's");
+    assert_eq!((def.tile_type.id(), def.h_spacing), ("brickByRow", 4.0));
+    s.execute("document.patch", &json!({"patterns": [{"name": "Tiles", "tile": [0, 0, 60, 30]}]})).unwrap();
+    assert_eq!(tile(&s, "Tiles"), [0.0, 0.0, 60.0, 30.0]);
+    assert_eq!(s.active().unwrap().doc.pattern("Tiles").unwrap().art, def.art, "the art stays");
+    s.execute("edit.undo", &json!({})).unwrap();
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(document(&mut s), before);
+}
+
+/// A tile given is the caller's own, so Size Tile to Art turns off; art alone refits the tile.
+#[test]
+fn patterns_sized_to_their_art_follow_it() {
+    let (mut s, [_, b, c]) = tiles();
+    s.execute("pattern.options", &json!({"name": "Tiles", "sizeTileToArt": true})).unwrap();
+    let art = node(&mut s, b);
+    s.execute("document.patch", &json!({"patterns": [{"name": "Tiles", "art": [art]}]})).unwrap();
+    assert_eq!(tile(&s, "Tiles"), [50.0, 10.0, 30.0, 30.0], "fitted to the new art");
+    let art = node(&mut s, c);
+    s.execute("document.patch", &json!({"patterns": [{"name": "Tiles", "tile": [0, 0, 60, 30], "art": [art]}]})).unwrap();
+    assert_eq!(tile(&s, "Tiles"), [0.0, 0.0, 60.0, 30.0]);
+    assert!(!s.active().unwrap().doc.pattern("Tiles").unwrap().size_tile_to_art);
+}
+
+#[test]
+fn failing_definitions_change_nothing() {
+    let (mut s, [a, ..]) = tiles();
+    s.execute("swatch.new", &json!({"name": "Red", "color": "#ff0000"})).unwrap();
+    let art = node(&mut s, a);
+    let before = document(&mut s);
+    let failures = [
+        // A new pattern needs its art.
+        json!({"patterns": [{"name": "Dots", "tile": [0, 0, 10, 10]}]}),
+        // Its swatch's name is taken.
+        json!({"patterns": [{"name": "Red", "art": [art]}]}),
+        json!({"patterns": [{"name": "Tiles", "tile": [0, 0, 0, 10]}]}),
+        json!({"patterns": [{"tile": [0, 0, 10, 10]}]}),
+        json!({"symbols": [{"name": "Box"}]}),
+        json!({"symbols": [{"name": " ", "art": art}]}),
+    ];
+    for params in failures {
+        assert!(s.execute("document.patch", &params).is_err(), "{params}");
+        assert_eq!(document(&mut s), before, "{params}");
+    }
+}
+
+#[test]
+fn a_pattern_being_edited_is_refused() {
+    let (mut s, [_, b, _]) = tiles();
+    s.execute("object.pattern.edit", &json!({"name": "Tiles"})).unwrap();
+    let art = node(&mut s, b);
+    let error = s.execute("document.patch", &json!({"patterns": [{"name": "Tiles", "art": [art]}]})).unwrap_err();
+    assert!(error.to_string().contains("being edited"), "{error}");
+}
+
+/// Unlike Redefine Symbol, the art goes in as it is, in the symbol's space, and the instances
+/// keep their transforms.
+#[test]
+fn symbols_take_art_as_it_is() {
+    let (mut s, _, [a, b, _]) = three_rectangles();
+    s.execute("symbol.new", &json!({"name": "Box", "ids": [a]})).unwrap();
+    let instance = |s: &Session| {
+        let mut found = None;
+        s.active().unwrap().doc.walk(|n| {
+            if let vectorcraft_doc::NodeKind::SymbolInstance { xf, .. } = &n.kind {
+                found = Some(*xf);
+            }
+        });
+        found.unwrap()
+    };
+    let xf = instance(&s);
+    let art = node(&mut s, b);
+    s.execute("document.patch", &json!({"symbols": [{"name": "Box", "art": art}, {"name": "Fresh", "art": art}]})).unwrap();
+    let doc = &s.active().unwrap().doc;
+    for name in ["Box", "Fresh"] {
+        let bounds = doc.symbol(name).unwrap().art.geometric_bounds().unwrap();
+        assert_eq!([bounds.x0, bounds.y0, bounds.width(), bounds.height()], [50.0, 10.0, 30.0, 30.0], "{name}");
+    }
+    assert_eq!(instance(&s), xf);
+    let list = s.execute("symbol.list", &json!({})).unwrap();
+    assert_eq!(list["symbols"][1]["size"], json!([20.0, 20.0]), "a new symbol's natural size is unset, so its art places at 100%");
+}
+
+/// `keep` names the patterns and symbols that changed since the caller's copy, and the patch
+/// leaves them out.
+#[test]
+fn keep_leaves_out_definitions_changed_since_the_callers_copy() {
+    let (mut s, [a, b, _]) = tiles();
+    s.execute("symbol.new", &json!({"name": "Box", "ids": [a]})).unwrap();
+    let copy = s.active().unwrap().doc.clone();
+    s.execute("pattern.options", &json!({"name": "Tiles", "width": 80})).unwrap();
+    let keep = vectorcraft_engine::cmd::patch::changes_between(&copy, &s.active().unwrap().doc);
+    assert_eq!((&keep["patterns"], &keep["symbols"]), (&json!(["Tiles"]), &json!([])));
+    let art = node(&mut s, b);
+    let result = s
+        .execute(
+            "document.patch",
+            &json!({"patterns": [{"name": "Tiles", "tile": [0, 0, 10, 10]}], "symbols": [{"name": "Box", "art": art}], "keep": keep}),
+        )
+        .unwrap();
+    assert_eq!(result["skippedPatterns"], json!(["Tiles"]));
+    assert!(result.get("skippedSymbols").is_none());
+    assert_eq!(tile(&s, "Tiles")[2], 80.0, "the newer change stays");
+    assert_eq!(s.active().unwrap().doc.symbol("Box").unwrap().art.geometric_bounds().unwrap().x0, 50.0, "the rest applies");
 }

@@ -180,13 +180,10 @@ impl Columns {
         walk.children(&old.layers, &new.layers);
         // Definitions that changed, and the instances of changed symbols with what holds them,
         // whose boxes change with their art:
-        let patterns: BTreeSet<&str> = old.patterns.iter().chain(&new.patterns).map(|p| p.name.as_str()).collect();
-        let symbol = |doc: &Document, name: &str| doc.symbols.iter().find(|s| s.name == name).map(|s| s.art.clone());
-        let changed_symbols: BTreeSet<&str> =
-            old.symbols.iter().chain(&new.symbols).map(|s| s.name.as_str()).filter(|name| symbol(old, name) != symbol(new, name)).collect();
-        columns.definitions = patterns
-            .into_iter()
-            .filter(|name| old.pattern(name) != new.pattern(name))
+        let changed_symbols = new.changed_symbols(old);
+        columns.definitions = new
+            .changed_patterns(old)
+            .iter()
             .map(|name| format!("pattern/{name}"))
             .chain(changed_symbols.iter().map(|name| format!("symbol/{name}")))
             .collect();

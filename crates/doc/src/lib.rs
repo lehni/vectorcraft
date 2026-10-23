@@ -1988,6 +1988,18 @@ impl Document {
     pub fn pattern_mut(&mut self, name: &str) -> Option<&mut PatternDef> {
         self.patterns.iter_mut().find(|p| p.name == name)
     }
+    pub fn symbol(&self, name: &str) -> Option<&Symbol> {
+        self.symbols.iter().find(|s| s.name == name)
+    }
+    /// The names of the patterns this document and `before` don't have alike: added, removed or
+    /// changed.
+    pub fn changed_patterns(&self, before: &Document) -> std::collections::BTreeSet<String> {
+        before.patterns.iter().chain(&self.patterns).map(|p| &p.name).filter(|name| before.pattern(name) != self.pattern(name)).cloned().collect()
+    }
+    /// The names of the symbols this document and `before` don't have alike.
+    pub fn changed_symbols(&self, before: &Document) -> std::collections::BTreeSet<String> {
+        before.symbols.iter().chain(&self.symbols).map(|s| &s.name).filter(|name| before.symbol(name) != self.symbol(name)).cloned().collect()
+    }
     /// Deep-clone `node` with fresh ids for it and all descendants, its images' own pixels taken
     /// in ([`Self::adopt_pixels`]).
     pub fn reid(&mut self, node: &Node) -> Node {

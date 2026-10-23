@@ -855,6 +855,20 @@ fn symbol_list(s: &mut Session, _: &Value) -> Result<Value> {
     Ok(json!({ "symbols": list, "current": current_symbol(d).or_else(|| symbol_names(d).into_iter().next()) }))
 }
 
+/// Symbol `name` with `art`, in the symbol's own space, for callers that keep their own copy of
+/// the symbols (`document.patch`). Unlike Redefine Symbol, the art stays as it is and so do the
+/// instances' transforms: they show the new art through them. A new symbol has its natural size
+/// unset, so Place puts its art at 100%.
+pub(crate) fn set_symbol(d: &mut Document, name: &str, art: &Node) -> std::result::Result<(), String> {
+    let art = Arc::new(d.reid(art));
+    match d.symbols.iter_mut().find(|s| s.name == name) {
+        Some(symbol) => symbol.art = art,
+        None if name.trim().is_empty() => return Err("a symbol needs a name".into()),
+        None => d.symbols.push(Symbol { name: name.into(), art }),
+    }
+    Ok(())
+}
+
 /// Replace the root nodes `ids` with one instance of `name` (art already stored). Returns the id.
 fn replace_with_instance(d: &mut Document, ids: &[NodeId], name: &str, xf: Affine) -> Result<NodeId> {
     let top = *ids.last().ok_or_else(|| EngineError::Other("nothing selected".into()))?;
