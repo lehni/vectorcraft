@@ -7,7 +7,7 @@ use std::sync::Arc;
 use serde_json::{Map, Value as Json};
 use vectorcraft_doc::{Document, Node, NodeId, NodeKind, Selection};
 
-use crate::host::{Columns, TYPE_NAMES, flags, item_json};
+use crate::host::{Columns, TYPE_NAMES, definition_json, flags, item_json};
 use crate::text;
 use crate::writeback::{self, Change};
 use crate::{Call, Engine, Error, Runtime, Scope, Value, define_accessor, handle, method, object};
@@ -34,6 +34,7 @@ impl<E: Engine> Runtime<E> {
         self.host.borrow_mut().bound = Some(Bound { doc, selection });
         let get_children = self.engine.function("getChildren", get_children)?;
         let get_item = self.engine.function("getItem", get_item)?;
+        let get_definition = self.engine.function("getDefinition", get_definition)?;
         let get_story = self.engine.function("getStory", get_story)?;
         let get_ancestor_keys = self.engine.function("getAncestorKeys", get_ancestor_keys)?;
         let lay_out = self.engine.function("layOut", lay_out)?;
@@ -47,6 +48,7 @@ impl<E: Engine> Runtime<E> {
             let host = call.new_object()?;
             call.set(&host, "getChildren", &Value::Js(get_children))?;
             call.set(&host, "getItem", &Value::Js(get_item))?;
+            call.set(&host, "getDefinition", &Value::Js(get_definition))?;
             call.set(&host, "getStory", &Value::Js(get_story))?;
             call.set(&host, "getAncestorKeys", &Value::Js(get_ancestor_keys))?;
             call.set(&host, "layOut", &Value::Js(lay_out))?;
@@ -125,7 +127,7 @@ impl<E: Engine> Runtime<E> {
             *bound = Bound { doc, selection };
             changes
         };
-        if changes.keys.is_empty() {
+        if changes.is_empty() {
             return Ok(());
         }
         self.engine.with_call(|call| {
@@ -178,7 +180,7 @@ impl<E: Engine> Runtime<E> {
                     call.set(item, "key", &Value::Number(id))?;
                 }
             }
-            if !reload.keys.is_empty() {
+            if !reload.is_empty() {
                 let columns = columns_object(call, &reload)?;
                 let project = object(call, &scope.0, "project")?;
                 method(call, &project, "invalidate", &[Value::Js(columns)])?;
@@ -288,9 +290,18 @@ fn columns_object<H: Clone>(call: &mut dyn Call<H>, columns: &Columns) -> Result
         let values = call.new_array(&values)?;
         call.set(&matrices, &index.to_string(), &Value::Js(values))?;
     }
-    for (key, value) in
-        [("keys", keys), ("types", types), ("typeNames", type_names), ("flags", flags), ("boxes", boxes), ("names", names), ("matrices", matrices)]
-    {
+    let definitions: Vec<_> = columns.definitions.iter().map(|key| Value::String(key.clone())).collect();
+    let definitions = call.new_array(&definitions)?;
+    for (key, value) in [
+        ("keys", keys),
+        ("types", types),
+        ("typeNames", type_names),
+        ("flags", flags),
+        ("boxes", boxes),
+        ("names", names),
+        ("matrices", matrices),
+        ("definitions", definitions),
+    ] {
         call.set(&result, key, &Value::Js(value))?;
     }
     Ok(result)
@@ -315,6 +326,18 @@ fn get_item<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> R
         })
     })?;
     let json = json.ok_or_else(|| Error::Script(format!("getItem: no object {id}")))?;
+    Ok(Value::String(json.to_string()))
+}
+
+/// `source.getDefinition(key)`: the definition `key` names as Paper.js JSON, as
+/// [`definition_json`] gives it.
+fn get_definition<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let key = match args.first() {
+        Some(Value::String(key)) => key.clone(),
+        _ => return Err(Error::Script("getDefinition: no key".into())),
+    };
+    let json = with_bound(call, |doc, _| definition_json(doc, &key))?;
+    let json = json.ok_or_else(|| Error::Script(format!("getDefinition: no definition '{key}'")))?;
     Ok(Value::String(json.to_string()))
 }
 

@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use serde_json::{Map, Value, json};
 use vectorcraft_color::{BlendMode, Color, GradientGeom, GradientKind, Paint};
-use vectorcraft_doc::{AnchorRef, Document, LineCap, LineJoin, Node, NodeId, NodeKind, Selection, TextKind, TextObject};
+use vectorcraft_doc::{AnchorRef, Document, LineCap, LineJoin, Node, NodeId, NodeKind, Scaling, Selection, TextKind, TextObject};
 use vectorcraft_geom::{Affine, PathData, Rect};
 
 use crate::text;
@@ -56,9 +56,16 @@ pub struct Columns {
     pub names: Vec<(usize, String)>,
     /// Matrices by record index, `[a, b, c, d, tx, ty]`: text's, whose boxes are in its own space.
     pub matrices: Vec<(usize, [f64; 6])>,
+    /// For `project.invalidate()`: the keys of the definitions that changed.
+    pub definitions: Vec<String>,
 }
 
 impl Columns {
+    /// Is there nothing to invalidate?
+    pub fn is_empty(&self) -> bool {
+        self.keys.is_empty() && self.definitions.is_empty()
+    }
+
     /// Adds the record of `node`.
     pub fn push(&mut self, node: &Node, selection: &Selection) {
         let (kind, mut flags) = match &node.kind {
@@ -155,6 +162,8 @@ impl Columns {
             changed_threads: &changed_threads,
         };
         walk.children(&old.layers, &new.layers);
+        let names: BTreeSet<&str> = old.patterns.iter().chain(&new.patterns).map(|p| p.name.as_str()).collect();
+        columns.definitions = names.into_iter().filter(|name| old.pattern(name) != new.pattern(name)).map(|name| format!("pattern/{name}")).collect();
         // Frames of those threads in subtrees that didn't change, which the walk skips.
         for id in &changed_threads {
             if !columns.keys.contains(&(id.0 as f64))
@@ -311,6 +320,56 @@ pub fn item_json(node: &Node, selection: &Selection) -> Value {
     }
 }
 
+/// A definition as Paper.js JSON, by its key: `pattern/<name>` is a pattern, its art as one group
+/// in pattern space, where its tile starts at the origin, as the pattern's paints place it. A
+/// pattern the document doesn't have is empty, so the colours that use it keep it. None for any
+/// other key.
+pub fn definition_json(doc: &Document, key: &str) -> Option<Value> {
+    let name = key.strip_prefix("pattern/")?;
+    Some(match doc.pattern(name) {
+        Some(pattern) => {
+            let tile = pattern.tile;
+            let to_pattern = Affine::translate(-tile.origin().to_vec2());
+            let children: Vec<Value> = pattern
+                .art
+                .iter()
+                .filter_map(|node| {
+                    let mut node = (**node).clone();
+                    node.transform(to_pattern, Scaling { patterns: true, ..Scaling::default() });
+                    tree_json(&node)
+                })
+                .collect();
+            json!([
+                "PatternDefinition",
+                ["Group", { "applyMatrix": true, "children": children }],
+                { "tile": ["Rectangle", 0, 0, tile.width(), tile.height()] }
+            ])
+        }
+        None => json!(["PatternDefinition", ["Group", {}]]),
+    })
+}
+
+/// An object and all it holds as Paper.js JSON, for the art of definitions, which has no records.
+/// Kinds Paper.js has no class for are left out.
+fn tree_json(node: &Node) -> Option<Value> {
+    if !matches!(node.kind, NodeKind::Group { .. } | NodeKind::Path { .. } | NodeKind::Compound { .. } | NodeKind::Text(_)) {
+        return None;
+    }
+    let mut json = item_json(node, &Selection::default());
+    if let Some(props) = json.get_mut(1).and_then(Value::as_object_mut) {
+        if let NodeKind::Group { children, .. } = &node.kind {
+            props.insert("children".into(), children.iter().filter_map(|child| tree_json(child)).collect());
+        }
+        if let Some(name) = &node.name {
+            props.insert("name".into(), json!(name));
+        }
+        if !node.visible {
+            props.insert("visible".into(), json!(false));
+        }
+    }
+    Some(json)
+}
+
 /// A path as Paper.js `Path` JSON, or `CompoundPath` JSON with several subpaths: a text's path.
 pub(crate) fn path_json(path: &PathData) -> Value {
     match path.subpaths.as_slice() {
@@ -386,8 +445,9 @@ pub fn current_style(fill: &Paint, stroke: &Paint, stroke_width: f64, text_fill:
     })
 }
 
-/// A paint as a Paper.js colour: a solid colour, or a linear or radial gradient, placed where it is
-/// or fitted to `bounds`. Freeform gradients and patterns have no Paper.js form yet.
+/// A paint as a Paper.js colour: a solid colour, a linear or radial gradient, placed where it is or
+/// fitted to `bounds`, or a pattern, its definition by key and its matrix the paint's. Freeform
+/// gradients have no Paper.js form.
 pub(crate) fn color(paint: &Paint, bounds: Option<Rect>) -> Option<Value> {
     match paint {
         Paint::Solid { color, .. } => Some(solid(*color, 1.0)),
@@ -407,6 +467,7 @@ pub(crate) fn color(paint: &Paint, bounds: Option<Rect>) -> Option<Value> {
                 geom.aspect
             ]))
         }
+        Paint::Pattern { pattern, xf } => Some(json!(["pattern", [format!("@pattern/{pattern}")], xf.as_coeffs()])),
         _ => None,
     }
 }

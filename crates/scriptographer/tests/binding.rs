@@ -3,11 +3,13 @@
 //! Scripts on a real document: Paper.js reads it through its host interface, and what a script
 //! changes goes back through `document.patch` as one undo step.
 
+use std::sync::Arc;
+
 use serde_json::json;
 use vectorcraft_color::{Color, Gradient, GradientGeom, GradientKind, GradientPaint, GradientStop, Paint};
 use vectorcraft_doc::{Node, NodeId};
 use vectorcraft_engine::Session;
-use vectorcraft_geom::Point;
+use vectorcraft_geom::{Affine, Point};
 use vectorcraft_scriptographer::{Engine, Runtime};
 
 /// A session with one layer holding two rectangles, a (bottom) and b.
@@ -434,6 +436,67 @@ fn writes_gradients<E: Engine>() {
     assert_eq!((geom.start, geom.end), (Point::new(150.0, 20.0), Point::new(180.0, 20.0)));
 }
 
+/// The pattern "Tiles", made of a copy of `a`, its tile 40 × 20 around it, filling `a` at its place
+/// and `b` moved by 3.
+fn patterns(s: &mut Session, a: NodeId, b: NodeId) {
+    s.execute("object.pattern.make", &json!({"ids": [a.0], "name": "Tiles", "width": 40, "height": 20, "edit": false})).unwrap();
+    fill(s, a, Paint::Pattern { pattern: "Tiles".into(), xf: Affine::IDENTITY });
+    fill(s, b, Paint::Pattern { pattern: "Tiles".into(), xf: Affine::translate((3.0, 0.0)) });
+}
+
+/// Patterns read as pattern colours whose definition all their objects share, its art in pattern
+/// space, where its tile starts at the origin.
+fn reads_patterns<E: Engine>() {
+    let (mut s, a, b) = document();
+    patterns(&mut s, a, b);
+    let output = run::<E>(
+        &mut s,
+        "var a = project.activeLayer.firstChild.fillColor, b = project.activeLayer.lastChild.fillColor\n\
+         console.log(a.type, a.pattern === b.pattern, a.pattern.tile, a.pattern.item.firstChild.bounds)\n\
+         console.log(a.matrix, b.matrix)",
+    );
+    assert_eq!(
+        output,
+        ["pattern true { x: 0, y: 0, width: 40, height: 20 } { x: 5, y: 0, width: 30, height: 20 }", "[[1, 0, 0], [0, 1, 0]] [[1, 0, 3], [0, 1, 0]]",]
+    );
+}
+
+/// The document's patterns can be given to other objects, and move with the objects a script
+/// moves. A script's own `PatternDefinition` has no pattern in the document yet: it leaves the
+/// fill as it was.
+fn writes_patterns<E: Engine>() {
+    let (mut s, a, b) = document();
+    patterns(&mut s, a, b);
+    run::<E>(
+        &mut s,
+        "var layer = project.activeLayer, a = layer.firstChild, b = layer.lastChild\n\
+         a.position += [100, 0]\n\
+         new Path.Circle({ center: [200, 150], radius: 10, fillColor: { pattern: a.fillColor.pattern } })\n\
+         b.fillColor = { pattern: new PatternDefinition(new Path.Rectangle({ point: [0, 0], size: [5, 5], insert: false })) }",
+    );
+    let pattern = |xf: Affine| Paint::Pattern { pattern: "Tiles".into(), xf };
+    assert_eq!(node(&s, a).appearance.fill_paint(), pattern(Affine::translate((100.0, 0.0))));
+    assert_eq!(node(&s, b).appearance.fill_paint(), pattern(Affine::translate((3.0, 0.0))));
+    let circle = s.active().unwrap().doc.layers[0].children().unwrap().last().unwrap().clone();
+    assert_eq!(circle.appearance.fill_paint(), pattern(Affine::IDENTITY));
+}
+
+/// A pattern that changes in the document changes in the definition the script holds.
+fn changed_patterns_reload<E: Engine>() {
+    let (mut s, a, b) = document();
+    patterns(&mut s, a, b);
+    let st = s.active().unwrap();
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(400.0, 300.0).unwrap();
+    runtime.bind(&scope, st.doc.clone(), st.selection.clone()).unwrap();
+    runtime.execute(&scope, "globalThis.pattern = project.activeLayer.firstChild.fillColor.pattern").unwrap();
+    let mut doc = (*st.doc).clone();
+    doc.patterns[0].tile = vectorcraft_geom::Rect::new(0.0, 0.0, 50.0, 25.0);
+    runtime.update(&scope, Arc::new(doc), st.selection.clone()).unwrap();
+    runtime.execute(&scope, "console.log(pattern === project.activeLayer.firstChild.fillColor.pattern, pattern.tile)").unwrap();
+    assert_eq!(runtime.take_output(), ["true { x: 0, y: 0, width: 50, height: 25 }"]);
+}
+
 macro_rules! engine_tests {
     ($module:ident, $engine:ty) => {
         mod $module {
@@ -455,6 +518,21 @@ macro_rules! engine_tests {
             #[test]
             fn writes_gradients() {
                 super::writes_gradients::<$engine>();
+            }
+
+            #[test]
+            fn reads_patterns() {
+                super::reads_patterns::<$engine>();
+            }
+
+            #[test]
+            fn writes_patterns() {
+                super::writes_patterns::<$engine>();
+            }
+
+            #[test]
+            fn changed_patterns_reload() {
+                super::changed_patterns_reload::<$engine>();
             }
 
             #[test]

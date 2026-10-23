@@ -11,7 +11,7 @@ use std::sync::Arc;
 use serde_json::{Map, Value as Json, json};
 use vectorcraft_color::{BlendMode, Color, Gradient, GradientGeom, GradientKind, GradientPaint, GradientStop, Paint};
 use vectorcraft_doc::{Appearance, Document, LayerColor, LineCap, LineJoin, Node, NodeId, NodeKind, TextWrap};
-use vectorcraft_geom::{Anchor, AnchorKind, PathData, Point, SubPath};
+use vectorcraft_geom::{Affine, Anchor, AnchorKind, PathData, Point, SubPath};
 
 use crate::binding::{Patch, node, number};
 use crate::host::item_json;
@@ -450,11 +450,12 @@ fn apply_style(appearance: &mut Appearance, props: &Map<String, Json>, before: &
 
 /// The paint of a Paper.js colour `now`, when it isn't the one of `before`, the colour it was read
 /// as, beyond the precision of Paper.js's JSON: what Paper.js can't show stays while it's unchanged.
+/// A colour without a VectorCraft form changes nothing.
 pub(crate) fn changed_paint(now: Option<&Json>, before: Option<&Json>) -> Option<Paint> {
-    let read = |json: Option<&Json>| json.map_or(Paint::None, paint);
-    let now = read(now);
+    let read = |json: Option<&Json>| json.map_or(Some(Paint::None), paint);
+    let now = read(now)?;
     let json = |paint: &Paint| serde_json::to_value(paint).unwrap_or_default();
-    (!is_close(&json(&now), &json(&read(before)))).then_some(now)
+    (!read(before).is_some_and(|before| is_close(&json(&now), &json(&before)))).then_some(now)
 }
 
 /// Are `a` and `b` the same, but for numbers within the precision of Paper.js's JSON?
@@ -467,25 +468,42 @@ fn is_close(a: &Json, b: &Json) -> bool {
     }
 }
 
-/// A Paper.js colour as a paint: a solid colour, a gradient (see [`gradient`]) or none.
-fn paint(json: &Json) -> Paint {
-    match gradient(json) {
-        Some(gradient) => Paint::Gradient(Box::new(gradient)),
-        None => color(json).map_or(Paint::None, |(color, _)| Paint::solid(color)),
+/// A Paper.js colour as a paint: a solid colour, a gradient (see [`gradient`]), a pattern (see
+/// [`pattern`]) or none. None when it has no VectorCraft form.
+fn paint(json: &Json) -> Option<Paint> {
+    match color_list(json) {
+        Some(("gradient", _)) => gradient(json).map(|gradient| Paint::Gradient(Box::new(gradient))),
+        Some(("pattern", components)) => pattern(components),
+        _ => Some(color(json).map_or(Paint::None, |(color, _)| Paint::solid(color))),
     }
+}
+
+/// The components of a Paper.js pattern colour, `[['@pattern/<name>'], matrix?]`, as a pattern
+/// paint. A pattern that isn't the document's (a script's own `PatternDefinition`) has no
+/// VectorCraft form yet.
+fn pattern(components: &[Json]) -> Option<Paint> {
+    let name = match components.first().and_then(Json::as_array).map(Vec::as_slice) {
+        Some([Json::String(key)]) => key.strip_prefix("@pattern/")?.to_owned(),
+        _ => return None,
+    };
+    let xf = match components.get(1).and_then(Json::as_array).map(|m| classless(m, "Matrix")) {
+        Some(m) => {
+            let m: Vec<f64> = m.iter().filter_map(Json::as_f64).filter(|n| n.is_finite()).collect();
+            Affine::new(m.try_into().ok()?)
+        }
+        None => Affine::IDENTITY,
+    };
+    Some(Paint::Pattern { pattern: name, xf })
 }
 
 /// A Paper.js gradient colour, `['gradient', ['Gradient', stops, radial], origin, destination,
 /// highlight, aspect]`, as a gradient placed where it is. Stops are `[color, offset]`, spread
 /// evenly where they have no offset.
 fn gradient(json: &Json) -> Option<GradientPaint> {
-    let (kind, list) = color_list(json)?;
+    let (_, list) = color_list(json)?;
     let [gradient, points @ ..] = list else {
         return None;
     };
-    if kind != "gradient" {
-        return None;
-    }
     let gradient = classless(gradient.as_array()?, "Gradient");
     let stops = gradient.first().and_then(Json::as_array).map(Vec::as_slice).unwrap_or_default();
     let last = stops.len().saturating_sub(1).max(1) as f64;
