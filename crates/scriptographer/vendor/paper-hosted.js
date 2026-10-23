@@ -9,7 +9,7 @@
  *
  * All rights reserved.
  *
- * Date: Fri Oct 23 19:45:29 2026 +0200
+ * Date: Sat Oct 24 00:37:54 2026 +0200
  *
  ***
  *
@@ -3529,6 +3529,7 @@ var Item = Base.extend(Emitter, {
 		guide: false,
 		clipMask: false,
 		textWrap: null,
+		effects: [],
 		selected: false,
 		data: {}
 	},
@@ -3658,6 +3659,7 @@ new function() {
 			for (var item = this; item; item = item._parent) {
 				if (item._buffer)
 					item._buffer.matrix = null;
+				item._effectOutput = undefined;
 				if (item._symbol && item !== this)
 					item._symbol._changed(flags);
 			}
@@ -4412,6 +4414,7 @@ new function() {
 		this._data = data ? Base.clone(data) : null;
 		if (name)
 			this.setName(name);
+		this.setEffects(source._effects);
 	},
 
 	rasterize: function(arg0, arg1) {
@@ -5443,9 +5446,15 @@ new function() {
 				ctx.translate(-offset.x, -offset.y);
 		}
 		if (!isFresh && !(event && event.prevented)) {
-			this._draw(ctx, shadow && !direct
+			var drawParam = shadow && !direct
 					? param.extend({ dontShadow: true }) : param,
-					viewMatrix, strokeMatrix);
+				output = this.getEffectOutput();
+			if (output) {
+				output.draw(ctx, drawParam.extend({ updateMatrix: false }),
+						strokeMatrix);
+			} else {
+				this._draw(ctx, drawParam, viewMatrix, strokeMatrix);
+			}
 		}
 		ctx.restore();
 		matrices.pop();
@@ -6762,6 +6771,348 @@ var HitResult = Base.extend({
 			}, options);
 		}
 	}
+});
+
+var Effect = Base.extend({
+	_class: 'Effect',
+	_compactSerialize: true,
+	_type: null,
+	_defaults: {},
+
+	initialize: function Effect(props) {
+		props = props || {};
+		this._item = null;
+		this._index = null;
+		this._type = this._type || props.type || null;
+		this._visible = props.visible !== false;
+		this._setParameters(props.parameters);
+	},
+
+	_setParameters: function(parameters) {
+		var defaults = this._defaults;
+		parameters = Base.set({}, parameters);
+		for (var key in defaults) {
+			if (parameters[key] === undefined)
+				parameters[key] = defaults[key];
+		}
+		this._parameters = parameters;
+		this._linkedParameters = null;
+	},
+
+	clone: function() {
+		return new this.constructor({
+			type: this._type,
+			parameters: Base.clone(this._parameters),
+			visible: this._visible
+		});
+	},
+
+	_serialize: function(options, dictionary) {
+		var props = { type: this._type, parameters: this._parameters };
+		if (!this._visible)
+			props.visible = false;
+		return Base.serialize(props, options, true, dictionary);
+	},
+
+	_changed: function() {
+		var item = this._item;
+		if (item)
+			item._changed(257);
+	},
+
+	getType: function() {
+		return this._type;
+	},
+
+	isVisible: function() {
+		return this._visible;
+	},
+
+	setVisible: function(visible) {
+		this._visible = !!visible;
+		this._changed();
+	},
+
+	getParameters: function() {
+		var linked = this._linkedParameters;
+		if (!linked) {
+			var effect = this;
+			linked = this._linkedParameters = {};
+			Base.each(this._parameters, function(value, key) {
+				Object.defineProperty(linked, key, {
+					enumerable: true,
+					get: function() {
+						return effect._parameters[key];
+					},
+					set: function(value) {
+						effect._parameters[key] = value;
+						effect._changed();
+					}
+				});
+			});
+			Object.preventExtensions(linked);
+		}
+		return linked;
+	},
+
+	setParameters: function(parameters) {
+		this._setParameters(parameters);
+		this._changed();
+	},
+
+	getItem: function() {
+		return this._item;
+	},
+
+	getIndex: function() {
+		return this._index;
+	},
+
+	remove: function() {
+		return !!(this._item && this._item.removeEffect(this._index));
+	},
+
+	apply: function(art) {
+		return art;
+	},
+
+	equals: function(effect) {
+		return effect === this || effect instanceof Effect
+				&& this._type === effect._type
+				&& this._visible === effect._visible
+				&& Base.equals(this._parameters, effect._parameters)
+				|| false;
+	},
+
+	statics: {
+		types: {},
+
+		create: function(object) {
+			var ctor = Effect.types[object.type] || Effect;
+			return object instanceof Effect ? object : new ctor(object);
+		},
+
+		extend: function extend(src) {
+			var type = src.type,
+				defaults = src._defaults = Base.set({},
+					this.prototype._defaults, src.defaults);
+			delete src.type;
+			delete src.defaults;
+			if (type)
+				src._type = type;
+			Base.each(defaults, function(value, key) {
+				var part = Base.capitalize(key);
+				src['get' + part] = function() {
+					return this._parameters[key];
+				};
+				src['set' + part] = function(value) {
+					this._parameters[key] = value;
+					this._changed();
+				};
+			});
+			var ctor = extend.base.apply(this, arguments);
+			if (type)
+				Effect.types[type] = ctor;
+			return ctor;
+		}
+	}
+});
+
+new function() {
+	function applyToPaths(art, func) {
+		if (art instanceof PathItem)
+			return func(art);
+		var children = art._children;
+		if (children) {
+			for (var i = children.length - 1; i >= 0; i--) {
+				var child = children[i],
+					result = applyToPaths(child, func);
+				if (result !== child)
+					child.replaceWith(result);
+			}
+		}
+		return art;
+	}
+
+	Effect.extend({
+		type: 'offset',
+		defaults: { distance: 0, join: 'miter', miterLimit: 10 },
+
+		apply: function(art) {
+			var parameters = this._parameters;
+			return applyToPaths(art, function(path) {
+				return path.offset(parameters.distance, {
+					join: parameters.join,
+					miterLimit: parameters.miterLimit,
+					insert: false
+				});
+			});
+		}
+	});
+
+	Effect.extend({
+		type: 'outline',
+
+		apply: function(art) {
+			return applyToPaths(art, function(path) {
+				if (!path.hasStroke())
+					return path;
+				var outline = path.outline({ insert: false });
+				if (!path.hasFill())
+					return outline;
+				path.setStrokeColor(null);
+				return new Group({
+					children: [path, outline],
+					insert: false
+				});
+			});
+		}
+	});
+};
+
+Item.inject(new function() {
+	function hasEffects(item) {
+		var children = item._children;
+		if (item._hasEffects())
+			return true;
+		for (var i = 0, l = children ? children.length : 0; i < l; i++) {
+			if (hasEffects(children[i]))
+				return true;
+		}
+		return false;
+	}
+
+	return {
+		_effects: null,
+
+		getEffects: function() {
+			return this._effects || [];
+		},
+
+		setEffects: function(effects) {
+			this.removeEffects();
+			if (effects && effects.length)
+				this.insertEffects(0, effects);
+		},
+
+		addEffect: function(effect) {
+			return this.insertEffect(this.getEffects().length, effect);
+		},
+
+		insertEffect: function(index, effect) {
+			return this.insertEffects(index, [effect])[0];
+		},
+
+		insertEffects: function(index, effects) {
+			var list = this._effects || (this._effects = []),
+				inserted = [];
+			for (var i = 0, l = effects.length; i < l; i++) {
+				var effect = Effect.create(effects[i]);
+				if (effect._item)
+					effect = effect.clone();
+				effect._item = this;
+				inserted.push(effect);
+			}
+			Base.splice(list, inserted, index, 0);
+			this._changed(257);
+			return inserted;
+		},
+
+		removeEffect: function(index) {
+			return this.removeEffects(index, index + 1)[0] || null;
+		},
+
+		removeEffects: function(start, end) {
+			var list = this._effects,
+				removed = [];
+			if (list) {
+				start = start || 0;
+				end = Base.pick(end, list.length);
+				removed = Base.splice(list, null, start, end - start);
+				for (var i = 0, l = removed.length; i < l; i++) {
+					var effect = removed[i];
+					effect._item = effect._index = null;
+				}
+				if (removed.length)
+					this._changed(257);
+				if (!list.length)
+					this._effects = null;
+			}
+			return removed;
+		},
+
+		_hasEffects: function() {
+			var list = this._effects;
+			for (var i = 0, l = list ? list.length : 0; i < l; i++) {
+				if (list[i]._visible)
+					return true;
+			}
+			return false;
+		},
+
+		getEffectOutput: function() {
+			var output = this._effectOutput;
+			if (output === undefined) {
+				output = null;
+				if (this._hasEffects()) {
+					output = this._getEffectArt();
+					for (var i = 0, l = this._effects.length; i < l; i++) {
+						var effect = this._effects[i];
+						if (effect._visible)
+							output = effect.apply(output) || output;
+					}
+				}
+				this._effectOutput = output;
+			}
+			return output;
+		},
+
+		_getEffectArt: function() {
+			var art = this.clone({ insert: false });
+			art.setEffects(null);
+			art.setMatrix(new Matrix());
+
+			function expand(source, copy) {
+				var children = source._children;
+				for (var i = 0, l = children ? children.length : 0; i < l; i++) {
+					var child = children[i],
+						output = child.getEffectOutput();
+					if (output) {
+						output = output.clone({ insert: false });
+						output.transform(child._matrix);
+						copy._children[i].replaceWith(output);
+					} else {
+						expand(child, copy._children[i]);
+					}
+				}
+			}
+
+			expand(this, art);
+			return art;
+		},
+
+		getPreviewBounds: function() {
+			var output = this.getEffectOutput(),
+				children = this._children;
+			if (output || children && hasEffects(this)) {
+				var bounds = null;
+				if (output) {
+					bounds = output.getStrokeBounds();
+				} else {
+					for (var i = 0, l = children.length; i < l; i++) {
+						var child = children[i];
+						if (child._visible) {
+							var rect = child.getPreviewBounds();
+							bounds = bounds ? bounds.unite(rect) : rect;
+						}
+					}
+				}
+				if (bounds)
+					return this._matrix._transformBounds(bounds);
+			}
+			return this.getStrokeBounds();
+		}
+	};
 });
 
 var Segment = Base.extend({
@@ -9621,7 +9972,8 @@ var Path = PathItem.extend({
 					index: stop._index,
 					width: stop._width,
 					aspect: stop._aspect,
-					angle: stop._angle
+					angle: stop._angle,
+					smooth: stop._smooth
 				};
 			}));
 		}
@@ -11432,50 +11784,71 @@ Path.inject(new function() {
 				offset: stop.getOffset(),
 				width: stop._width,
 				aspect: stop._aspect,
-				angle: stop._angle
+				angle: stop._angle,
+				smooth: stop._smooth
 			};
 		});
 	}
 
 	function getValue(entries, key, offset, length, closed, after) {
-		var before = null,
-			at = null,
-			next = null,
-			first = null,
-			last = null;
-		for (var i = 0, l = entries.length; i < l; i++) {
-			var entry = entries[i];
-			if (entry[key] != null) {
-				first = first || entry;
-				last = entry;
-				if (entry.offset < offset) {
-					before = entry;
-				} else if (entry.offset === offset) {
-					if (after || !at)
-						at = entry;
-				} else if (!next) {
-					next = entry;
-				}
+		var stops = entries.filter(function(entry) {
+				return entry[key] != null;
+			}),
+			count = stops.length,
+			index = -1;
+
+		function getStop(index) {
+			var turns = Math.floor(index / count),
+				stop = stops[index - turns * count];
+			return {
+				offset: stop.offset + turns * length,
+				value: stop[key],
+				smooth: stop.smooth
+			};
+		}
+
+		function getSlope(index, forward) {
+			var stop = getStop(index),
+				other = getStop(forward ? index + 1 : index - 1);
+			return stop.smooth ? 0
+					: (other.value - stop.value) / (other.offset - stop.offset);
+		}
+
+		if (count) {
+			for (var i = 0; i < count; i++) {
+				var stopOffset = stops[i].offset;
+				if (stopOffset < offset || stopOffset === offset && after)
+					index = i;
 			}
+			if (closed || index >= 0 && index < count - 1) {
+				var stop1 = getStop(index),
+					stop2 = getStop(index + 1),
+					h = stop2.offset - stop1.offset,
+					t = (offset - stop1.offset) / h,
+					v1 = stop1.value,
+					v2 = stop2.value,
+					m1 = getSlope(index, true) * h,
+					m2 = getSlope(index + 1, false) * h;
+				return [
+					((2 * t - 3) * t * t + 1) * v1 + ((t - 2) * t + 1) * t * m1
+						+ (3 - 2 * t) * t * t * v2 + (t - 1) * t * t * m2,
+					(6 * (t - 1) * t * (v1 - v2) + ((3 * t - 4) * t + 1) * m1
+						+ (3 * t - 2) * t * m2) / h,
+					((12 * t - 6) * (v1 - v2) + (6 * t - 4) * m1
+						+ (6 * t - 2) * m2) / (h * h)
+				];
+			}
+			return [stops[index < 0 ? 0 : count - 1][key], 0, 0];
 		}
-		if (at)
-			return at[key];
-		if (closed && first) {
-			before = before || { offset: last.offset - length };
-			before[key] = before[key] != null ? before[key] : last[key];
-			next = next || { offset: first.offset + length };
-			next[key] = next[key] != null ? next[key] : first[key];
-		}
-		return before && next
-				? before[key] + (next[key] - before[key])
-					* (offset - before.offset) / (next.offset - before.offset)
-				: before ? before[key] : next ? next[key] : null;
+		return null;
 	}
 
 	function getValues(entries, offset, length, closed, after) {
 		var values = { offset: offset };
-		for (var key in defaults)
-			values[key] = getValue(entries, key, offset, length, closed, after);
+		for (var key in defaults) {
+			var value = getValue(entries, key, offset, length, closed, after);
+			values[key] = value && value[0];
+		}
 		return values;
 	}
 
@@ -11488,6 +11861,12 @@ Path.inject(new function() {
 				if (values[key] == null)
 					values[key] = fallbacks[key];
 			}
+			var stop = null;
+			for (var i = 0, l = entries.length; i < l; i++) {
+				if (entries[i].offset === offset && (after || !stop))
+					stop = entries[i];
+			}
+			values.smooth = !!stop && stop.smooth;
 			return values;
 		}
 
@@ -11612,6 +11991,20 @@ Path.inject(new function() {
 				}
 			}
 			return pens;
+		},
+
+		_getStrokeProfileValues: function() {
+			var entries = getEntries(this),
+				length = this.getLength(),
+				closed = this._closed;
+			return function(offset, after) {
+				var values = {};
+				for (var key in defaults) {
+					values[key] = getValue(entries, key, offset, length, closed,
+							after) || [defaults[key], 0, 0];
+				}
+				return values;
+			};
 		},
 
 		_getIndexAt: function(offset) {
@@ -11798,6 +12191,7 @@ var StrokeProfileStop = Base.extend({
 		this._width = props.width != null ? props.width : null;
 		this._aspect = props.aspect != null ? props.aspect : null;
 		this._angle = props.angle != null ? props.angle : null;
+		this._smooth = props.smooth !== false;
 	},
 
 	clone: function() {
@@ -11805,7 +12199,8 @@ var StrokeProfileStop = Base.extend({
 			offset: this.getOffset(),
 			width: this._width,
 			aspect: this._aspect,
-			angle: this._angle
+			angle: this._angle,
+			smooth: this._smooth
 		});
 	},
 
@@ -11816,6 +12211,8 @@ var StrokeProfileStop = Base.extend({
 			if (value != null)
 				props[key] = value;
 		}, this);
+		if (!this._smooth)
+			props.smooth = false;
 		return Base.serialize(props, options, true, dictionary);
 	},
 
@@ -11871,11 +12268,21 @@ var StrokeProfileStop = Base.extend({
 		this._changed();
 	},
 
+	isSmooth: function() {
+		return this._smooth;
+	},
+
+	setSmooth: function(smooth) {
+		this._smooth = !!smooth;
+		this._changed();
+	},
+
 	equals: function(stop) {
 		return stop === this || stop instanceof StrokeProfileStop
 				&& this._width === stop._width
 				&& this._aspect === stop._aspect
 				&& this._angle === stop._angle
+				&& this._smooth === stop._smooth
 				&& (this._path
 					? this._index === stop._index
 					: this._offset === stop._offset)
@@ -13309,13 +13716,14 @@ PathItem.inject(new function() {
 		var tolerance = Math.min(errorThreshold, radius / 100),
 			areas = [];
 
-		function addSides(side1, side2) {
+		function addSides(side1, side2, isStrip) {
 			var part = new Path({ segments: side1, insert: false });
 			for (var i = side2.length - 1; i >= 0; i--)
 				part.add(side2[i].reversed());
 			part.setClosed(true);
 			part = part.unite();
-			if (!part.isEmpty())
+			if (isStrip ? 2 * abs(part.getArea())
+					> tolerance * part.getLength() : !part.isEmpty())
 				areas.push(part);
 		}
 
@@ -13492,46 +13900,39 @@ PathItem.inject(new function() {
 
 		function addProfilePath(path) {
 			var pens = path._getStrokeProfilePens(),
+				getValues = path._getStrokeProfileValues(),
 				closed = path._closed,
 				length = path.getLength(),
 				curves = path.getCurves(),
 				spans = [],
 				ends = [];
 
-			function getPen(values, span) {
-				var toRadians = Math.PI / 180;
-
-				function getSlope(key) {
-					return span ? (span.next[key] - span.entry[key])
-							/ (span.next.offset - span.entry.offset) : 0;
-				}
-
-				var a = radius * values.width,
-					dWidth = getSlope('width'),
-					dAspect = getSlope('aspect');
+			function getPen(offset, after) {
+				var values = getValues(offset, after),
+					width = values.width,
+					aspect = values.aspect,
+					angle = values.angle,
+					toRadians = Math.PI / 180,
+					a = radius * width[0];
 				return {
 					a: a,
-					b: a * values.aspect,
-					angle: values.angle * toRadians,
-					da: radius * dWidth,
-					db: radius * (dWidth * values.aspect
-							+ values.width * dAspect),
-					ddb: 2 * radius * dWidth * dAspect,
-					dAngle: getSlope('angle') * toRadians
+					b: a * aspect[0],
+					angle: angle[0] * toRadians,
+					da: radius * width[1],
+					db: radius * (width[1] * aspect[0] + width[0] * aspect[1]),
+					dda: radius * width[2],
+					ddb: radius * (width[2] * aspect[0]
+							+ 2 * width[1] * aspect[1] + width[0] * aspect[2]),
+					dAngle: angle[1] * toRadians,
+					ddAngle: angle[2] * toRadians
 				};
 			}
 
 			function getSpanPen(span, offset) {
-				var entry = span.entry,
-					next = span.next,
-					factor = (offset - entry.offset)
-							/ (next.offset - entry.offset),
-					values = {};
-				for (var key in entry) {
-					values[key] = entry[key]
-							+ (next[key] - entry[key]) * factor;
-				}
-				return getPen(values, span);
+				var end = span.next.offset;
+				return offset < end
+						? getPen(Math.max(offset, span.entry.offset), true)
+						: getPen(end, false);
 			}
 
 			function getSpan(offset, after) {
@@ -13607,8 +14008,9 @@ PathItem.inject(new function() {
 							s = Math.sin(phi),
 							dfs = (dt1 * b + t1 * db) * c
 								+ (dt2 * a + t2 * da) * s + da * db
-								+ a * pen.ddb * s * s
-								+ 2 * dAngle * (a * da - b * db) * s * c,
+								+ pen.dda * b * c * c + a * pen.ddb * s * s
+								+ (pen.ddAngle * (a * a - b * b)
+									+ 2 * dAngle * (a * da - b * db)) * s * c,
 							dfphi = df(phi),
 							dphi = dfphi ? -dfs / dfphi : 0,
 							side = {
@@ -13677,8 +14079,11 @@ PathItem.inject(new function() {
 			}
 
 			function addPiece(v, offset, span, ta, tb) {
-				var turn = abs(getSpanPen(span, offset).dAngle)
-						* Curve.getLength(v, ta, tb) + getTurn(v, ta, tb),
+				var turn = abs(getSpanPen(span, offset
+							+ Curve.getLength(v, 0, tb)).angle
+						- getSpanPen(span, offset
+							+ Curve.getLength(v, 0, ta)).angle)
+						+ getTurn(v, ta, tb),
 					count = Math.max(16, Math.ceil(turn * 18 / Math.PI)),
 					splits = [[ta, ta], [tb, tb]],
 					cache = {};
@@ -13813,10 +14218,10 @@ PathItem.inject(new function() {
 								return point.add(strip.to.point.subtract(point)
 										.multiply(factor));
 							}, t0, t1);
-							addSides(from, still);
-							addSides(to, still);
+							addSides(from, still, true);
+							addSides(to, still, true);
 						} else {
-							addSides(from, to);
+							addSides(from, to, true);
 						}
 					});
 				}
@@ -13994,8 +14399,7 @@ PathItem.inject(new function() {
 				var segments = path._segments;
 				if (segments.length && !closed && cap !== 'butt') {
 					var center = segments[0]._point,
-						stop = path.getStrokeProfileAt(0),
-						pen = getPen(stop),
+						pen = getPen(0, true),
 						axes = getAxes(pen);
 					if (cap === 'round') {
 						addPen(center, pen);
@@ -14014,13 +14418,12 @@ PathItem.inject(new function() {
 						spans.push({ entry: pens[i - 1], next: pens[i] });
 				}
 				for (var i = 0, l = pens.length; i < l; i++) {
-					var entry = pens[i],
-						offset = entry.offset,
+					var offset = pens[i].offset,
 						isStep = i > 0 && pens[i - 1].offset === offset
 							|| i < l - 1 && pens[i + 1].offset === offset;
 					if (!isStep && (closed ? offset < length
 							: offset > 0 && offset < length))
-						addPen(path.getPointAt(offset), getPen(entry));
+						addPen(path.getPointAt(offset), getPen(offset, true));
 				}
 				for (var i = 0, offset = 0, l = curves.length; i < l; i++) {
 					var curve = curves[i],
@@ -22970,7 +23373,7 @@ var HostItem = Item.extend({
 new function() {
 	var contentFields = [
 			[Item, ['_style', '_applyMatrix', '_opacity', '_blendMode',
-					'_pivot', '_data', '_textWrap']],
+					'_pivot', '_data', '_textWrap', '_effects']],
 			[Path, ['_segments', '_closed', '_version', '_curves',
 					'_segmentSelection', '_strokeProfile']],
 			[CompoundPath, ['_children', '_namedChildren']],
@@ -24349,6 +24752,12 @@ new function() {
 	}
 
 	function exportSVG(item, options, isRoot) {
+		var output = item.getEffectOutput();
+		if (output) {
+			output = output.clone({ insert: false });
+			output.transform(item._matrix);
+			return exportSVG(output, options, isRoot);
+		}
 		var exporter = exporters[item._class],
 			node = exporter && exporter(item, options);
 		if (node) {
