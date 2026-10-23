@@ -9,7 +9,7 @@
  *
  * All rights reserved.
  *
- * Date: Fri Oct 23 11:19:35 2026 +0200
+ * Date: Fri Oct 23 19:45:29 2026 +0200
  *
  ***
  *
@@ -678,8 +678,13 @@ var Emitter = {
 			}, this);
 		} else {
 			var types = this._eventTypes,
-				entry = types && types[type],
-				handlers = this._callbacks = this._callbacks || {};
+				entry = types && types[type];
+			if (this === this.constructor.prototype
+					&& !(entry && entry.classLevel))
+				throw new Error('Unsupported class-level event: \''
+						+ type + '\'.');
+			var handlers = this._callbacks = this.hasOwnProperty('_callbacks')
+					&& this._callbacks || {};
 			handlers = handlers[type] = handlers[type] || [];
 			if (handlers.indexOf(func) === -1) {
 				handlers.push(func);
@@ -699,7 +704,8 @@ var Emitter = {
 		}
 		var types = this._eventTypes,
 			entry = types && types[type],
-			handlers = this._callbacks && this._callbacks[type],
+			handlers = this.hasOwnProperty('_callbacks')
+					&& this._callbacks[type],
 			index;
 		if (handlers) {
 			if (!func || (index = handlers.indexOf(func)) !== -1
@@ -722,12 +728,11 @@ var Emitter = {
 	},
 
 	emit: function(type, event) {
-		var handlers = this._callbacks && this._callbacks[type];
-		if (!handlers)
+		var handlers = this._getHandlers(type);
+		if (!handlers.length)
 			return false;
 		var args = Base.slice(arguments, 1),
 			setTarget = event && event.target && !event.currentTarget;
-		handlers = handlers.slice();
 		if (setTarget)
 			event.currentTarget = this;
 		for (var i = 0, l = handlers.length; i < l; i++) {
@@ -743,7 +748,28 @@ var Emitter = {
 	},
 
 	responds: function(type) {
-		return !!(this._callbacks && this._callbacks[type]);
+		var callbacks = this._callbacks;
+		if (callbacks) {
+			if (this.hasOwnProperty('_callbacks') && callbacks[type])
+				return true;
+			for (var obj = this.constructor.prototype; obj && obj._callbacks;
+					obj = Object.getPrototypeOf(obj)) {
+				if (obj.hasOwnProperty('_callbacks') && obj._callbacks[type])
+					return true;
+			}
+		}
+		return false;
+	},
+
+	_getHandlers: function(type) {
+		var handlers = [];
+		for (var obj = this; obj; obj = Object.getPrototypeOf(obj)) {
+			var callbacks = obj.hasOwnProperty('_callbacks')
+					&& obj._callbacks[type];
+			if (callbacks)
+				Base.push(handlers, callbacks);
+		}
+		return handlers;
 	},
 
 	attach: '#on',
@@ -767,6 +793,16 @@ var Emitter = {
 	},
 
 	statics: {
+		on: function(type, func) {
+			this.prototype.on(type, func);
+			return this;
+		},
+
+		off: function(type, func) {
+			this.prototype.off(type, func);
+			return this;
+		},
+
 		inject: function inject(src) {
 			var events = src._events;
 			if (events) {
@@ -779,16 +815,25 @@ var Emitter = {
 					types[type] = isString ? {} : entry;
 					name = '_' + name;
 					src['get' + part] = function() {
-						return this[name];
+						return this.hasOwnProperty(name) ? this[name] : null;
 					};
 					src['set' + part] = function(func) {
-						var prev = this[name];
+						var prev = this['get' + part]();
 						if (prev)
 							this.off(type, prev);
 						if (func)
 							this.on(type, func);
 						this[name] = func;
 					};
+					if (!isString && entry.classLevel) {
+						var statics = src.statics = src.statics || {};
+						statics['get' + part] = function() {
+							return this.prototype['get' + part]();
+						};
+						statics['set' + part] = function(func) {
+							this.prototype['set' + part](func);
+						};
+					}
 				});
 				src._eventTypes = types;
 			}
@@ -3519,6 +3564,9 @@ new function() {
 					}
 				},
 
+				onDraw: { classLevel: true },
+				onDrawSelection: { classLevel: true },
+
 				onLoad: {},
 				onError: {}
 			},
@@ -4391,10 +4439,11 @@ new function() {
 
 		if (!rasterSize.isZero()) {
 			var ctx = raster.getContext(true),
-				matrix = new Matrix().scale(scale).translate(topLeft.negate());
+				matrix = new Matrix().translate(topLeft.negate());
 			ctx.save();
+			ctx.scale(scale, scale);
 			matrix.applyToContext(ctx);
-			this.draw(ctx, new Base({ matrices: [matrix] }));
+			this.draw(ctx, new Base({ matrices: [matrix], pixelRatio: scale }));
 			ctx.restore();
 		}
 		raster._matrix.set(
@@ -5355,7 +5404,15 @@ new function() {
 				: this._canScaleStroke && !this.getStrokeScaling(true)
 					&& viewMatrix,
 			clip = !direct && param.clipItem,
-			transform = !strokeMatrix || clip;
+			event = this.responds('draw') && !isFresh && !param.clip
+					&& !param.dontStart && new DrawEvent({
+						item: this,
+						context: ctx,
+						matrix: viewMatrix.clone(),
+						pixelRatio: pixelRatio,
+						view: param.view || null
+					}),
+			transform = !strokeMatrix || clip || event;
 		if (direct) {
 			ctx.globalAlpha = opacity;
 			if (nativeBlend)
@@ -5374,13 +5431,18 @@ new function() {
 		} else if (transform) {
 			(direct ? matrix : viewMatrix).applyToContext(ctx);
 		}
+		if (event) {
+			ctx.save();
+			this.emit('draw', event);
+			ctx.restore();
+		}
 		if (strokeMatrix) {
 			ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
 			var offset = param.offset;
 			if (offset)
 				ctx.translate(-offset.x, -offset.y);
 		}
-		if (!isFresh) {
+		if (!isFresh && !(event && event.prevented)) {
 			this._draw(ctx, shadow && !direct
 					? param.extend({ dontShadow: true }) : param,
 					viewMatrix, strokeMatrix);
@@ -5429,9 +5491,7 @@ new function() {
 			positionSelected = selection & 4;
 		if (!this._drawSelected)
 			itemSelected = false;
-		if ((itemSelected || boundsSelected || strokeBoundsSelected
-				|| positionSelected)
-				&& this._isUpdated(updateVersion) && this.isInserted()) {
+		if (selection && this._isUpdated(updateVersion) && this.isInserted()) {
 			var layer,
 				color = this.getSelectedColor(true) || (layer = this.getLayer())
 					&& layer.getSelectedColor(true),
@@ -5439,6 +5499,21 @@ new function() {
 				half = size / 2;
 			ctx.strokeStyle = ctx.fillStyle = color
 					? color.toCanvasStyle(ctx) : '#009dec';
+			if (this.responds('drawselection')) {
+				var event = new DrawEvent({
+					item: this,
+					context: ctx,
+					matrix: mx.clone(),
+					size: size,
+					color: color || new Color(ctx.strokeStyle),
+					view: this.getView()
+				});
+				ctx.save();
+				this.emit('drawselection', event);
+				ctx.restore();
+				if (event.prevented)
+					return;
+			}
 			if (itemSelected)
 				this._drawSelected(ctx, mx, selectionItems);
 			if (positionSelected) {
@@ -9499,8 +9574,10 @@ var Path = PathItem.extend({
 	_class: 'Path',
 	_serializeFields: {
 		segments: [],
-		closed: false
+		closed: false,
+		strokeProfile: null
 	},
+	_prioritize: ['applyMatrix', 'segments', 'closed'],
 
 	initialize: function Path(arg) {
 		this._closed = false;
@@ -9530,12 +9607,24 @@ var Path = PathItem.extend({
 
 	_equals: function(item) {
 		return this._closed === item._closed
-				&& Base.equals(this._segments, item._segments);
+				&& Base.equals(this._segments, item._segments)
+				&& Base.equals(this._strokeProfile, item._strokeProfile);
 	},
 
 	copyContent: function(source) {
+		var profile = source._strokeProfile;
 		this.setSegments(source._segments);
 		this._closed = source._closed;
+		if (profile || this._strokeProfile) {
+			this.setStrokeProfile(profile && profile.map(function(stop) {
+				return {
+					index: stop._index,
+					width: stop._width,
+					aspect: stop._aspect,
+					angle: stop._angle
+				};
+			}));
+		}
 	},
 
 	_changed: function _changed(flags) {
@@ -9563,7 +9652,13 @@ var Path = PathItem.extend({
 	setSegments: function(segments) {
 		var fullySelected = this.isFullySelected(),
 			length = segments && segments.length,
-			named = this._namedSegments;
+			named = this._namedSegments,
+			profile = this._strokeProfile,
+			pathLength = profile && this.getLength(),
+			fractions = profile && profile.map(function(stop) {
+				return pathLength ? stop.getOffset() / pathLength : 0;
+			});
+		this._strokeProfile = null;
 		if (named) {
 			for (var name in named)
 				delete this._segments[name];
@@ -9582,6 +9677,13 @@ var Path = PathItem.extend({
 		}
 		if (fullySelected)
 			this.setFullySelected(true);
+		if (profile) {
+			this._strokeProfile = profile;
+			pathLength = this.getLength();
+			for (var i = 0, l = profile.length; i < l; i++)
+				profile[i]._index = this._getIndexAt(fractions[i] * pathLength);
+			this._sortStrokeProfile();
+		}
 	},
 
 	getFirstSegment: function() {
@@ -9620,6 +9722,12 @@ var Path = PathItem.extend({
 
 	setClosed: function(closed) {
 		if (this._closed != (closed = !!closed)) {
+			if (!closed && this._strokeProfile) {
+				var last = this._segments.length - 1;
+				this._filterStrokeProfile(function(stop) {
+					return stop._index <= last;
+				});
+			}
 			this._closed = closed;
 			if (this._curves) {
 				var length = this._curves.length = this._countCurves();
@@ -9740,6 +9848,8 @@ var Path = PathItem.extend({
 				curves.splice(i, 0, new Curve(this, null, null));
 			this._adjustCurves(start, end);
 		}
+		if (this._strokeProfile)
+			this._insertStrokeProfile(index, amount);
 		this._changed(41);
 		return segs;
 	},
@@ -9812,8 +9922,10 @@ var Path = PathItem.extend({
 			return this.removeSegments(start).concat(
 					this.removeSegments(0, end));
 		var segments = this._segments,
-			curves = this._curves,
-			count = segments.length,
+			count = segments.length;
+		if (this._strokeProfile && start < Math.min(end, count))
+			this._removeStrokeProfile(start, Math.min(end, count));
+		var curves = this._curves,
 			removed = segments.splice(start, end - start),
 			amount = removed.length;
 		if (!amount)
@@ -9943,6 +10055,8 @@ var Path = PathItem.extend({
 		}
 		var curves = this.getCurves();
 		if (loc && index < curves.length) {
+			var cut = loc.getOffset(),
+				profile = this._strokeProfile && this._takeStrokeProfile();
 			if (time >= tMin) {
 				curves[index++].divideAtTime(time);
 			}
@@ -9958,6 +10072,15 @@ var Path = PathItem.extend({
 			}
 			path._add(segs, 0);
 			this.addSegment(segs[0]);
+			if (profile) {
+				if (path === this) {
+					this._setStrokeProfilePart(profile, cut,
+							cut + profile.length);
+				} else {
+					this._setStrokeProfilePart(profile, 0, cut);
+					path._setStrokeProfilePart(profile, cut, profile.length);
+				}
+			}
 			return path;
 		}
 		return null;
@@ -9972,17 +10095,22 @@ var Path = PathItem.extend({
 	},
 
 	join: function(path, tolerance) {
-		var epsilon = tolerance || 0;
+		var epsilon = tolerance || 0,
+			parts = null;
 		if (path && path !== this) {
 			var segments = path._segments,
 				last1 = this.getLastSegment(),
 				last2 = path.getLastSegment();
 			if (!last2)
 				return this;
+			if (this._strokeProfile || path._strokeProfile)
+				parts = [this._takeStrokeProfile()];
 			if (last1 && last1._point.isClose(last2._point, epsilon))
 				path.reverse();
 			var first2 = path.getFirstSegment();
 			if (last1 && last1._point.isClose(first2._point, epsilon)) {
+				if (parts)
+					parts.push(path._takeStrokeProfile());
 				last1.setHandleOut(first2._handleOut);
 				this._add(segments.slice(1));
 			} else {
@@ -9990,7 +10118,11 @@ var Path = PathItem.extend({
 				if (first1 && first1._point.isClose(first2._point, epsilon))
 					path.reverse();
 				last2 = path.getLastSegment();
+				if (parts)
+					parts.push(path._takeStrokeProfile());
 				if (first1 && first1._point.isClose(last2._point, epsilon)) {
+					if (parts)
+						parts.reverse();
 					first1.setHandleIn(last2._handleIn);
 					this._add(segments.slice(0, segments.length - 1), 0);
 				} else {
@@ -10004,10 +10136,14 @@ var Path = PathItem.extend({
 		var first = this.getFirstSegment(),
 			last = this.getLastSegment();
 		if (first !== last && first._point.isClose(last._point, epsilon)) {
+			if (!parts && this._strokeProfile)
+				parts = [this._takeStrokeProfile()];
 			first.setHandleIn(last._handleIn);
 			last.remove();
 			this.setClosed(true);
 		}
+		if (parts)
+			this._setStrokeProfileParts(parts);
 		return this;
 	},
 
@@ -10034,6 +10170,8 @@ var Path = PathItem.extend({
 			segment._index = i;
 		}
 		this._curves = null;
+		if (this._strokeProfile)
+			this._reverseStrokeProfile();
 		this._changed(9);
 	},
 
@@ -11281,6 +11419,469 @@ Path.inject({ statics: new function() {
 		}
 	};
 }});
+
+Path.inject(new function() {
+	var tMin = 1e-8,
+		tMax = 1 - tMin,
+		defaults = { width: 1, aspect: 1, angle: 0 };
+
+	function getEntries(path) {
+		var profile = path._strokeProfile || [];
+		return profile.map(function(stop) {
+			return {
+				offset: stop.getOffset(),
+				width: stop._width,
+				aspect: stop._aspect,
+				angle: stop._angle
+			};
+		});
+	}
+
+	function getValue(entries, key, offset, length, closed, after) {
+		var before = null,
+			at = null,
+			next = null,
+			first = null,
+			last = null;
+		for (var i = 0, l = entries.length; i < l; i++) {
+			var entry = entries[i];
+			if (entry[key] != null) {
+				first = first || entry;
+				last = entry;
+				if (entry.offset < offset) {
+					before = entry;
+				} else if (entry.offset === offset) {
+					if (after || !at)
+						at = entry;
+				} else if (!next) {
+					next = entry;
+				}
+			}
+		}
+		if (at)
+			return at[key];
+		if (closed && first) {
+			before = before || { offset: last.offset - length };
+			before[key] = before[key] != null ? before[key] : last[key];
+			next = next || { offset: first.offset + length };
+			next[key] = next[key] != null ? next[key] : first[key];
+		}
+		return before && next
+				? before[key] + (next[key] - before[key])
+					* (offset - before.offset) / (next.offset - before.offset)
+				: before ? before[key] : next ? next[key] : null;
+	}
+
+	function getValues(entries, offset, length, closed, after) {
+		var values = { offset: offset };
+		for (var key in defaults)
+			values[key] = getValue(entries, key, offset, length, closed, after);
+		return values;
+	}
+
+	function getPart(entries, from, to, length, closed, hasStart, hasEnd,
+			fallbacks) {
+
+		function getEnd(offset, after) {
+			var values = getValues(entries, offset, length, closed, after);
+			for (var key in fallbacks) {
+				if (values[key] == null)
+					values[key] = fallbacks[key];
+			}
+			return values;
+		}
+
+		var part = [];
+		for (var i = 0, l = entries.length; i < l; i++) {
+			var entry = entries[i],
+				offset = entry.offset;
+			if (closed && offset < from)
+				offset += length;
+			if ((offset > from || offset === from && !hasStart)
+					&& (offset < to || offset === to && !hasEnd))
+				part.push(Base.set({}, entry, { offset: offset - from }));
+		}
+		part.sort(function(a, b) {
+			return a.offset - b.offset;
+		});
+		if (hasStart)
+			part.unshift(Base.set(getEnd(from, true), { offset: 0 }));
+		if (hasEnd) {
+			part.push(Base.set(getEnd(closed ? to % length : to),
+					{ offset: to - from }));
+		}
+		return part;
+	}
+
+	function getSpanIndex(path, start, count, fraction) {
+		var curves = path.getCurves(),
+			lengths = [],
+			total = 0;
+		for (var i = 0; i < count; i++) {
+			var length = curves[(start + i) % curves.length].getLength();
+			lengths.push(length);
+			total += length;
+		}
+		var rest = fraction * total,
+			i = 0;
+		while (i < count - 1 && rest >= lengths[i])
+			rest -= lengths[i++];
+		var index = start + i + (lengths[i] ? Math.min(rest / lengths[i], 1)
+				: 0);
+		return path._closed ? index % curves.length : index;
+	}
+
+	return {
+		_strokeProfile: null,
+
+		getStrokeProfile: function() {
+			return this._strokeProfile;
+		},
+
+		setStrokeProfile: function(stops) {
+			var previous = this._strokeProfile,
+				profile = null;
+			if (stops && stops.length) {
+				profile = [];
+				for (var i = 0, l = stops.length; i < l; i++) {
+					var stop = stops[i];
+					if (!(stop instanceof StrokeProfileStop)) {
+						stop = new StrokeProfileStop(stop);
+					} else if (stop._path && stop._path !== this) {
+						stop = stop.clone();
+					}
+					if (stop._path !== this) {
+						if (stop._index == null)
+							stop._index = this._getIndexAt(stop._offset);
+						stop._path = this;
+					}
+					profile.push(stop);
+				}
+			}
+			for (var i = 0, l = previous ? previous.length : 0; i < l; i++) {
+				var stop = previous[i];
+				if (!profile || profile.indexOf(stop) === -1) {
+					stop._offset = stop.getOffset();
+					stop._index = stop._path = null;
+				}
+			}
+			this._strokeProfile = profile;
+			if (profile)
+				this._sortStrokeProfile();
+			this._changed(193);
+		},
+
+		getStrokeProfileAt: function(offset) {
+			var values = getValues(getEntries(this), offset, this.getLength(),
+					this._closed, true);
+			for (var key in defaults) {
+				if (values[key] == null)
+					values[key] = defaults[key];
+			}
+			return new StrokeProfileStop(values);
+		},
+
+		_getStrokeProfilePens: function() {
+			var entries = getEntries(this),
+				length = this.getLength(),
+				closed = this._closed,
+				pens = [];
+
+			function getPen(offset, after) {
+				var values = getValues(entries, offset, length, closed, after);
+				for (var key in defaults) {
+					if (values[key] == null)
+						values[key] = defaults[key];
+				}
+				return values;
+			}
+
+			var offsets = [0].concat(entries.map(function(entry) {
+				return entry.offset;
+			}), length);
+			for (var i = 0, l = offsets.length; i < l; i++) {
+				var offset = offsets[i];
+				if (!i || offset > offsets[i - 1]) {
+					if (offset > 0)
+						pens.push(getPen(offset, false));
+					if (offset < length) {
+						var pen = getPen(offset, true);
+						if (!offset || !Base.equals(pen, pens[pens.length - 1]))
+							pens.push(pen);
+					}
+				}
+			}
+			return pens;
+		},
+
+		_getIndexAt: function(offset) {
+			var length = this.getLength();
+			offset = this._closed
+					? length ? (offset % length + length) % length : 0
+					: Math.min(Math.max(offset, 0), length);
+			var loc = this.getLocationAt(offset);
+			if (loc) {
+				var time = loc.getTime(),
+					curveLength = loc.getCurve().getLength();
+				return loc.getIndex() + (time < tMin || !curveLength ? 0
+						: time > tMax ? 1
+						: loc.getCurveOffset() / curveLength);
+			}
+			return this.getCurves().length;
+		},
+
+		_getOffsetAtIndex: function(index) {
+			var curves = this.getCurves(),
+				i = Math.floor(index),
+				offset = 0;
+			for (var j = 0, l = Math.min(i, curves.length); j < l; j++)
+				offset += curves[j].getLength();
+			return i < curves.length
+					? offset + (index - i) * curves[i].getLength()
+					: offset;
+		},
+
+		_sortStrokeProfile: function() {
+			this._strokeProfile.sort(function(a, b) {
+				return a._index - b._index;
+			});
+		},
+
+		_filterStrokeProfile: function(callback) {
+			var profile = this._strokeProfile.filter(callback);
+			this.setStrokeProfile(profile);
+		},
+
+		_insertStrokeProfile: function(index, amount) {
+			var profile = this._strokeProfile,
+				count = this._segments.length - amount,
+				closed = this._closed,
+				divided = closed ? (index + count - 1) % count
+					: index > 0 && index < count ? index - 1 : -1,
+				start = divided < index ? divided : divided + amount;
+			if (count) {
+				for (var i = 0, l = profile.length; i < l; i++) {
+					var stop = profile[i],
+						x = stop._index;
+					if (divided >= 0 && x > divided && x < divided + 1) {
+						stop._index = getSpanIndex(this, start, amount + 1,
+								x - divided);
+					} else if (x >= index) {
+						stop._index = x + amount;
+					}
+				}
+				this._sortStrokeProfile();
+			}
+		},
+
+		_removeStrokeProfile: function(start, end) {
+			var count = this._segments.length,
+				closed = this._closed,
+				amount = end - start,
+				curves = this.getCurves(),
+				before = closed ? (start + count - 1) % count : start - 1,
+				index = before < start ? before : before - amount,
+				span = amount + 1;
+
+			function isKept(stop) {
+				var x = stop._index;
+				return closed ? amount < count
+						: start ? end < count || x <= before
+						: x >= end;
+			}
+
+			this._filterStrokeProfile(isKept);
+			var profile = this._strokeProfile || [];
+			for (var i = 0, l = profile.length; i < l; i++) {
+				var stop = profile[i],
+					x = stop._index,
+					d = closed ? (x - before + count) % count : x - before;
+				if (before >= 0 && d > 0 && d < span) {
+					var position = 0,
+						total = 0;
+					for (var j = 0; j < span; j++) {
+						var length = curves[(before + j) % curves.length]
+								.getLength();
+						if (j < Math.floor(d)) {
+							position += length;
+						} else if (j === Math.floor(d)) {
+							position += (d - j) * length;
+						}
+						total += length;
+					}
+					stop._index = index + (total ? position / total
+							: d / span);
+				} else if (x >= end) {
+					stop._index = x - amount;
+				}
+			}
+			if (profile.length)
+				this._sortStrokeProfile();
+		},
+
+		_reverseStrokeProfile: function() {
+			var profile = this._strokeProfile,
+				count = this._segments.length;
+			for (var i = 0, l = profile.length; i < l; i++) {
+				var stop = profile[i];
+				stop._index = this._closed
+						? (2 * count - 1 - stop._index) % count
+						: count - 1 - stop._index;
+			}
+			profile.reverse();
+			this._sortStrokeProfile();
+		},
+
+		_takeStrokeProfile: function() {
+			var part = {
+				entries: getEntries(this),
+				length: this.getLength(),
+				closed: this._closed
+			};
+			if (this._strokeProfile)
+				this.setStrokeProfile(null);
+			return part;
+		},
+
+		_setStrokeProfileParts: function(parts) {
+			var length = this.getLength(),
+				closed = this._closed,
+				entries = [],
+				fallbacks = {};
+			parts.forEach(function(part) {
+				part.entries.forEach(function(entry) {
+					for (var key in defaults) {
+						if (entry[key] != null)
+							fallbacks[key] = defaults[key];
+					}
+				});
+			});
+			for (var i = 0, l = parts.length; i < l; i++) {
+				var part = parts[i],
+					start = i ? length - part.length : 0,
+					hasStart = closed || i > 0,
+					hasEnd = closed || i < l - 1;
+				if (part.entries.length || l > 1 || closed) {
+					var shifted = getPart(part.entries, 0, part.length,
+							part.length, part.closed, hasStart, hasEnd,
+							fallbacks);
+					for (var j = 0, m = shifted.length; j < m; j++) {
+						var entry = shifted[j];
+						entry.offset += start;
+						entries.push(entry);
+					}
+				}
+			}
+			if (closed && entries.length)
+				entries.unshift(entries.pop());
+			this.setStrokeProfile(entries);
+		},
+
+		_setStrokeProfilePart: function(part, from, to) {
+			var length = part.length;
+			this.setStrokeProfile(getPart(part.entries, from, to, length,
+					part.closed, part.closed || from > 0,
+					part.closed || to < length));
+		}
+	};
+});
+
+var StrokeProfileStop = Base.extend({
+	_class: 'StrokeProfileStop',
+	_compactSerialize: true,
+
+	initialize: function StrokeProfileStop(props) {
+		props = props || {};
+		this._path = null;
+		this._index = props.index != null ? props.index : null;
+		this._offset = props.offset || 0;
+		this._width = props.width != null ? props.width : null;
+		this._aspect = props.aspect != null ? props.aspect : null;
+		this._angle = props.angle != null ? props.angle : null;
+	},
+
+	clone: function() {
+		return new StrokeProfileStop({
+			offset: this.getOffset(),
+			width: this._width,
+			aspect: this._aspect,
+			angle: this._angle
+		});
+	},
+
+	_serialize: function(options, dictionary) {
+		var props = { index: this._index };
+		['width', 'aspect', 'angle'].forEach(function(key) {
+			var value = this['_' + key];
+			if (value != null)
+				props[key] = value;
+		}, this);
+		return Base.serialize(props, options, true, dictionary);
+	},
+
+	_changed: function() {
+		if (this._path)
+			this._path._changed(193);
+	},
+
+	getPath: function() {
+		return this._path;
+	},
+
+	getOffset: function() {
+		var path = this._path;
+		return path ? path._getOffsetAtIndex(this._index) : this._offset;
+	},
+
+	setOffset: function(offset) {
+		var path = this._path;
+		if (path) {
+			this._index = path._getIndexAt(offset);
+			path._sortStrokeProfile();
+			this._changed();
+		} else {
+			this._offset = offset;
+		}
+	},
+
+	getWidth: function() {
+		return this._width;
+	},
+
+	setWidth: function(width) {
+		this._width = width;
+		this._changed();
+	},
+
+	getAspect: function() {
+		return this._aspect;
+	},
+
+	setAspect: function(aspect) {
+		this._aspect = aspect;
+		this._changed();
+	},
+
+	getAngle: function() {
+		return this._angle;
+	},
+
+	setAngle: function(angle) {
+		this._angle = angle;
+		this._changed();
+	},
+
+	equals: function(stop) {
+		return stop === this || stop instanceof StrokeProfileStop
+				&& this._width === stop._width
+				&& this._aspect === stop._aspect
+				&& this._angle === stop._angle
+				&& (this._path
+					? this._index === stop._index
+					: this._offset === stop._offset)
+				|| false;
+	}
+});
 
 var CompoundPath = PathItem.extend({
 	_class: 'CompoundPath',
@@ -12713,7 +13314,9 @@ PathItem.inject(new function() {
 			for (var i = side2.length - 1; i >= 0; i--)
 				part.add(side2[i].reversed());
 			part.setClosed(true);
-			areas.push(part.unite());
+			part = part.unite();
+			if (!part.isEmpty())
+				areas.push(part);
 		}
 
 		function addPart(v) {
@@ -12887,8 +13490,610 @@ PathItem.inject(new function() {
 			}
 		}
 
-		for (var i = 0, l = paths.length; i < l; i++)
-			addPath(paths[i]);
+		function addProfilePath(path) {
+			var pens = path._getStrokeProfilePens(),
+				closed = path._closed,
+				length = path.getLength(),
+				curves = path.getCurves(),
+				spans = [],
+				ends = [];
+
+			function getPen(values, span) {
+				var toRadians = Math.PI / 180;
+
+				function getSlope(key) {
+					return span ? (span.next[key] - span.entry[key])
+							/ (span.next.offset - span.entry.offset) : 0;
+				}
+
+				var a = radius * values.width,
+					dWidth = getSlope('width'),
+					dAspect = getSlope('aspect');
+				return {
+					a: a,
+					b: a * values.aspect,
+					angle: values.angle * toRadians,
+					da: radius * dWidth,
+					db: radius * (dWidth * values.aspect
+							+ values.width * dAspect),
+					ddb: 2 * radius * dWidth * dAspect,
+					dAngle: getSlope('angle') * toRadians
+				};
+			}
+
+			function getSpanPen(span, offset) {
+				var entry = span.entry,
+					next = span.next,
+					factor = (offset - entry.offset)
+							/ (next.offset - entry.offset),
+					values = {};
+				for (var key in entry) {
+					values[key] = entry[key]
+							+ (next[key] - entry[key]) * factor;
+				}
+				return getPen(values, span);
+			}
+
+			function getSpan(offset, after) {
+				for (var i = 0, l = spans.length; i < l; i++) {
+					var span = spans[i];
+					if (after ? offset < span.next.offset
+							: offset <= span.next.offset)
+						return span;
+				}
+				return spans[spans.length - 1];
+			}
+
+			function addPen(point, pen) {
+				if (pen.a > 0 && pen.b > 0) {
+					areas.push(new Path.Ellipse({
+						center: point,
+						radius: [pen.a, pen.b],
+						insert: false
+					}).rotate(pen.angle * 180 / Math.PI, point));
+				}
+			}
+
+			function getAxes(pen) {
+				var cos = Math.cos(pen.angle),
+					sin = Math.sin(pen.angle);
+				return [new Point(cos, sin), new Point(-sin, cos)];
+			}
+
+			function getContacts(v, t, offset, span) {
+				var pen = getSpanPen(span, offset + Curve.getLength(v, 0, t)),
+					a = pen.a,
+					b = pen.b,
+					da = pen.da,
+					db = pen.db,
+					dAngle = pen.dAngle,
+					contacts = { sides: null, strips: [] };
+				if (a > 0) {
+					var point = Curve.getPoint(v, t),
+						tangent = Curve.getTangent(v, t),
+						normal = new Point(-tangent.y, tangent.x),
+						curvature = Curve.getCurvature(v, t),
+						axes = getAxes(pen),
+						t1 = tangent.dot(axes[0]),
+						t2 = tangent.dot(axes[1]),
+						dt1 = (dAngle - curvature) * t2,
+						dt2 = (curvature - dAngle) * t1,
+						f = function(phi) {
+							var c = Math.cos(phi),
+								s = Math.sin(phi);
+							return t1 * b * c + t2 * a * s + da * b * c * c
+									+ a * db * s * s
+									+ dAngle * (a * a - b * b) * s * c;
+						},
+						df = function(phi) {
+							var c = Math.cos(phi),
+								s = Math.sin(phi);
+							return -t1 * b * s + t2 * a * c
+									+ 2 * (a * db - da * b) * s * c
+									+ dAngle * (a * a - b * b)
+										* (c * c - s * s);
+						},
+						count = 32,
+						step = 2 * Math.PI / count,
+						phi0 = step / 2,
+						f0 = f(phi0),
+						d0 = df(phi0),
+						roots = [];
+
+					var addRoot = function(phi0, phi1, f0, f1) {
+						var phi = Numerical.findSignChange(f, phi0, phi1, f0,
+								f1, epsilon),
+							c = Math.cos(phi),
+							s = Math.sin(phi),
+							dfs = (dt1 * b + t1 * db) * c
+								+ (dt2 * a + t2 * da) * s + da * db
+								+ a * pen.ddb * s * s
+								+ 2 * dAngle * (a * da - b * db) * s * c,
+							dfphi = df(phi),
+							dphi = dfphi ? -dfs / dfphi : 0,
+							side = {
+								phi: phi,
+								point: point.add(axes[0].multiply(a * c))
+									.add(axes[1].multiply(b * s)),
+								derivative: axes[0].multiply(t1 + da * c
+										- (a * dphi + dAngle * b) * s)
+									.add(axes[1].multiply(t2 + db * s
+										+ (b * dphi + dAngle * a) * c))
+							};
+						side.distance = side.point.subtract(point).dot(normal);
+						roots.push(side);
+					};
+
+					for (var i = 1; i <= count; i++) {
+						var phi1 = phi0 + step,
+							f1 = f(phi1),
+							d1 = df(phi1);
+						if (f0 * f1 <= 0 && f0 !== f1) {
+							addRoot(phi0, phi1, f0, f1);
+						} else if (d0 * d1 < 0) {
+							var phi = Numerical.findSignChange(df, phi0, phi1,
+									d0, d1, epsilon),
+								f2 = f(phi);
+							if (f2 * f0 < 0) {
+								addRoot(phi0, phi, f0, f2);
+								addRoot(phi, phi1, f2, f1);
+							}
+						}
+						phi0 = phi1;
+						f0 = f1;
+						d0 = d1;
+					}
+					var count = roots.length;
+					for (var i = 0; i < count; i++) {
+						var from = roots[i],
+							to = roots[(i + 1) % count],
+							phi = from.phi + ((to.phi - from.phi + 2 * Math.PI)
+									% (2 * Math.PI) || 2 * Math.PI) / 2;
+						if (f(phi) > 0) {
+							contacts.strips.push({
+								from: from,
+								to: to,
+								distance: axes[0].multiply(a * Math.cos(phi))
+									.add(axes[1].multiply(b * Math.sin(phi)))
+									.dot(normal)
+							});
+						}
+					}
+					contacts.strips.sort(function(a, b) {
+						return b.distance - a.distance;
+					});
+					if (count > 1) {
+						roots.sort(function(a, b) {
+							return b.distance - a.distance;
+						});
+						contacts.sides = [roots[0], roots[count - 1]];
+					}
+				}
+				return contacts;
+			}
+
+			function getSides(v, t, offset, span) {
+				return getContacts(v, t, offset, span).sides;
+			}
+
+			function addPiece(v, offset, span, ta, tb) {
+				var turn = abs(getSpanPen(span, offset).dAngle)
+						* Curve.getLength(v, ta, tb) + getTurn(v, ta, tb),
+					count = Math.max(16, Math.ceil(turn * 18 / Math.PI)),
+					splits = [[ta, ta], [tb, tb]],
+					cache = {};
+
+				function getStrips(t) {
+					return cache[t] || (cache[t] =
+							getContacts(v, t, offset, span).strips);
+				}
+
+				function getEnd(t, j, end) {
+					var strip = getStrips(t)[j];
+					return strip ? strip[end].point : Curve.getPoint(v, t);
+				}
+
+				function getMotions(strip) {
+					var vector = strip.to.point.subtract(strip.from.point),
+						normal = new Point(-vector.y, vector.x);
+					return [
+						strip.from.derivative.dot(normal),
+						strip.to.derivative.dot(normal)
+					];
+				}
+
+				function isSame(strips, before) {
+					if (strips.length !== before.length)
+						return false;
+					for (var i = 0, l = strips.length; i < l; i++) {
+						var phi = strips[i].from.phi;
+						for (var j = 0; j < l; j++) {
+							if (j !== i && getAngle(phi, before[j].from.phi)
+									< getAngle(phi, before[i].from.phi))
+								return false;
+						}
+					}
+					return true;
+				}
+
+				function getAngle(phi1, phi2) {
+					var angle = Math.abs(phi1 - phi2) % (2 * Math.PI);
+					return Math.min(angle, 2 * Math.PI - angle);
+				}
+
+				function isClose(strips, before) {
+					return strips.every(function(strip, i) {
+						var other = before[i];
+						return getAngle(strip.from.phi, other.from.phi) < 0.35
+								&& getAngle(strip.to.phi, other.to.phi) < 0.35;
+					});
+				}
+
+				var samples = [];
+				for (var i = 0; i < count; i++)
+					samples.push(ta + (tb - ta) * i / count);
+				samples.push(tb);
+				getCurvatureExtrema(v).concat(getInflections(v)).forEach(
+					function(t) {
+						if (t > ta && t < tb)
+							samples.push(t);
+					});
+				samples.sort(function(a, b) {
+					return a - b;
+				});
+				for (var i = 1, t0 = ta, s0 = getStrips(ta); i < samples.length;
+						i++) {
+					var t1 = samples[i],
+						s1 = getStrips(t1);
+					if (isSame(s1, s0) && !isClose(s1, s0)
+							&& t1 - t0 > 1e-8) {
+						samples.splice(i--, 0, (t0 + t1) / 2);
+						continue;
+					}
+					while (!isSame(s1, s0)) {
+						var t = t0,
+							u = t1;
+						for (var j = 0; j < 40; j++) {
+							var middle = (t + u) / 2;
+							if (isSame(getStrips(middle), s0)) {
+								t = middle;
+							} else {
+								u = middle;
+							}
+						}
+						splits.push([t, u]);
+						addPen(Curve.getPoint(v, t), getSpanPen(span,
+								offset + Curve.getLength(v, 0, t)));
+						t0 = u;
+						s0 = getStrips(u);
+					}
+					s0.forEach(function(strip, j) {
+						var m0 = getMotions(strip),
+							m1 = getMotions(s1[j]);
+						for (var k = 0; k < 2; k++) {
+							if (m0[k] * m1[k] < 0) {
+								var t = Numerical.findSignChange(
+									function(t) {
+										var strip = getStrips(t)[j];
+										return strip ? getMotions(strip)[k]
+												: 0;
+									}, t0, t1, m0[k], m1[k], 1e-9);
+								splits.push([t, t]);
+							}
+						}
+					});
+					t0 = t1;
+					s0 = s1;
+				}
+				splits.sort(function(a, b) {
+					return a[0] - b[0];
+				});
+				for (var i = 1, l = splits.length; i < l; i++) {
+					var t0 = splits[i - 1][1],
+						t1 = splits[i][0],
+						strips = t1 - t0 > geomEpsilon
+							? getStrips((t0 + t1) / 2) : [];
+					strips.forEach(function(strip, j) {
+						var motions = getMotions(strip),
+							from = fitSide(function(t) {
+								return getEnd(t, j, 'from');
+							}, t0, t1),
+							to = fitSide(function(t) {
+								return getEnd(t, j, 'to');
+							}, t0, t1);
+						if (motions[0] * motions[1] < 0) {
+							var still = fitSide(function(t) {
+								var strip = getStrips(t)[j];
+								if (!strip)
+									return Curve.getPoint(v, t);
+								var motions = getMotions(strip),
+									point = strip.from.point,
+									factor = clamp(motions[0]
+										/ (motions[0] - motions[1]), 0, 1);
+								return point.add(strip.to.point.subtract(point)
+										.multiply(factor));
+							}, t0, t1);
+							addSides(from, still);
+							addSides(to, still);
+						} else {
+							addSides(from, to);
+						}
+					});
+				}
+			}
+
+			function addPart(part) {
+				var v = part.v,
+					start = part.offset,
+					end = start + part.length,
+					length = Curve.getLength(v);
+
+				function getTime(offset) {
+					return offset <= start ? 0 : offset - start >= length ? 1
+							: Curve.getTimeAt(v, offset - start);
+				}
+
+				for (var i = 0, l = spans.length; i < l; i++) {
+					var span = spans[i],
+						from = Math.max(span.entry.offset, start),
+						to = Math.min(span.next.offset, end),
+						ta = getTime(from),
+						tb = to === end ? 1 : getTime(to);
+					if (to > from && tb > ta)
+						addPiece(v, start, span, ta, tb);
+				}
+			}
+
+			function fitSide(evaluate, t0, t1) {
+				var count = 8,
+					segments = [new Segment(evaluate(t0))];
+
+				function fit(t0, t1, p0, p3, depth) {
+					var delta = (t1 - t0) * 1e-5,
+						chord = p3.subtract(p0),
+						tangent0 = evaluate(t0 + delta).subtract(p0),
+						tangent3 = p3.subtract(evaluate(t1 - delta)),
+						points = [],
+						lengths = [],
+						total = 0;
+					tangent0 = (tangent0.isZero() ? chord : tangent0)
+							.normalize();
+					tangent3 = (tangent3.isZero() ? chord : tangent3)
+							.normalize();
+					for (var i = 0, prev = p0; i <= count; i++) {
+						var point = i < count
+								? evaluate(t0 + (t1 - t0) * (i + 1)
+									/ (count + 1))
+								: p3;
+						total += point.getDistance(prev);
+						if (i < count) {
+							points.push(point);
+							lengths.push(total);
+						}
+						prev = point;
+					}
+					var c11 = 0, c12 = 0, c22 = 0, x1 = 0, x2 = 0;
+					for (var i = 0; i < count; i++) {
+						var u = total ? lengths[i] / total : 0,
+							w = 1 - u,
+							a1 = tangent0.multiply(3 * w * w * u),
+							a2 = tangent3.multiply(-3 * w * u * u),
+							rest = points[i]
+								.subtract(p0.multiply(w * w * (w + 3 * u)))
+								.subtract(p3.multiply(u * u * (u + 3 * w)));
+						c11 += a1.dot(a1);
+						c12 += a1.dot(a2);
+						c22 += a2.dot(a2);
+						x1 += a1.dot(rest);
+						x2 += a2.dot(rest);
+					}
+					var det = c11 * c22 - c12 * c12,
+						length = chord.getLength(),
+						alpha = det ? (x1 * c22 - x2 * c12) / det : 0,
+						beta = det ? (c11 * x2 - c12 * x1) / det : 0;
+					if (!(alpha > epsilon && beta > epsilon
+							&& alpha < 2 * total && beta < 2 * total)) {
+						alpha = beta = length / 3;
+					}
+					var handle1 = tangent0.multiply(alpha),
+						handle2 = tangent3.multiply(-beta),
+						c = [p0.x, p0.y, p0.x + handle1.x, p0.y + handle1.y,
+							p3.x + handle2.x, p3.y + handle2.y, p3.x, p3.y],
+						error = 0;
+					for (var i = 0; i <= 2 * count; i++) {
+						var point = i < count ? points[i]
+								: evaluate(t0 + (t1 - t0) * (i - count + 0.5)
+									/ (count + 1));
+						error = Math.max(error, point.getDistance(
+								Curve.getPoint(c,
+									Curve.getNearestTime(c, point))));
+					}
+					if (error > tolerance && depth < 12) {
+						var t = (t0 + t1) / 2,
+							point = evaluate(t);
+						fit(t0, t, p0, point, depth + 1);
+						fit(t, t1, point, p3, depth + 1);
+					} else {
+						segments[segments.length - 1].setHandleOut(handle1);
+						segments.push(new Segment(p3, handle2));
+					}
+				}
+
+				fit(t0, t1, segments[0]._point, evaluate(t1), 0);
+				return segments;
+			}
+
+			function addJoin(end1, end2) {
+				var point = end2.point,
+					part1 = end1.last,
+					part2 = end2.first,
+					offset = part2.offset,
+					tangent1 = end1.end,
+					tangent2 = end2.start,
+					cross = tangent1.cross(tangent2),
+					span = getSpan(offset, true),
+					pen = getSpanPen(span, offset);
+				if (join === 'round' || Numerical.isZero(cross)
+						&& tangent1.dot(tangent2) > 0) {
+					addPen(point, pen);
+				} else {
+					var span1 = getSpan(offset, false),
+						k = cross > 0 ? 1 : 0,
+						sides1 = getSides(part1.v, 1, part1.offset, span1),
+						sides2 = getSides(part2.v, 0, offset, span);
+					if (sides1 && sides2) {
+						var side1 = sides1[k].point,
+							side2 = sides2[k].point,
+							direction1 = sides1[k].derivative.normalize(),
+							direction2 = sides2[k].derivative.normalize(),
+							widening = Math.sqrt(tolerance * pen.a),
+							points = [sides1[1 - k].point,
+								side1.subtract(direction1.multiply(
+									widening)),
+								side1];
+						if (join === 'miter') {
+							var miter = Line.intersect(
+									side1.x, side1.y,
+									direction1.x, direction1.y,
+									side2.x, side2.y,
+									direction2.x, direction2.y,
+									true, true);
+							if (miter && miter.getDistance(point)
+									<= miterLimit * pen.a)
+								points.push(miter);
+						}
+						addPolygon(points.concat(side2, side2.add(
+								direction2.multiply(widening)),
+								sides2[1 - k].point));
+					}
+				}
+			}
+
+			function addCap(part, t, tangent) {
+				var offset = part.offset + (t ? part.length : 0),
+					span = getSpan(offset, !t),
+					pen = getSpanPen(span, offset);
+				if (cap === 'round') {
+					addPen(Curve.getPoint(part.v, t), pen);
+				} else if (cap === 'square') {
+					var sides = getSides(part.v, t, part.offset, span);
+					if (sides) {
+						var axes = getAxes(pen),
+							reach = new Point(pen.a * tangent.dot(axes[0]),
+								pen.b * tangent.dot(axes[1])).getLength(),
+							ahead = tangent.multiply(reach);
+						var side0 = sides[0].point,
+							side1 = sides[1].point;
+						addPolygon([side0, side0.add(ahead), side1.add(ahead),
+								side1]);
+					}
+				}
+			}
+
+			if (!length) {
+				var segments = path._segments;
+				if (segments.length && !closed && cap !== 'butt') {
+					var center = segments[0]._point,
+						stop = path.getStrokeProfileAt(0),
+						pen = getPen(stop),
+						axes = getAxes(pen);
+					if (cap === 'round') {
+						addPen(center, pen);
+					} else {
+						var x = axes[0].multiply(pen.a),
+							y = axes[1].multiply(pen.b);
+						addPolygon([center.subtract(x).subtract(y),
+								center.add(x).subtract(y),
+								center.add(x).add(y),
+								center.subtract(x).add(y)]);
+					}
+				}
+			} else {
+				for (var i = 1, l = pens.length; i < l; i++) {
+					if (pens[i].offset > pens[i - 1].offset)
+						spans.push({ entry: pens[i - 1], next: pens[i] });
+				}
+				for (var i = 0, l = pens.length; i < l; i++) {
+					var entry = pens[i],
+						offset = entry.offset,
+						isStep = i > 0 && pens[i - 1].offset === offset
+							|| i < l - 1 && pens[i + 1].offset === offset;
+					if (!isStep && (closed ? offset < length
+							: offset > 0 && offset < length))
+						addPen(path.getPointAt(offset), getPen(entry));
+				}
+				for (var i = 0, offset = 0, l = curves.length; i < l; i++) {
+					var curve = curves[i],
+						curveLength = curve.getLength();
+					if (curve.hasLength(geomEpsilon)) {
+						var v = regularize(curve.getValues(), tolerance / 4),
+							reversals = Curve.getReversals(v, tolerance),
+							parts = [];
+						if (reversals.length) {
+							var points = [new Point(v[0], v[1])];
+							for (var j = 0, m = reversals.length; j < m; j++)
+								points.push(Curve.getPoint(v, reversals[j]));
+							points.push(new Point(v[6], v[7]));
+							for (var j = 1, start = offset, m = points.length;
+									j < m; j++) {
+								var p1 = points[j - 1],
+									p2 = points[j],
+									third = p2.subtract(p1).divide(3),
+									distance = p1.getDistance(p2);
+								if (j > 1) {
+									addPen(p1, getSpanPen(getSpan(start),
+											start));
+								}
+								parts.push({
+									v: [p1.x, p1.y, p1.x + third.x,
+										p1.y + third.y, p2.x - third.x,
+										p2.y - third.y, p2.x, p2.y],
+									offset: start,
+									length: distance
+								});
+								start += distance;
+							}
+						} else {
+							parts.push({
+								v: regularizeCusp(v, tolerance / 4),
+								offset: offset,
+								length: curveLength
+							});
+						}
+						parts.forEach(addPart);
+						var first = parts[0],
+							last = parts[parts.length - 1];
+						ends.push({
+							point: curve._segment1._point,
+							first: first,
+							last: last,
+							start: Curve.getTangent(first.v, 0),
+							end: Curve.getTangent(last.v, 1)
+						});
+					}
+					offset += curveLength;
+				}
+				for (var i = 1, l = ends.length; i <= l; i++) {
+					if (i < l || closed)
+						addJoin(ends[i - 1], ends[i % l]);
+				}
+				if (!closed && ends.length) {
+					var first = ends[0],
+						last = ends[ends.length - 1];
+					addCap(first.first, 0, first.start.negate());
+					addCap(last.last, 1, last.end);
+				}
+			}
+		}
+
+		for (var i = 0, l = paths.length; i < l; i++) {
+			var path = paths[i];
+			if (path._strokeProfile) {
+				addProfilePath(path);
+			} else {
+				addPath(path);
+			}
+		}
 		return areas.length
 				? areas.length > 1 ? areas[0].unite(areas.slice(1)) : areas[0]
 				: new Path({ insert: false });
@@ -19814,6 +21019,46 @@ var Event = Base.extend(/** @lends Event# */{
  */
 
 /**
+ * @name DrawEvent
+ *
+ * @class The DrawEvent object is received by the {@link Item}'s drawing
+ * handlers {@link Item#onDraw} and {@link Item#onDrawSelection}, which
+ * describe its fields.
+ */
+var DrawEvent = Base.extend(/** @lends DrawEvent# */{
+	_class: 'DrawEvent',
+
+	initialize: function DrawEvent(props) {
+		Base.set(this, props);
+	},
+
+	prevented: false,
+
+	/**
+	 * Skips the item's default drawing, as returning `false` from the handler
+	 * does.
+	 */
+	preventDefault: function() {
+		this.prevented = true;
+	},
+
+	// Emitter#emit() calls stop() when a handler returns false:
+	stop: '#preventDefault'
+});
+
+/*
+ * Paper.js - The Swiss Army Knife of Vector Graphics Scripting.
+ * http://paperjs.org/
+ *
+ * Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey
+ * http://juerglehni.com/ & https://puckey.studio/
+ *
+ * Distributed under the MIT license. See LICENSE file for details.
+ *
+ * All rights reserved.
+ */
+
+/**
  * @name KeyEvent
  *
  * @class The KeyEvent object is received by the {@link Tool}'s keyboard
@@ -21727,7 +22972,7 @@ new function() {
 			[Item, ['_style', '_applyMatrix', '_opacity', '_blendMode',
 					'_pivot', '_data', '_textWrap']],
 			[Path, ['_segments', '_closed', '_version', '_curves',
-					'_segmentSelection']],
+					'_segmentSelection', '_strokeProfile']],
 			[CompoundPath, ['_children', '_namedChildren']],
 			[SymbolItem, ['_definition']],
 			[HostItem, ['_values']],
