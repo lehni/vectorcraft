@@ -11,13 +11,13 @@ use std::sync::Arc;
 
 use serde_json::{Map, Value, json};
 use vectorcraft_color::{BlendMode, Color, GradientGeom, GradientKind, Paint};
-use vectorcraft_doc::{AnchorRef, Document, LineCap, LineJoin, Node, NodeId, NodeKind, Scaling, Selection, TextKind, TextObject};
+use vectorcraft_doc::{AnchorRef, Document, LineCap, LineJoin, Node, NodeId, NodeKind, Scaling, Selection, SymbolBoxes, TextKind, TextObject};
 use vectorcraft_geom::{Affine, PathData, Rect};
 
 use crate::text;
 
 /// The Paper.js classes of the records' `types`.
-pub const TYPE_NAMES: &[&str] = &["Layer", "Group", "Path", "CompoundPath", "HostItem", "PointText", "AreaText", "PathText"];
+pub const TYPE_NAMES: &[&str] = &["Layer", "Group", "Path", "CompoundPath", "HostItem", "PointText", "AreaText", "PathText", "SymbolItem"];
 
 const LAYER: u8 = 0;
 const GROUP: u8 = 1;
@@ -27,6 +27,7 @@ const HOST_ITEM: u8 = 4;
 const POINT_TEXT: u8 = 5;
 const AREA_TEXT: u8 = 6;
 const PATH_TEXT: u8 = 7;
+const SYMBOL_ITEM: u8 = 8;
 
 /// Record flags, as Paper.js reads them.
 pub mod flags {
@@ -66,8 +67,8 @@ impl Columns {
         self.keys.is_empty() && self.definitions.is_empty()
     }
 
-    /// Adds the record of `node`.
-    pub fn push(&mut self, node: &Node, selection: &Selection) {
+    /// Adds the record of `node`, its symbol instances measured by `symbols`.
+    pub fn push(&mut self, node: &Node, selection: &Selection, symbols: &SymbolBoxes) {
         let (kind, mut flags) = match &node.kind {
             NodeKind::Layer { .. } => (LAYER, 0),
             NodeKind::Group { .. } => (GROUP, 0),
@@ -81,6 +82,7 @@ impl Columns {
                 },
                 0,
             ),
+            NodeKind::SymbolInstance { .. } => (SYMBOL_ITEM, 0),
             _ => (HOST_ITEM, 0),
         };
         flags |= flags::STROKE_SCALING;
@@ -93,25 +95,36 @@ impl Columns {
         if selection.objects.contains(&node.id) {
             flags |= flags::SELECTED;
         }
-        // Text has a matrix in Paper.js, its transform, so its boxes are in its own space:
-        let text = match &node.kind {
-            NodeKind::Text(t) => Some(t),
-            _ => None,
+        // Text and symbol instances have a matrix in Paper.js, their transform, so their boxes are in
+        // their own space:
+        let matrix = match &node.kind {
+            NodeKind::Text(t) => t.xf,
+            NodeKind::SymbolInstance { xf, .. } => *xf,
+            _ => Affine::IDENTITY,
         };
-        if let Some(t) = text
-            && t.xf != Affine::IDENTITY
-        {
-            self.matrices.push((self.keys.len(), t.xf.as_coeffs()));
+        if matrix != Affine::IDENTITY {
+            self.matrices.push((self.keys.len(), matrix.as_coeffs()));
         }
-        let bounds = match text {
-            Some(t) => text_bounds(t),
-            None => node.geometric_bounds(),
+        let (bounds, stroke, rough) = match &node.kind {
+            NodeKind::Text(t) => {
+                let bounds = text_bounds(t);
+                (bounds, bounds, bounds)
+            }
+            // Instances are measured with their strokes, as Paper.js's are:
+            NodeKind::SymbolInstance { symbol, .. } => {
+                let art = symbols.document().symbols.iter().find(|s| s.name == *symbol);
+                let bounds = art.and_then(|s| s.art.visual_bounds_with(symbols));
+                (bounds, bounds, bounds)
+            }
+            _ => {
+                let bounds = node.geometric_bounds_with(symbols);
+                let stroke = node.visual_bounds_with(symbols).or(bounds);
+                (bounds, stroke, rough_bounds(node, symbols).or(stroke))
+            }
         };
         if bounds.is_none() {
             flags |= flags::EMPTY;
         }
-        let stroke = if text.is_some() { bounds } else { node.visual_bounds().or(bounds) };
-        let rough = if text.is_some() { bounds } else { rough_bounds(node).or(stroke) };
         for rect in [bounds, stroke, rough] {
             let rect = rect.unwrap_or(Rect::ZERO);
             self.boxes.extend([rect.x0, rect.y0, rect.width(), rect.height()]);
@@ -128,9 +141,10 @@ impl Columns {
     /// The records of the children of `parent` (`None`: the layers), or `None` when it holds none.
     pub fn of_children(doc: &Document, parent: Option<NodeId>, selection: &Selection) -> Option<Self> {
         let children = doc.children(parent)?;
+        let symbols = doc.symbol_boxes();
         let mut columns = Self::default();
         for child in children {
-            columns.push(child, selection);
+            columns.push(child, selection, &symbols);
         }
         Some(columns)
     }
@@ -154,22 +168,51 @@ impl Columns {
             .copied()
             .collect();
         let changed_threads = changed_threads(old, new);
+        let symbols = new.symbol_boxes();
         let mut walk = Walk {
             columns: &mut columns,
             selection: new_selection,
+            symbols: &symbols,
             reselected: &reselected,
             reanchored: &reanchored,
             changed_threads: &changed_threads,
         };
         walk.children(&old.layers, &new.layers);
-        let names: BTreeSet<&str> = old.patterns.iter().chain(&new.patterns).map(|p| p.name.as_str()).collect();
-        columns.definitions = names.into_iter().filter(|name| old.pattern(name) != new.pattern(name)).map(|name| format!("pattern/{name}")).collect();
+        // Definitions that changed, and the instances of changed symbols with what holds them,
+        // whose boxes change with their art:
+        let patterns: BTreeSet<&str> = old.patterns.iter().chain(&new.patterns).map(|p| p.name.as_str()).collect();
+        let symbol = |doc: &Document, name: &str| doc.symbols.iter().find(|s| s.name == name).map(|s| s.art.clone());
+        let changed_symbols: BTreeSet<&str> =
+            old.symbols.iter().chain(&new.symbols).map(|s| s.name.as_str()).filter(|name| symbol(old, name) != symbol(new, name)).collect();
+        columns.definitions = patterns
+            .into_iter()
+            .filter(|name| old.pattern(name) != new.pattern(name))
+            .map(|name| format!("pattern/{name}"))
+            .chain(changed_symbols.iter().map(|name| format!("symbol/{name}")))
+            .collect();
+        let mut remeasured = BTreeSet::new();
+        if !changed_symbols.is_empty() {
+            new.walk(|node| {
+                if let NodeKind::SymbolInstance { symbol, .. } = &node.kind
+                    && changed_symbols.contains(symbol.as_str())
+                {
+                    remeasured.extend(new.ancestry(node.id).unwrap_or_default());
+                }
+            });
+        }
+        for id in remeasured {
+            if !columns.keys.contains(&(id.0 as f64))
+                && let Some(node) = new.node(id)
+            {
+                columns.push(node, new_selection, &symbols);
+            }
+        }
         // Frames of those threads in subtrees that didn't change, which the walk skips.
         for id in &changed_threads {
             if !columns.keys.contains(&(id.0 as f64))
                 && let Some(node) = new.node(*id)
             {
-                columns.push(node, new_selection);
+                columns.push(node, new_selection, &symbols);
                 if let Some(last) = columns.flags.last_mut() {
                     *last |= flags::CONTENT_CHANGED;
                 }
@@ -200,6 +243,7 @@ fn changed_threads(old: &Document, new: &Document) -> BTreeSet<NodeId> {
 struct Walk<'a> {
     columns: &'a mut Columns,
     selection: &'a Selection,
+    symbols: &'a SymbolBoxes<'a>,
     reselected: &'a BTreeSet<NodeId>,
     reanchored: &'a BTreeSet<NodeId>,
     changed_threads: &'a BTreeSet<NodeId>,
@@ -238,7 +282,7 @@ impl Walk<'_> {
             _ if !Arc::ptr_eq(old, new) || reanchored => changed |= flags::CONTENT_CHANGED,
             _ => {}
         }
-        self.columns.push(new, self.selection);
+        self.columns.push(new, self.selection, self.symbols);
         if let Some(last) = self.columns.flags.last_mut() {
             *last |= changed;
         }
@@ -255,12 +299,12 @@ fn text_bounds(t: &TextObject) -> Option<Rect> {
 }
 
 /// The box Paper.js rejects hit tests with: the control points, grown by as far as strokes reach.
-fn rough_bounds(node: &Node) -> Option<Rect> {
+fn rough_bounds(node: &Node, symbols: &SymbolBoxes) -> Option<Rect> {
     let outset = node.appearance.outset();
     let control = match &node.kind {
         NodeKind::Path { path, .. } => path.control_bounds(),
         NodeKind::Compound { children, .. } => children.iter().filter_map(|c| c.path_data()?.control_bounds()).reduce(|a, b| a.union(b)),
-        _ => return node.reach_bounds(),
+        _ => return node.reach_bounds_with(symbols),
     };
     control.map(|r| r.inflate(outset, outset))
 }
@@ -316,15 +360,27 @@ pub fn item_json(node: &Node, selection: &Selection) -> Value {
             text::properties(&t, &first, &mut props);
             json!([text::class(&t), props])
         }
+        NodeKind::SymbolInstance { symbol, xf } => {
+            let mut props = attributes(node);
+            // An instance keeps its matrix, as Paper.js's do:
+            props.insert("applyMatrix".into(), json!(false));
+            props.insert("matrix".into(), json!(xf.as_coeffs()));
+            props.insert("definition".into(), json!([format!("@symbol/{symbol}")]));
+            json!(["SymbolItem", props])
+        }
         _ => json!(["HostItem", attributes(node)]),
     }
 }
 
 /// A definition as Paper.js JSON, by its key: `pattern/<name>` is a pattern, its art as one group
-/// in pattern space, where its tile starts at the origin, as the pattern's paints place it. A
-/// pattern the document doesn't have is empty, so the colours that use it keep it. None for any
-/// other key.
+/// in pattern space, where its tile starts at the origin, as the pattern's paints place it, and
+/// `symbol/<name>` a symbol, its art where its instances' matrices place it. A pattern or symbol
+/// the document doesn't have is empty, so what uses it keeps it. None for any other key.
 pub fn definition_json(doc: &Document, key: &str) -> Option<Value> {
+    if let Some(name) = key.strip_prefix("symbol/") {
+        let art = doc.symbols.iter().find(|s| s.name == name).and_then(|s| tree_json(&s.art));
+        return Some(json!(["SymbolDefinition", art.unwrap_or_else(|| json!(["Group", {}])), true]));
+    }
     let name = key.strip_prefix("pattern/")?;
     Some(match doc.pattern(name) {
         Some(pattern) => {
@@ -352,7 +408,10 @@ pub fn definition_json(doc: &Document, key: &str) -> Option<Value> {
 /// An object and all it holds as Paper.js JSON, for the art of definitions, which has no records.
 /// Kinds Paper.js has no class for are left out.
 fn tree_json(node: &Node) -> Option<Value> {
-    if !matches!(node.kind, NodeKind::Group { .. } | NodeKind::Path { .. } | NodeKind::Compound { .. } | NodeKind::Text(_)) {
+    if !matches!(
+        node.kind,
+        NodeKind::Group { .. } | NodeKind::Path { .. } | NodeKind::Compound { .. } | NodeKind::Text(_) | NodeKind::SymbolInstance { .. }
+    ) {
         return None;
     }
     let mut json = item_json(node, &Selection::default());

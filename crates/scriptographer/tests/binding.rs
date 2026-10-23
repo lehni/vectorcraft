@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use serde_json::json;
 use vectorcraft_color::{Color, Gradient, GradientGeom, GradientKind, GradientPaint, GradientStop, Paint};
-use vectorcraft_doc::{Node, NodeId};
+use vectorcraft_doc::{Node, NodeId, NodeKind};
 use vectorcraft_engine::Session;
 use vectorcraft_geom::{Affine, Point};
 use vectorcraft_scriptographer::{Engine, Runtime};
@@ -497,6 +497,85 @@ fn changed_patterns_reload<E: Engine>() {
     assert_eq!(runtime.take_output(), ["true { x: 0, y: 0, width: 50, height: 25 }"]);
 }
 
+/// The symbol "Box" made of `a`, which becomes its instance, and a second instance at 200, 150.
+fn symbols(s: &mut Session, a: NodeId) -> (NodeId, NodeId) {
+    let id = |v: serde_json::Value| NodeId(v["id"].as_u64().unwrap());
+    let first = id(s.execute("symbol.new", &json!({"name": "Box", "ids": [a.0]})).unwrap());
+    let second = id(s.execute("symbol.place", &json!({"name": "Box", "x": 200, "y": 150})).unwrap());
+    (first, second)
+}
+
+/// Symbol instances are `SymbolItem`s, measured by their symbol's art with its strokes, as
+/// Paper.js measures them, whose definition all its instances share.
+fn reads_symbols<E: Engine>() {
+    let (mut s, a, _) = document();
+    let (first, second) = symbols(&mut s, a);
+    let output = run::<E>(
+        &mut s,
+        &format!(
+            "var first = project.getItemByKey({}), second = project.getItemByKey({})\n\
+             console.log(first.className, first.definition === second.definition, first.definition.item.className)\n\
+             console.log(first.bounds, second.bounds.center)",
+            first.0, second.0
+        ),
+    );
+    assert_eq!(
+        output,
+        // The art of 20 × 20 with its stroke of 1, stretched to the rectangle's 30 × 20:
+        ["SymbolItem true Path", "{ x: 9.25, y: 9.5, width: 31.5, height: 21 } { x: 200, y: 150 }"]
+    );
+}
+
+/// What a script does to an instance goes back to it, and new instances of the document's symbols
+/// are added to it. A transform the script leaves alone stays exactly as it was.
+fn writes_symbols<E: Engine>() {
+    let (mut s, a, _) = document();
+    let (first, second) = symbols(&mut s, a);
+    let mut turned = node(&s, second);
+    let xf = Affine::rotate(0.123456789).then_translate((200.0, 150.0).into());
+    turned.kind = NodeKind::SymbolInstance { symbol: "Box".into(), xf };
+    s.execute("document.patch", &json!({ "replace": [turned] })).unwrap();
+    run::<E>(
+        &mut s,
+        &format!(
+            "var first = project.getItemByKey({}), second = project.getItemByKey({})\n\
+             first.position += [100, 0]\n\
+             second.opacity = 0.5\n\
+             new SymbolItem(first.definition, [50, 200])",
+            first.0, second.0
+        ),
+    );
+    assert_eq!(node(&s, first).geometric_bounds().unwrap().x0, 110.0);
+    assert_eq!(node(&s, second).kind, NodeKind::SymbolInstance { symbol: "Box".into(), xf });
+    assert_eq!(node(&s, second).opacity, 0.5);
+    let added = s.active().unwrap().doc.layers[0].children().unwrap().last().unwrap().clone();
+    let NodeKind::SymbolInstance { symbol, xf } = &added.kind else { panic!("an instance") };
+    assert_eq!((symbol.as_str(), xf.translation()), ("Box", (50.0, 200.0).into()));
+}
+
+/// A symbol whose art changes in the document changes in the definition the script holds, and its
+/// instances and what holds them are measured again.
+fn changed_symbols_reload<E: Engine>() {
+    let (mut s, a, _) = document();
+    let (first, _) = symbols(&mut s, a);
+    let st = s.active().unwrap();
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(400.0, 300.0).unwrap();
+    runtime.bind(&scope, st.doc.clone(), st.selection.clone()).unwrap();
+    runtime.execute(&scope, &format!("globalThis.first = project.getItemByKey({})\nglobalThis.definition = first.definition", first.0)).unwrap();
+    let mut doc = (*st.doc).clone();
+    let mut art = (*doc.symbols[0].art).clone();
+    art.transform(Affine::scale(2.0), false);
+    doc.symbols[0].art = Arc::new(art);
+    runtime.update(&scope, Arc::new(doc), st.selection.clone()).unwrap();
+    runtime
+        .execute(&scope, "console.log(definition === first.definition, first.bounds.width, first.bounds.height, project.activeLayer.bounds)")
+        .unwrap();
+    // The art of 40 × 40 with its stroke of 1, stretched by 1.5, and the layer measured again
+    // around both instances, now 60 × 40 (without strokes) at their centres, 25, 20 and 200, 150:
+    assert_eq!(runtime.take_output(), ["true 61.5 41 { x: -5, y: 0, width: 235, height: 170 }"]);
+}
+
 macro_rules! engine_tests {
     ($module:ident, $engine:ty) => {
         mod $module {
@@ -533,6 +612,21 @@ macro_rules! engine_tests {
             #[test]
             fn changed_patterns_reload() {
                 super::changed_patterns_reload::<$engine>();
+            }
+
+            #[test]
+            fn reads_symbols() {
+                super::reads_symbols::<$engine>();
+            }
+
+            #[test]
+            fn writes_symbols() {
+                super::writes_symbols::<$engine>();
+            }
+
+            #[test]
+            fn changed_symbols_reload() {
+                super::changed_symbols_reload::<$engine>();
             }
 
             #[test]

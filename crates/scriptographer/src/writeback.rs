@@ -307,6 +307,20 @@ fn replaced<H: Clone>(call: &mut dyn Call<H>, doc: &Document, original: &Node, c
             let json = export(call, &change.item)?;
             apply(&mut node, &json, &before)?;
         }
+        "SymbolItem" => {
+            let json = export(call, &change.item)?;
+            let props = json.get(1).and_then(Json::as_object).cloned().unwrap_or_default();
+            if let NodeKind::SymbolInstance { symbol, xf } = &mut node.kind
+                && let Some((now, matrix)) = instance(&props)
+            {
+                *symbol = now;
+                // A transform unchanged but for the precision of Paper.js's JSON stays as it was:
+                if !is_close(&json!(matrix.as_coeffs()), &json!(xf.as_coeffs())) {
+                    *xf = matrix;
+                }
+            }
+            apply_attributes(&mut node, &props, &before[1]);
+        }
         "PointText" | "AreaText" | "PathText" => {
             let json = export(call, &change.item)?;
             if let NodeKind::Text(t) = &original.kind {
@@ -468,6 +482,23 @@ fn is_close(a: &Json, b: &Json) -> bool {
     }
 }
 
+/// The symbol and transform of a `SymbolItem`'s properties: its `definition`, `['@symbol/<name>']`,
+/// and its `matrix`. None for a symbol that isn't the document's (a script's own
+/// `SymbolDefinition`), which has no VectorCraft form yet.
+fn instance(props: &Map<String, Json>) -> Option<(String, Affine)> {
+    let symbol = match props.get("definition").and_then(Json::as_array).map(Vec::as_slice) {
+        Some([Json::String(key)]) => key.strip_prefix("@symbol/")?.to_owned(),
+        _ => return None,
+    };
+    Some((symbol, props.get("matrix").map_or(Some(Affine::IDENTITY), matrix)?))
+}
+
+/// A Paper.js matrix, `[a, b, c, d, tx, ty]`, also with its class in front.
+fn matrix(json: &Json) -> Option<Affine> {
+    let m: Vec<f64> = classless(json.as_array()?, "Matrix").iter().filter_map(Json::as_f64).filter(|n| n.is_finite()).collect();
+    Some(Affine::new(m.try_into().ok()?))
+}
+
 /// A Paper.js colour as a paint: a solid colour, a gradient (see [`gradient`]), a pattern (see
 /// [`pattern`]) or none. None when it has no VectorCraft form.
 fn paint(json: &Json) -> Option<Paint> {
@@ -486,13 +517,7 @@ fn pattern(components: &[Json]) -> Option<Paint> {
         Some([Json::String(key)]) => key.strip_prefix("@pattern/")?.to_owned(),
         _ => return None,
     };
-    let xf = match components.get(1).and_then(Json::as_array).map(|m| classless(m, "Matrix")) {
-        Some(m) => {
-            let m: Vec<f64> = m.iter().filter_map(Json::as_f64).filter(|n| n.is_finite()).collect();
-            Affine::new(m.try_into().ok()?)
-        }
-        None => Affine::IDENTITY,
-    };
+    let xf = components.get(1).map_or(Some(Affine::IDENTITY), matrix)?;
     Some(Paint::Pattern { pattern: name, xf })
 }
 
@@ -666,6 +691,11 @@ pub fn new_node(json: &Json) -> Result<Node, Error> {
             let mut node = Node::new(id, NodeKind::Text(Box::new(t)));
             node.appearance = appearance.into();
             node
+        }
+        "SymbolItem" => {
+            let (symbol, xf) = instance(props)
+                .ok_or_else(|| Error::Script("an instance of a script's own SymbolDefinition can't be added to the document yet".into()))?;
+            Node::new(id, NodeKind::SymbolInstance { symbol, xf })
         }
         "Group" => {
             let mut node = Node::group(id, children()?);

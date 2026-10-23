@@ -161,9 +161,10 @@ impl<E: Engine> Runtime<E> {
         if behind {
             reload = Columns::of_changes(&bound.doc, &bound.selection, &doc, &selection);
         } else {
+            let symbols = doc.symbol_boxes();
             for id in result["skipped"].as_array().into_iter().flatten().filter_map(Json::as_u64) {
                 if let Some(node) = doc.node(NodeId(id)) {
-                    reload.push(node, &selection);
+                    reload.push(node, &selection, &symbols);
                     let changed = if node.children().is_some() { flags::CHILDREN_CHANGED } else { flags::CONTENT_CHANGED };
                     if let Some(last) = reload.flags.last_mut() {
                         *last |= changed;
