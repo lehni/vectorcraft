@@ -7,7 +7,7 @@ use std::sync::Arc;
 use serde_json::{Map, Value as Json};
 use vectorcraft_doc::{Document, Node, NodeId, NodeKind, Selection};
 
-use crate::host::{Columns, TYPE_NAMES, definition_json, flags, item_json};
+use crate::host::{Columns, TYPE_NAMES, definition_json, definition_keys, flags, item_json};
 use crate::text;
 use crate::writeback::{self, Change};
 use crate::{Call, Engine, Error, Runtime, Scope, Value, define_accessor, handle, method, object};
@@ -18,11 +18,12 @@ pub(crate) struct Bound {
     pub selection: Selection,
 }
 
-/// The changes a script made, as `document.patch` params, and the new items waiting for the ids
-/// that patch gives them.
+/// The changes a script made, as `document.patch` params, the new items waiting for the ids that
+/// patch gives them, and the keys of the new definitions.
 pub struct Patch<H> {
     pub params: Json,
     inserted: Vec<H>,
+    created: Vec<String>,
 }
 
 impl<E: Engine> Runtime<E> {
@@ -35,6 +36,7 @@ impl<E: Engine> Runtime<E> {
         let get_children = self.engine.function("getChildren", get_children)?;
         let get_item = self.engine.function("getItem", get_item)?;
         let get_definition = self.engine.function("getDefinition", get_definition)?;
+        let get_definition_keys = self.engine.function("getDefinitionKeys", get_definition_keys)?;
         let get_story = self.engine.function("getStory", get_story)?;
         let get_ancestor_keys = self.engine.function("getAncestorKeys", get_ancestor_keys)?;
         let lay_out = self.engine.function("layOut", lay_out)?;
@@ -49,6 +51,7 @@ impl<E: Engine> Runtime<E> {
             call.set(&host, "getChildren", &Value::Js(get_children))?;
             call.set(&host, "getItem", &Value::Js(get_item))?;
             call.set(&host, "getDefinition", &Value::Js(get_definition))?;
+            call.set(&host, "getDefinitionKeys", &Value::Js(get_definition_keys))?;
             call.set(&host, "getStory", &Value::Js(get_story))?;
             call.set(&host, "getAncestorKeys", &Value::Js(get_ancestor_keys))?;
             call.set(&host, "layOut", &Value::Js(lay_out))?;
@@ -86,16 +89,20 @@ impl<E: Engine> Runtime<E> {
             let project = object(call, &scope.0, "project")?;
             let changes = handle(method(call, &project, "takeChanges", &[])?, "takeChanges()")?;
             let count = number(call.get(&changes, "length")?);
-            let mut list = Vec::with_capacity(count as usize);
+            let (mut list, mut definitions) = (Vec::with_capacity(count as usize), Vec::new());
             for i in 0..count as usize {
                 let entry = object(call, &changes, &i.to_string())?;
-                let item = object(call, &entry, "item")?;
-                let flags = number(call.get(&entry, "flags")?) as u32;
-                list.push(Change::read(call, item, flags)?);
+                match call.get(&entry, "item")? {
+                    Value::Js(item) => {
+                        let flags = number(call.get(&entry, "flags")?) as u32;
+                        list.push(Change::read(call, item, flags)?);
+                    }
+                    _ => definitions.push(object(call, &entry, "definition")?),
+                }
             }
             // Not borrowed while the write-back calls into the script, which may need the host.
             let doc = host.borrow().bound.as_ref().map(|b| b.doc.clone()).ok_or_else(|| Error::Script("no document is bound".into()))?;
-            writeback::patch(call, &doc, list)
+            writeback::patch(call, &doc, list, &definitions)
         })
     }
 
@@ -145,7 +152,8 @@ impl<E: Engine> Runtime<E> {
     /// The objects the patch left out (`skipped`: a drag in progress changed them, and wins) load
     /// again from the document, so the script goes on from what the drag made of them. When the
     /// document changed in other ways too since the project last caught up with it (`behind`: the
-    /// patch was applied later), everything that changed loads again.
+    /// patch was applied later), everything that changed loads again, and so do the new
+    /// definitions, which a failed patch didn't make.
     pub fn apply_ids(
         &mut self,
         scope: &Scope<E::Handle>,
@@ -160,6 +168,11 @@ impl<E: Engine> Runtime<E> {
         let bound = host.bound.as_mut().ok_or_else(|| Error::Script("no document is bound".into()))?;
         if behind {
             reload = Columns::of_changes(&bound.doc, &bound.selection, &doc, &selection);
+            for key in &patch.created {
+                if !reload.definitions.contains(key) {
+                    reload.definitions.push(key.clone());
+                }
+            }
         } else {
             let symbols = doc.symbol_boxes();
             for id in result["skipped"].as_array().into_iter().flatten().filter_map(Json::as_u64) {
@@ -192,8 +205,8 @@ impl<E: Engine> Runtime<E> {
 }
 
 impl<H> Patch<H> {
-    pub(crate) fn new(params: Json, inserted: Vec<H>) -> Self {
-        Self { params, inserted }
+    pub(crate) fn new(params: Json, inserted: Vec<H>, created: Vec<String>) -> Self {
+        Self { params, inserted, created }
     }
 }
 
@@ -340,6 +353,16 @@ fn get_definition<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]
     let json = with_bound(call, |doc, _| definition_json(doc, &key))?;
     let json = json.ok_or_else(|| Error::Script(format!("getDefinition: no definition '{key}'")))?;
     Ok(Value::String(json.to_string()))
+}
+
+/// `source.getDefinitionKeys(class)`: the keys of the document's definitions of the class.
+fn get_definition_keys<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let class = match args.first() {
+        Some(Value::String(class)) => class.clone(),
+        _ => return Err(Error::Script("getDefinitionKeys: no class".into())),
+    };
+    let keys: Vec<_> = with_bound(call, |doc, _| definition_keys(doc, &class))?.into_iter().map(Value::String).collect();
+    Ok(Value::Js(call.new_array(&keys)?))
 }
 
 /// `source.getStory(key)`: the story of the thread the frame `key` is in, its runs and paragraphs as

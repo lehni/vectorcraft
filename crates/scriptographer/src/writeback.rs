@@ -1,5 +1,6 @@
 //! Paper.js's change log as a `document.patch`: removed items are removed, new items inserted,
-//! changed items replaced, and a container whose children changed gets its new order.
+//! changed items replaced, and a container whose children changed gets its new order. Patterns
+//! and symbols a script changed or made go back as the patch's `patterns` and `symbols`.
 //!
 //! A changed path goes back through the node it came from: only what a script changed is written,
 //! so what Paper.js can't show (more fills and strokes, gradient midpoints, corner and smooth anchors)
@@ -10,7 +11,7 @@ use std::sync::Arc;
 
 use serde_json::{Map, Value as Json, json};
 use vectorcraft_color::{BlendMode, Color, Gradient, GradientGeom, GradientKind, GradientPaint, GradientStop, Paint};
-use vectorcraft_doc::{Appearance, Document, LayerColor, LineCap, LineJoin, Node, NodeId, NodeKind, TextWrap};
+use vectorcraft_doc::{Appearance, Document, LayerColor, LineCap, LineJoin, Node, NodeId, NodeKind, Scaling, TextWrap};
 use vectorcraft_geom::{Affine, Anchor, AnchorKind, PathData, Point, SubPath};
 
 use crate::binding::{Patch, node, number};
@@ -50,8 +51,18 @@ impl<H: Clone> Change<H> {
     }
 }
 
-/// The patch for `changes`, made against `doc`, or `None` when they change nothing.
-pub(crate) fn patch<H: Clone>(call: &mut dyn Call<H>, doc: &Arc<Document>, changes: Vec<Change<H>>) -> Result<Option<Patch<H>>, Error> {
+/// The patch for `changes` and `definitions`, made against `doc`, or `None` when they change
+/// nothing.
+pub(crate) fn patch<H: Clone>(
+    call: &mut dyn Call<H>,
+    doc: &Arc<Document>,
+    changes: Vec<Change<H>>,
+    definitions: &[H],
+) -> Result<Option<Patch<H>>, Error> {
+    // New definitions get their keys before the items that use them are exported, so they refer
+    // to them by key:
+    let created = create(call, doc, definitions)?;
+    let (patterns, symbols) = written_definitions(call, doc, definitions)?;
     let mut remove = Vec::new();
     let mut replace = Vec::new();
     let mut news = News { insert: Vec::new(), inserted: Vec::new(), new: HashMap::new(), order: Vec::new() };
@@ -128,7 +139,15 @@ pub(crate) fn patch<H: Clone>(call: &mut dyn Call<H>, doc: &Arc<Document>, chang
     }
     let mut params = Map::new();
     let News { insert, inserted, order, .. } = news;
-    for (key, list) in [("remove", remove), ("insert", insert), ("replace", replace), ("order", order), ("threads", threads)] {
+    for (key, list) in [
+        ("patterns", patterns),
+        ("symbols", symbols),
+        ("remove", remove),
+        ("insert", insert),
+        ("replace", replace),
+        ("order", order),
+        ("threads", threads),
+    ] {
         if !list.is_empty() {
             params.insert(key.into(), Json::Array(list));
         }
@@ -137,7 +156,76 @@ pub(crate) fn patch<H: Clone>(call: &mut dyn Call<H>, doc: &Arc<Document>, chang
         return Ok(None);
     }
     params.insert("label".into(), json!("Script"));
-    Ok(Some(Patch::new(Json::Object(params), inserted)))
+    Ok(Some(Patch::new(Json::Object(params), inserted, created)))
+}
+
+/// Gives each new definition of `definitions`, which have no key yet, its name in the document and
+/// its key: the name it has, or "New Symbol" or "New Pattern", numbered where the document or an
+/// earlier one has it. Returns the keys.
+fn create<H: Clone>(call: &mut dyn Call<H>, doc: &Document, definitions: &[H]) -> Result<Vec<String>, Error> {
+    let mut created: Vec<String> = Vec::new();
+    for definition in definitions {
+        if matches!(call.get(definition, "key")?, Value::String(_)) {
+            continue;
+        }
+        let is_symbol = matches!(call.get(definition, "className")?, Value::String(class) if class == "SymbolDefinition");
+        let (prefix, base) = if is_symbol { ("symbol", "New Symbol") } else { ("pattern", "New Pattern") };
+        let base = match call.get(definition, "name")? {
+            Value::String(name) if !name.trim().is_empty() => name.trim().to_owned(),
+            _ => base.to_owned(),
+        };
+        let is_taken = |name: &str| {
+            created.contains(&format!("{prefix}/{name}"))
+                || if is_symbol { doc.symbol(name).is_some() } else { doc.pattern(name).is_some() || doc.swatch_name_taken(name) }
+        };
+        let name = std::iter::once(base.clone()).chain((2..).map(|i| format!("{base} {i}"))).find(|name| !is_taken(name)).unwrap_or(base);
+        call.set(definition, "name", &Value::String(name.clone()))?;
+        let key = format!("{prefix}/{name}");
+        call.set(definition, "key", &Value::String(key.clone()))?;
+        created.push(key);
+    }
+    Ok(created)
+}
+
+/// The patch's `patterns` and `symbols` for `definitions`, all with their keys. Their art goes in
+/// whole, as Paper.js has it. Paper.js places a pattern's art by the colour's matrix alone, and
+/// VectorCraft from the tile's origin, so the art moves by the origin of the document's tile, and
+/// only a tile of a new size is sent.
+fn written_definitions<H: Clone>(call: &mut dyn Call<H>, doc: &Document, definitions: &[H]) -> Result<(Vec<Json>, Vec<Json>), Error> {
+    let (mut patterns, mut symbols) = (Vec::new(), Vec::new());
+    for definition in definitions {
+        let Value::String(key) = call.get(definition, "key")? else { continue };
+        let item = object(call, definition, "item")?;
+        let json = export(call, &item)?;
+        if let Some(name) = key.strip_prefix("symbol/") {
+            symbols.push(json!({ "name": name, "art": node_json(&new_node(&json)?)? }));
+        } else if let Some(name) = key.strip_prefix("pattern/") {
+            let tile = object(call, definition, "tile")?;
+            let size = [number(call.get(&tile, "width")?), number(call.get(&tile, "height")?)];
+            let existing = doc.pattern(name).map(|p| p.tile);
+            let origin = existing.map_or(Point::ZERO, |tile| tile.origin());
+            let to_doc = Affine::translate(origin.to_vec2());
+            // A group holds the art, as the document's patterns have it:
+            let art = match json.get(0).and_then(Json::as_str) {
+                Some("Group") => json.get(1).and_then(|props| props.get("children")).and_then(Json::as_array).cloned().unwrap_or_default(),
+                _ => vec![json],
+            };
+            let art = art
+                .iter()
+                .map(|json| {
+                    let mut node = new_node(json)?;
+                    node.transform(to_doc, Scaling { patterns: true, ..Scaling::default() });
+                    node_json(&node)
+                })
+                .collect::<Result<Vec<_>, Error>>()?;
+            let mut entry = json!({ "name": name, "art": art });
+            if existing.is_none_or(|tile| !is_close(&json!([tile.width(), tile.height()]), &json!(size))) {
+                entry["tile"] = json!([origin.x, origin.y, size[0], size[1]]);
+            }
+            patterns.push(entry);
+        }
+    }
+    Ok((patterns, symbols))
 }
 
 /// The new items of a patch: each one an insert, in its parent's place, the parents first.
@@ -483,8 +571,7 @@ fn is_close(a: &Json, b: &Json) -> bool {
 }
 
 /// The symbol and transform of a `SymbolItem`'s properties: its `definition`, `['@symbol/<name>']`,
-/// and its `matrix`. None for a symbol that isn't the document's (a script's own
-/// `SymbolDefinition`), which has no VectorCraft form yet.
+/// and its `matrix`. None for a definition without a key, which isn't the document's.
 fn instance(props: &Map<String, Json>) -> Option<(String, Affine)> {
     let symbol = match props.get("definition").and_then(Json::as_array).map(Vec::as_slice) {
         Some([Json::String(key)]) => key.strip_prefix("@symbol/")?.to_owned(),
@@ -510,8 +597,7 @@ fn paint(json: &Json) -> Option<Paint> {
 }
 
 /// The components of a Paper.js pattern colour, `[['@pattern/<name>'], matrix?]`, as a pattern
-/// paint. A pattern that isn't the document's (a script's own `PatternDefinition`) has no
-/// VectorCraft form yet.
+/// paint. None for a definition without a key, which isn't the document's.
 fn pattern(components: &[Json]) -> Option<Paint> {
     let name = match components.first().and_then(Json::as_array).map(Vec::as_slice) {
         Some([Json::String(key)]) => key.strip_prefix("@pattern/")?.to_owned(),
@@ -693,8 +779,7 @@ pub fn new_node(json: &Json) -> Result<Node, Error> {
             node
         }
         "SymbolItem" => {
-            let (symbol, xf) = instance(props)
-                .ok_or_else(|| Error::Script("an instance of a script's own SymbolDefinition can't be added to the document yet".into()))?;
+            let (symbol, xf) = instance(props).ok_or_else(|| Error::Script("a symbol item's definition isn't the document's".into()))?;
             Node::new(id, NodeKind::SymbolInstance { symbol, xf })
         }
         "Group" => {

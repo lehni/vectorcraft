@@ -9,7 +9,7 @@ use serde_json::json;
 use vectorcraft_color::{Color, Gradient, GradientGeom, GradientKind, GradientPaint, GradientStop, Paint};
 use vectorcraft_doc::{Node, NodeId, NodeKind};
 use vectorcraft_engine::Session;
-use vectorcraft_geom::{Affine, Point};
+use vectorcraft_geom::{Affine, Point, Rect};
 use vectorcraft_scriptographer::{Engine, Runtime};
 
 /// A session with one layer holding two rectangles, a (bottom) and b.
@@ -462,8 +462,7 @@ fn reads_patterns<E: Engine>() {
 }
 
 /// The document's patterns can be given to other objects, and move with the objects a script
-/// moves. A script's own `PatternDefinition` has no pattern in the document yet: it leaves the
-/// fill as it was.
+/// moves. A script's own `PatternDefinition` becomes a new pattern.
 fn writes_patterns<E: Engine>() {
     let (mut s, a, b) = document();
     patterns(&mut s, a, b);
@@ -476,9 +475,31 @@ fn writes_patterns<E: Engine>() {
     );
     let pattern = |xf: Affine| Paint::Pattern { pattern: "Tiles".into(), xf };
     assert_eq!(node(&s, a).appearance.fill_paint(), pattern(Affine::translate((100.0, 0.0))));
-    assert_eq!(node(&s, b).appearance.fill_paint(), pattern(Affine::translate((3.0, 0.0))));
+    assert_eq!(node(&s, b).appearance.fill_paint(), Paint::Pattern { pattern: "New Pattern".into(), xf: Affine::IDENTITY });
     let circle = s.active().unwrap().doc.layers[0].children().unwrap().last().unwrap().clone();
     assert_eq!(circle.appearance.fill_paint(), pattern(Affine::IDENTITY));
+    let new = s.active().unwrap().doc.pattern("New Pattern").unwrap().clone();
+    assert_eq!((new.tile, new.art[0].geometric_bounds().unwrap()), (Rect::new(0.0, 0.0, 5.0, 5.0), Rect::new(0.0, 0.0, 5.0, 5.0)));
+    assert!(s.active().unwrap().doc.swatch_name_taken("New Pattern"), "it gets a swatch");
+}
+
+/// What a script changes in a pattern goes back to it: its art in pattern space, where the tile
+/// keeps its origin, and the tile's new size.
+fn writes_changed_patterns<E: Engine>() {
+    let (mut s, a, b) = document();
+    patterns(&mut s, a, b);
+    let before = s.active().unwrap().doc.pattern("Tiles").unwrap().clone();
+    run::<E>(
+        &mut s,
+        "var pattern = project.activeLayer.firstChild.fillColor.pattern\n\
+         pattern.item.firstChild.fillColor = 'red'\n\
+         pattern.tile = [0, 0, 80, 40]",
+    );
+    let after = s.active().unwrap().doc.pattern("Tiles").unwrap().clone();
+    assert_eq!(after.tile, Rect::from_origin_size(before.tile.origin(), (80.0, 40.0)));
+    assert_eq!(after.art[0].geometric_bounds(), before.art[0].geometric_bounds(), "the art stays where it was");
+    assert_eq!(after.art[0].appearance.fill_paint(), Paint::solid(Color::rgb(1.0, 0.0, 0.0)));
+    assert_eq!(node(&s, a).appearance.fill_paint(), Paint::Pattern { pattern: "Tiles".into(), xf: Affine::IDENTITY }, "its objects keep it");
 }
 
 /// A pattern that changes in the document changes in the definition the script holds.
@@ -551,6 +572,90 @@ fn writes_symbols<E: Engine>() {
     let added = s.active().unwrap().doc.layers[0].children().unwrap().last().unwrap().clone();
     let NodeKind::SymbolInstance { symbol, xf } = &added.kind else { panic!("an instance") };
     assert_eq!((symbol.as_str(), xf.translation()), ("Box", (50.0, 200.0).into()));
+}
+
+/// A pattern sized to its art stays so when a script changes only its art: the tile follows it.
+fn patterns_sized_to_art_follow_it<E: Engine>() {
+    let (mut s, a, b) = document();
+    patterns(&mut s, a, b);
+    s.execute("pattern.options", &json!({"name": "Tiles", "sizeTileToArt": true})).unwrap();
+    run::<E>(&mut s, "project.activeLayer.firstChild.fillColor.pattern.item.firstChild.scale(2)");
+    let pattern = s.active().unwrap().doc.pattern("Tiles").unwrap().clone();
+    assert!(pattern.size_tile_to_art);
+    assert_eq!(pattern.tile.size(), pattern.art[0].geometric_bounds().unwrap().size());
+}
+
+/// What a script changes in a symbol's art goes back to it, in the symbol's space: its instances
+/// keep their transforms.
+fn writes_changed_symbols<E: Engine>() {
+    let (mut s, a, _) = document();
+    let (first, second) = symbols(&mut s, a);
+    let xfs = |s: &Session| [first, second].map(|id| node(s, id).kind);
+    let before = xfs(&s);
+    run::<E>(&mut s, "var item = project.symbolDefinitions[0].item\nitem.scale(2, [0, 0])\nitem.position += [5, 0]");
+    let art = s.active().unwrap().doc.symbol("Box").unwrap().art.geometric_bounds().unwrap();
+    // The symbol's art, the 20 × 20 square around its origin, doubled and moved:
+    assert_eq!(art, Rect::new(-15.0, -20.0, 25.0, 20.0));
+    assert_eq!(xfs(&s), before);
+    let output = run::<E>(&mut s, "console.log(project.symbolDefinitions[0].item.bounds)");
+    assert_eq!(output, ["{ x: -15, y: -20, width: 40, height: 40 }"], "read again, it stays where it is");
+}
+
+/// A script's own symbols become the document's, named as the script names them, else "New
+/// Symbol", numbered where the document has the name.
+fn writes_new_symbols<E: Engine>() {
+    let (mut s, a, _) = document();
+    symbols(&mut s, a);
+    run::<E>(
+        &mut s,
+        "var brick = new SymbolDefinition(new Path.Rectangle({ point: [10, 10], size: [20, 10], fillColor: 'red' }))\n\
+         brick.name = 'Box'\n\
+         new SymbolItem(brick, [200, 50])\n\
+         new SymbolItem(new SymbolDefinition(new Path.Circle([0, 0], 5)), [50, 50])",
+    );
+    let doc = &s.active().unwrap().doc;
+    let names: Vec<&str> = doc.symbols.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, ["Box", "Box 2", "New Symbol"]);
+    assert_eq!(doc.symbol("Box 2").unwrap().art.geometric_bounds().unwrap(), Rect::new(-10.0, -5.0, 10.0, 5.0), "Paper.js centres it");
+    let added: Vec<_> = doc.layers[0].children().unwrap().iter().rev().take(2).map(|n| n.kind.clone()).collect();
+    assert_eq!(
+        added,
+        [
+            NodeKind::SymbolInstance { symbol: "New Symbol".into(), xf: Affine::translate((50.0, 50.0)) },
+            NodeKind::SymbolInstance { symbol: "Box 2".into(), xf: Affine::translate((200.0, 50.0)) },
+        ]
+    );
+}
+
+/// `project.symbolDefinitions` and `project.patternDefinitions` list the document's definitions,
+/// and the script's own that its items use.
+fn lists_definitions<E: Engine>() {
+    let (mut s, a, b) = document();
+    patterns(&mut s, a, b);
+    symbols(&mut s, b);
+    let output = run::<E>(
+        &mut s,
+        "new SymbolItem(new SymbolDefinition(new Path.Circle([0, 0], 5)), [50, 50])\n\
+         console.log(project.symbolDefinitions.map(d => d.key + ' ' + d.name).join(), project.patternDefinitions.map(d => d.name).join())",
+    );
+    assert_eq!(output, ["symbol/Box Box,null null Tiles"]);
+}
+
+/// A new definition whose patch failed reloads from the document, which doesn't have it: it's
+/// empty, as a new item of a failed patch is gone.
+fn failed_new_definitions_reload<E: Engine>() {
+    let (s, ..) = document();
+    let st = s.active().unwrap();
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(400.0, 300.0).unwrap();
+    runtime.bind(&scope, st.doc.clone(), st.selection.clone()).unwrap();
+    runtime
+        .execute(&scope, "globalThis.definition = new SymbolDefinition(new Path.Circle([0, 0], 5))\nnew SymbolItem(definition, [50, 50])")
+        .unwrap();
+    let patch = runtime.take_patch(&scope).unwrap().unwrap();
+    runtime.apply_ids(&scope, patch, &json!({}), st.doc.clone(), st.selection.clone(), true).unwrap();
+    runtime.execute(&scope, "console.log(definition.key, definition.item.isEmpty())").unwrap();
+    assert_eq!(runtime.take_output(), ["symbol/New Symbol true"]);
 }
 
 /// A symbol whose art changes in the document changes in the definition the script holds, and its
@@ -627,6 +732,36 @@ macro_rules! engine_tests {
             #[test]
             fn changed_symbols_reload() {
                 super::changed_symbols_reload::<$engine>();
+            }
+
+            #[test]
+            fn writes_changed_patterns() {
+                super::writes_changed_patterns::<$engine>();
+            }
+
+            #[test]
+            fn patterns_sized_to_art_follow_it() {
+                super::patterns_sized_to_art_follow_it::<$engine>();
+            }
+
+            #[test]
+            fn writes_changed_symbols() {
+                super::writes_changed_symbols::<$engine>();
+            }
+
+            #[test]
+            fn writes_new_symbols() {
+                super::writes_new_symbols::<$engine>();
+            }
+
+            #[test]
+            fn lists_definitions() {
+                super::lists_definitions::<$engine>();
+            }
+
+            #[test]
+            fn failed_new_definitions_reload() {
+                super::failed_new_definitions_reload::<$engine>();
             }
 
             #[test]

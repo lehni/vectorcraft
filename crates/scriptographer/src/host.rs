@@ -376,7 +376,7 @@ pub fn item_json(node: &Node, selection: &Selection) -> Value {
 pub fn definition_json(doc: &Document, key: &str) -> Option<Value> {
     if let Some(name) = key.strip_prefix("symbol/") {
         let art = doc.symbols.iter().find(|s| s.name == name).and_then(|s| tree_json(&s.art));
-        return Some(json!(["SymbolDefinition", art.unwrap_or_else(|| json!(["Group", {}])), true]));
+        return Some(json!(["SymbolDefinition", art.unwrap_or_else(|| json!(["Group", {}])), { "name": name, "dontCenter": true }]));
     }
     let name = key.strip_prefix("pattern/")?;
     Some(match doc.pattern(name) {
@@ -395,11 +395,21 @@ pub fn definition_json(doc: &Document, key: &str) -> Option<Value> {
             json!([
                 "PatternDefinition",
                 ["Group", { "applyMatrix": true, "children": children }],
-                { "tile": ["Rectangle", 0, 0, tile.width(), tile.height()] }
+                { "tile": ["Rectangle", 0, 0, tile.width(), tile.height()], "name": name }
             ])
         }
         None => json!(["PatternDefinition", ["Group", {}]]),
     })
+}
+
+/// The keys of the document's definitions of the Paper.js class `class`, `SymbolDefinition` or
+/// `PatternDefinition`, which [`definition_json`] serves.
+pub fn definition_keys(doc: &Document, class: &str) -> Vec<String> {
+    match class {
+        "SymbolDefinition" => doc.symbols.iter().map(|s| format!("symbol/{}", s.name)).collect(),
+        "PatternDefinition" => doc.patterns.iter().map(|p| format!("pattern/{}", p.name)).collect(),
+        _ => Vec::new(),
+    }
 }
 
 /// An object and all it holds as Paper.js JSON, for the art of definitions, which has no records.
