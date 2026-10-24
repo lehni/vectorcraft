@@ -658,6 +658,143 @@ fn failed_new_definitions_reload<E: Engine>() {
     assert_eq!(runtime.take_output(), ["symbol/New Symbol true"]);
 }
 
+/// Gives `id` the effect `effect` with `params`, its own, or on its appearance item `item`.
+fn effect(s: &mut Session, id: NodeId, effect: &str, params: serde_json::Value, item: Option<u64>) {
+    s.execute("effect.apply", &json!({ "effect": effect, "params": params, "ids": [id.0], "item": item })).unwrap();
+}
+
+/// An object's own effects are its item's: Offset Path and Outline Stroke as Paper.js's types, with
+/// all their parameters, the others by their ids.
+fn reads_effects<E: Engine>() {
+    let (mut s, a, _) = document();
+    effect(&mut s, a, "path.offsetPath", json!({ "offset": 5 }), None);
+    effect(&mut s, a, "distort.zigZag", json!({ "size": 3, "ridges": 2 }), None);
+    let output = run::<E>(
+        &mut s,
+        &format!(
+            "var effects = project.getItemByKey({}).effects\n\
+             effects.forEach(function(effect) {{ console.log(effect.type, JSON.stringify(effect.parameters), effect.visible) }})",
+            a.0
+        ),
+    );
+    assert_eq!(output[0], r#"offset {"distance":5,"join":"miter","miterLimit":4} true"#);
+    assert_eq!(output[1].split(' ').next(), Some("distort.zigZag"));
+}
+
+/// `previewBounds` measures what the app's geometry effects draw, those Paper.js doesn't have
+/// too, and leaves raster effects out.
+fn preview_bounds_follow_the_apps_effects<E: Engine>() {
+    let (mut s, a, b) = document();
+    effect(&mut s, a, "path.offsetPath", json!({ "offset": 5 }), None);
+    effect(&mut s, b, "distort.transform", json!({ "moveH": 10 }), None);
+    effect(&mut s, b, "stylize.dropShadow", json!({}), None);
+    let output = run::<E>(
+        &mut s,
+        &format!("console.log(project.getItemByKey({}).previewBounds)\nconsole.log(project.getItemByKey({}).previewBounds)", a.0, b.0),
+    );
+    // Both with the half of their 1 pt stroke outside:
+    assert_eq!(output, ["{ x: 4.5, y: 4.5, width: 41, height: 31 }", "{ x: 59.5, y: 9.5, width: 31, height: 21 }"]);
+}
+
+/// Objects Paper.js has no class for, such as blends, are measured with their effects too.
+fn preview_bounds_of_objects_without_a_class<E: Engine>() {
+    let (mut s, a, b) = document();
+    let blend = NodeId(s.execute("object.blend.make", &json!({ "ids": [a.0, b.0], "steps": 2 })).unwrap()["id"].as_u64().unwrap());
+    effect(&mut s, blend, "distort.transform", json!({ "moveH": 10 }), None);
+    let output = run::<E>(
+        &mut s,
+        &format!("var item = project.getItemByKey({})\nconsole.log(item.className, item.strokeBounds, item.previewBounds)", blend.0),
+    );
+    assert_eq!(output, ["HostItem { x: 9.5, y: 9.5, width: 71, height: 21 } { x: 19.5, y: 9.5, width: 71, height: 21 }"]);
+}
+
+/// Installed effect plug-ins draw what scripts' effects draw too.
+fn preview_bounds_of_plugin_effects<E: Engine>() {
+    let (mut s, a, _) = document();
+    // An effect that draws a 30 × 20 triangle at the origin:
+    let path = vectorcraft_geom::PathData::single(vectorcraft_geom::SubPath::polyline(
+        &[Point::new(0.0, 0.0), Point::new(30.0, 0.0), Point::new(15.0, 20.0)],
+        true,
+    ));
+    let triangle = json!({ "objects": [{ "path": path }] });
+    let manifest = vectorcraft_plugins::wat::manifest("test.scripts.triangle", "effect", "{}");
+    let wasm = wat::parse_str(vectorcraft_plugins::wat::returning(&manifest, &triangle.to_string())).unwrap();
+    s.execute("plugin.install", &json!({ "dataBase64": vectorcraft_format::base64_encode(&wasm) })).unwrap();
+    effect(&mut s, a, "plugin.test.scripts.triangle", json!({}), None);
+    let output = run::<E>(&mut s, &format!("var bounds = project.getItemByKey({}).previewBounds\nconsole.log(bounds.width, bounds.height)", a.0));
+    // As the app measures it with Use Preview Bounds, the triangle's stroke and its miters included:
+    let app = vectorcraft_effects::preview::bounds_of(&s.active().unwrap().doc, &[a], true).unwrap();
+    let measured: Vec<f64> = output[0].split(' ').map(|n| n.parse().unwrap()).collect();
+    assert!((measured[0] - app.width()).abs() < 1e-3 && (measured[1] - app.height()).abs() < 1e-3, "{measured:?} {app:?}");
+}
+
+/// Effects a script changes, adds or removes go back as the object's own, by the app's names, and
+/// the effects on its fills and strokes stay.
+fn writes_effects<E: Engine>() {
+    let (mut s, a, _) = document();
+    effect(&mut s, a, "path.offsetPath", json!({ "offset": 5 }), None);
+    effect(&mut s, a, "distort.roughen", json!({ "size": 2 }), Some(0));
+    run::<E>(
+        &mut s,
+        &format!(
+            "var item = project.getItemByKey({})\n\
+             item.effects[0].parameters.distance = 8\n\
+             item.addEffect({{ type: 'distort.transform', parameters: {{ moveH: 3 }} }})",
+            a.0
+        ),
+    );
+    let n = node(&s, a);
+    let own: Vec<_> = n.appearance.effects.iter().map(|e| (e.id.as_str(), e.params.clone())).collect();
+    assert_eq!(own[0], ("path.offsetPath", json!({ "offset": 8, "joins": "miter", "miterLimit": 4 })));
+    // A new effect has the app's defaults for what the script doesn't set:
+    assert_eq!((own[1].0, &own[1].1["moveH"], &own[1].1["scaleH"]), ("distort.transform", &json!(3), &json!(100)));
+    let item = n.appearance.items.iter().find(|item| !item_effects(item).is_empty()).expect("the fill keeps its effect");
+    assert_eq!(item_effects(item)[0].id, "distort.roughen");
+}
+
+fn item_effects(item: &vectorcraft_doc::AppearanceItem) -> &[vectorcraft_doc::Effect] {
+    match item {
+        vectorcraft_doc::AppearanceItem::Fill(f) => &f.effects,
+        vectorcraft_doc::AppearanceItem::Stroke(s) => &s.effects,
+    }
+}
+
+/// Groups' effects go back too, which Paper.js doesn't export with their content.
+fn writes_effects_of_groups<E: Engine>() {
+    let (mut s, a, b) = document();
+    s.execute("select.set", &json!({ "ids": [a.0, b.0] })).unwrap();
+    let group = NodeId(s.execute("object.group", &json!({})).unwrap()["id"].as_u64().unwrap());
+    run::<E>(&mut s, &format!("project.getItemByKey({}).addEffect({{ type: 'offset', parameters: {{ distance: 3 }} }})", group.0));
+    let effects: Vec<_> = node(&s, group).appearance.effects.iter().map(|e| (e.id.clone(), e.params["offset"].clone())).collect();
+    assert_eq!(effects, [("path.offsetPath".to_string(), json!(3))]);
+}
+
+/// Effects a script doesn't change stay as they are, parameters of any name included, when it
+/// changes something else of their object.
+fn untouched_effects_stay<E: Engine>() {
+    let (mut s, a, _) = document();
+    effect(&mut s, a, "path.offsetPath", json!({ "offset": 5 }), None);
+    effect(&mut s, a, "pixelate.mezzotint", json!({ "type": "coarseDots" }), None);
+    let before = node(&s, a).appearance.effects.clone();
+    run::<E>(&mut s, &format!("var item = project.getItemByKey({})\nitem.opacity = 0.5\nitem.effects[1].visible = true", a.0));
+    let n = node(&s, a);
+    assert_eq!(n.opacity, 0.5);
+    assert_eq!(n.appearance.effects, before);
+}
+
+/// A script's new items take their effects into the document.
+fn new_items_have_effects<E: Engine>() {
+    let (mut s, ..) = document();
+    run::<E>(
+        &mut s,
+        "new Path.Rectangle({ point: [0, 0], size: [10, 10], fillColor: 'red', effects: [{ type: 'offset', parameters: { distance: 2 } }] })",
+    );
+    let doc = &s.active().unwrap().doc;
+    let added = doc.layers[0].children().unwrap().last().unwrap();
+    let effects: Vec<_> = added.appearance.effects.iter().map(|e| (e.id.as_str(), e.params.clone())).collect();
+    assert_eq!(effects, [("path.offsetPath", json!({ "offset": 2, "joins": "miter", "miterLimit": 4 }))]);
+}
+
 /// A symbol whose art changes in the document changes in the definition the script holds, and its
 /// instances and what holds them are measured again.
 fn changed_symbols_reload<E: Engine>() {
@@ -752,6 +889,46 @@ macro_rules! engine_tests {
             #[test]
             fn writes_new_symbols() {
                 super::writes_new_symbols::<$engine>();
+            }
+
+            #[test]
+            fn reads_effects() {
+                super::reads_effects::<$engine>();
+            }
+
+            #[test]
+            fn preview_bounds_follow_the_apps_effects() {
+                super::preview_bounds_follow_the_apps_effects::<$engine>();
+            }
+
+            #[test]
+            fn preview_bounds_of_objects_without_a_class() {
+                super::preview_bounds_of_objects_without_a_class::<$engine>();
+            }
+
+            #[test]
+            fn preview_bounds_of_plugin_effects() {
+                super::preview_bounds_of_plugin_effects::<$engine>();
+            }
+
+            #[test]
+            fn writes_effects() {
+                super::writes_effects::<$engine>();
+            }
+
+            #[test]
+            fn writes_effects_of_groups() {
+                super::writes_effects_of_groups::<$engine>();
+            }
+
+            #[test]
+            fn untouched_effects_stay() {
+                super::untouched_effects_stay::<$engine>();
+            }
+
+            #[test]
+            fn new_items_have_effects() {
+                super::new_items_have_effects::<$engine>();
             }
 
             #[test]

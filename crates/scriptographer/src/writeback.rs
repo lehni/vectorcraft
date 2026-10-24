@@ -15,6 +15,7 @@ use vectorcraft_doc::{Appearance, Document, LayerColor, LineCap, LineJoin, Node,
 use vectorcraft_geom::{Affine, Anchor, AnchorKind, PathData, Point, SubPath};
 
 use crate::binding::{Patch, node, number};
+use crate::effects;
 use crate::host::item_json;
 use crate::text;
 use crate::{Call, Error, Value, method, object};
@@ -354,11 +355,8 @@ fn is_project<H>(call: &mut dyn Call<H>, item: &H) -> Result<bool, Error> {
 
 /// The item's JSON, as `exportJSON()` gives it, with the gradients it shares through its
 /// dictionary in place.
-fn export<H: Clone>(call: &mut dyn Call<H>, item: &H) -> Result<Json, Error> {
-    let json: Json = match method(call, item, "exportJSON", &[])? {
-        Value::String(json) => serde_json::from_str(&json).map_err(|e| Error::Script(format!("exportJSON(): {e}")))?,
-        _ => return Err(Error::Script("exportJSON() didn't return a string".into())),
-    };
+pub(crate) fn export<H: Clone>(call: &mut dyn Call<H>, item: &H) -> Result<Json, Error> {
+    let json = exported(call, item)?;
     Ok(match json.as_array().map(Vec::as_slice) {
         Some([Json::Array(dictionary), item]) if dictionary.first().and_then(Json::as_str) == Some("dictionary") => {
             let definitions = dictionary.get(1).and_then(Json::as_object).cloned().unwrap_or_default();
@@ -366,6 +364,14 @@ fn export<H: Clone>(call: &mut dyn Call<H>, item: &H) -> Result<Json, Error> {
         }
         _ => json,
     })
+}
+
+/// A Paper.js object's own JSON, `exportJSON()` parsed.
+pub(crate) fn exported<H: Clone>(call: &mut dyn Call<H>, object: &H) -> Result<Json, Error> {
+    match method(call, object, "exportJSON", &[])? {
+        Value::String(json) => serde_json::from_str(&json).map_err(|e| Error::Script(format!("exportJSON(): {e}"))),
+        _ => Err(Error::Script("exportJSON() didn't return a string".into())),
+    }
 }
 
 /// `json` with each reference to a definition, `["#id"]`, replaced by it.
@@ -453,7 +459,8 @@ fn children_key(node: &Node) -> &'static str {
     }
 }
 
-/// The attributes of an item Paper.js doesn't export whole: opacity, blend mode, clipping.
+/// The attributes of an item Paper.js doesn't export whole: opacity, blend mode, text wrap and
+/// effects.
 fn attributes<H: Clone>(call: &mut dyn Call<H>, item: &H) -> Result<Map<String, Json>, Error> {
     let mut props = Map::new();
     if let Value::Number(opacity) = call.get(item, "opacity")? {
@@ -467,6 +474,17 @@ fn attributes<H: Clone>(call: &mut dyn Call<H>, item: &H) -> Result<Map<String, 
             "textWrap".into(),
             json!({ "offset": number(call.get(&wrap, "offset")?), "invert": matches!(call.get(&wrap, "invert")?, Value::Bool(true)) }),
         );
+    }
+    if let Value::Js(list) = call.get(item, "effects")? {
+        let mut effects = Vec::new();
+        for i in 0..number(call.get(&list, "length")?) as usize {
+            if let Value::Js(effect) = call.get(&list, &i.to_string())? {
+                effects.push(exported(call, &effect)?);
+            }
+        }
+        if !effects.is_empty() {
+            props.insert("effects".into(), Json::Array(effects));
+        }
     }
     Ok(props)
 }
@@ -491,7 +509,7 @@ pub fn apply(node: &mut Node, json: &Json, before: &Json) -> Result<(), Error> {
     Ok(())
 }
 
-/// Opacity and blend mode, where they differ from `before`.
+/// Opacity, blend mode, text wrap and effects, where they differ from `before`.
 fn apply_attributes(node: &mut Node, props: &Map<String, Json>, before: &Json) {
     let changed = |key: &str| props.get(key).filter(|v| Some(*v) != before.get(key));
     if let Some(opacity) = changed("opacity").and_then(Json::as_f64) {
@@ -507,6 +525,13 @@ fn apply_attributes(node: &mut Node, props: &Map<String, Json>, before: &Json) {
             offset: w.get("offset").and_then(Json::as_f64).filter(|n| n.is_finite()).unwrap_or(6.0),
             invert: w.get("invert").and_then(Json::as_bool).unwrap_or(false),
         });
+    }
+    // Effects on fills and strokes stay, as Paper.js only has an item's own:
+    let list = props.get("effects").unwrap_or(&Json::Null);
+    if !is_close(list, before.get("effects").unwrap_or(&Json::Null)) {
+        let mut appearance = (*node.appearance).clone();
+        appearance.effects = list.as_array().into_iter().flatten().filter_map(effects::effect).collect();
+        node.appearance = appearance.into();
     }
 }
 

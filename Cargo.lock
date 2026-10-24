@@ -5910,13 +5910,16 @@ dependencies = [
  "v8",
  "vectorcraft-color",
  "vectorcraft-doc",
+ "vectorcraft-effects",
  "vectorcraft-engine",
  "vectorcraft-format",
  "vectorcraft-geom",
+ "vectorcraft-plugins",
  "vectorcraft-text",
  "vello_common 0.2.0",
  "vello_cpu 0.2.0",
  "wasm-bindgen",
+ "wat",
  "web-sys",
 ]
 

@@ -19,6 +19,7 @@ mod dialog;
 #[cfg(not(target_arch = "wasm32"))]
 mod dom;
 mod drawing;
+mod effects;
 mod engine;
 mod engines;
 mod exception;
@@ -133,6 +134,8 @@ pub struct Host<H> {
     artboard: usize,
     /// Paper.js's `Rectangle`, for `project.artboards`.
     rectangle: Option<H>,
+    /// Paper.js's `Base`, for the art the app's effects draw.
+    base: Option<H>,
     /// The methods of every `OffscreenCanvas`, by name.
     canvases: Option<canvas::Canvases<H>>,
     /// Answers the script's dialogs ([`Runtime::set_ask`]).
@@ -216,6 +219,7 @@ impl<H> Default for Host<H> {
             bound: None,
             artboard: 0,
             rectangle: None,
+            base: None,
             canvases: None,
             ask: None,
             #[cfg(target_arch = "wasm32")]

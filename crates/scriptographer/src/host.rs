@@ -14,6 +14,7 @@ use vectorcraft_color::{BlendMode, Color, GradientGeom, GradientKind, Paint};
 use vectorcraft_doc::{AnchorRef, Document, LineCap, LineJoin, Node, NodeId, NodeKind, Scaling, Selection, SymbolBoxes, TextKind, TextObject};
 use vectorcraft_geom::{Affine, PathData, Rect};
 
+use crate::effects::effect_json;
 use crate::text;
 
 /// The Paper.js classes of the records' `types`.
@@ -414,7 +415,7 @@ pub fn definition_keys(doc: &Document, class: &str) -> Vec<String> {
 
 /// An object and all it holds as Paper.js JSON, for the art of definitions, which has no records.
 /// Kinds Paper.js has no class for are left out.
-fn tree_json(node: &Node) -> Option<Value> {
+pub(crate) fn tree_json(node: &Node) -> Option<Value> {
     if !matches!(
         node.kind,
         NodeKind::Group { .. } | NodeKind::Path { .. } | NodeKind::Compound { .. } | NodeKind::Text(_) | NodeKind::SymbolInstance { .. }
@@ -456,6 +457,9 @@ fn attributes(node: &Node) -> Map<String, Value> {
     }
     if let Some(wrap) = &node.extras().wrap {
         props.insert("textWrap".into(), json!({ "offset": wrap.offset, "invert": wrap.invert }));
+    }
+    if !node.appearance.effects.is_empty() {
+        props.insert("effects".into(), node.appearance.effects.iter().map(effect_json).collect());
     }
     props
 }

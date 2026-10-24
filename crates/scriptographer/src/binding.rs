@@ -7,6 +7,7 @@ use std::sync::Arc;
 use serde_json::{Map, Value as Json};
 use vectorcraft_doc::{Document, Node, NodeId, NodeKind, Selection};
 
+use crate::effects;
 use crate::host::{Columns, TYPE_NAMES, definition_json, definition_keys, flags, item_json};
 use crate::text;
 use crate::writeback::{self, Change};
@@ -42,11 +43,28 @@ impl<E: Engine> Runtime<E> {
         let lay_out = self.engine.function("layOut", lay_out)?;
         let artboards = self.engine.function("artboards", artboards)?;
         let active_artboard = self.engine.function("activeArtboard", active_artboard)?;
+        let apply_effect = self.engine.function("apply", apply_effect)?;
         let global = self.engine.global()?;
         let paper = &self.paper;
         self.engine.with_call(|call| {
             let rectangle = object(call, paper, "Rectangle")?;
-            call.host()?.borrow_mut().rectangle = Some(rectangle);
+            let base = object(call, paper, "Base")?;
+            {
+                let host = call.host()?;
+                let mut host = host.borrow_mut();
+                host.rectangle = Some(rectangle);
+                host.base = Some(base);
+            }
+            // The app's geometry effects draw as the app draws them, also those Paper.js has types for:
+            let effect = object(call, paper, "Effect")?;
+            for (kind, defaults) in effects::types() {
+                let source = call.new_object()?;
+                call.set(&source, "type", &Value::String(kind.into()))?;
+                let defaults = js_value(call, &Json::Object(defaults))?;
+                call.set(&source, "defaults", &defaults)?;
+                call.set(&source, "apply", &Value::Js(apply_effect.clone()))?;
+                method(call, &effect, "extend", &[Value::Js(source)])?;
+            }
             let host = call.new_object()?;
             call.set(&host, "getChildren", &Value::Js(get_children))?;
             call.set(&host, "getItem", &Value::Js(get_item))?;
@@ -363,6 +381,41 @@ fn get_definition_keys<H>(call: &mut dyn Call<H>, _this: &Value<H>, args: &[Valu
     };
     let keys: Vec<_> = with_bound(call, |doc, _| definition_keys(doc, &class))?.into_iter().map(Value::String).collect();
     Ok(Value::Js(call.new_array(&keys)?))
+}
+
+/// `effect.apply(art)` of the app's geometry effects: the art drawn with the effect, as the app
+/// draws it. The art of an object Paper.js has no class for is the document's object the effect
+/// is on, which scripts can't change. Art the effect leaves as it is comes back as it is.
+fn apply_effect<H: Clone>(call: &mut dyn Call<H>, this: &Value<H>, args: &[Value<H>]) -> Result<Value<H>, Error> {
+    let (Value::Js(effect), Some(Value::Js(art))) = (this, args.first()) else {
+        return Err(Error::Script("apply: no effect or art".into()));
+    };
+    let json = writeback::export(call, art)?;
+    let id = match json.get(0).and_then(Json::as_str) {
+        Some("HostItem") => match call.get(effect, "item")? {
+            Value::Js(item) => match call.get(&item, "key")? {
+                Value::Number(key) => Some(NodeId(key as u64)),
+                _ => None,
+            },
+            _ => None,
+        },
+        _ => None,
+    };
+    let effect = writeback::exported(call, effect)?;
+    let output = with_bound(call, |doc, _| {
+        let art = match id {
+            Some(id) => doc.node(id).cloned(),
+            None => writeback::new_node(&json).ok(),
+        };
+        art.map(|art| effects::apply(doc, art, &effect)).transpose()
+    })??;
+    match output.flatten() {
+        Some(output) => {
+            let base = call.host()?.borrow().base.clone().ok_or_else(|| Error::Script("no document is bound".into()))?;
+            method(call, &base, "importJSON", &[Value::String(output.to_string())])
+        }
+        None => Ok(Value::Js(art.clone())),
+    }
 }
 
 /// `source.getStory(key)`: the story of the thread the frame `key` is in, its runs and paragraphs as
