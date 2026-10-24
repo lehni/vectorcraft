@@ -1246,6 +1246,14 @@ fn navigator_speaks_the_apps_language<E: Engine>() {
     assert_eq!(runtime.take_output(), ["en-US en-US", "de de"]);
 }
 
+fn navigator_counts_the_processors<E: Engine>() {
+    let mut runtime = Runtime::<E>::new().unwrap();
+    let scope = runtime.create_scope(800.0, 600.0).unwrap();
+    runtime.execute(&scope, "console.log(navigator.hardwareConcurrency)").unwrap();
+    let processors = std::thread::available_parallelism().unwrap();
+    assert_eq!(runtime.take_output(), [processors.to_string()]);
+}
+
 fn event_targets_are_the_browsers<E: Engine>() {
     let mut runtime = Runtime::<E>::new().unwrap();
     let scope = runtime.create_scope(800.0, 600.0).unwrap();
@@ -1920,6 +1928,11 @@ macro_rules! engine_tests {
             #[test]
             fn navigator_speaks_the_apps_language() {
                 super::navigator_speaks_the_apps_language::<$engine>();
+            }
+
+            #[test]
+            fn navigator_counts_the_processors() {
+                super::navigator_counts_the_processors::<$engine>();
             }
 
             #[test]

@@ -840,6 +840,9 @@ fn prelude<E: Engine>(engine: &mut E) -> Result<(), Error> {
         let user_agent = format!("VectorCraft ({})", std::env::consts::OS);
         call.set(&navigator, "userAgent", &Value::String(user_agent))?;
         set_language(call, &navigator, "en-US")?;
+        // For scripts that size their pools of workers by it:
+        let processors = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
+        call.set(&navigator, "hardwareConcurrency", &Value::Number(processors as f64))?;
         call.set(&global, "navigator", &Value::Js(navigator))
     })?;
     engine.eval(ACORN)?;
