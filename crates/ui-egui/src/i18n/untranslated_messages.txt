@@ -250,6 +250,7 @@ a page can't be read
 a page object is used by something else
 a page thumbnail must be RGB pixels, 1 to {THUMBNAIL_SIZE} a side (got {w} × {h})
 a pattern named `{n}` exists
+a pattern needs a name
 a plug-in with id {_1} is already installed
 a preset named `{n}` exists
 a profile is already called {n}
@@ -258,9 +259,11 @@ a row can't go into itself
 a series goes on the left or the right value axis
 a start must be an anchor index ≥ 0 or null
 a style named `{name}` already exists
+a swatch is named `{name}` already
 a swatch needs a colour, gradient or pattern
 a swatch or color group named `{n}` exists
 a symbol named `{n}` already exists
+a symbol needs a name
 a theme has 1 to {THEME_SIZE} colours
 a theme is already called {name} (replace: "{name}" overwrites it)
 a view named `{name}` exists
@@ -433,6 +436,7 @@ each order entry needs a children array
 each row needs `from`
 each stop needs a position
 each subpath needs an anchors array
+each symbol needs its art
 each thread must be a list of frames
 easingType must be easeIn, easeOut, easeInOut or easeOutIn
 editingData must be true or false
@@ -563,6 +567,7 @@ joining different subpaths requires two open endpoints
 joining must leave at least two anchors
 justify must be auto|left|center|right|justifyAll
 kbps must be a positive number, not {kbps}
+keep {key}: names are strings
 kerning must be a number or "auto"
 keywords must be a list of words or a comma-separated string
 keywords must be at most {MAX_KEYWORD} characters, without control characters
@@ -682,6 +687,7 @@ need at least one anchor
 need at least one point
 need at least two points
 needs points
+new pattern `{name}` needs its art
 nineSlice must be true or false
 nineSliceGuides must be [left, top, right, bottom], each 0..1, with left + right < 1 and top + bottom < 1
 no PDF preset named `{n}`
@@ -882,8 +888,12 @@ pass newName, registration, exportType and/or nineSlice
 passwords can have up to {MAX_PASSWORD} bytes
 path has no open end
 paths must be strings
+pattern `{name}` is being edited
 pattern image pixels are missing
 pattern placement traversal limit exceeded
+patterns: a tile is [x, y, width, height], its size above 0
+patterns: art must be an array of objects
+patterns: {e}
 pdfCompatible: false needs every artboard to keep the editable artwork
 pickColorFrom is "artwork" or "swatches", not {v}
 pins and moved must be non-empty lists of the same length
@@ -1021,6 +1031,7 @@ subLines is missing
 subLines must be a list or null
 subLines must contain at most {MAX_SUB_LINES} valid lanes
 swatchConflict must be "merge" or "add", not {v}
+symbols: {e}
 text must be {characterSet?, platform?, removeLineReturns?, removeParagraphReturns?, replaceSpaces?}
 text transform is collapsed or unrepresentable
 text.replaceSpaces must be a whole number from 2 to 100
@@ -1284,6 +1295,7 @@ zoom must be positive
 {key} must be an array of non-negative integer object ids
 {key} must be one of {_1}
 {key} must be {_1}, got {s}
+{key}: each entry needs a name
 {key}: object ids are non-negative integers
 {key}: {e}
 {kind} files have no transparency, and the file would have {what}: flatten it first (object.flattenTransparency)
