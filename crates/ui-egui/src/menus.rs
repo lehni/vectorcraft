@@ -2248,14 +2248,18 @@ fn shows_a_name(id: &str, label: &str) -> bool {
         || saved_selection_slot(id).is_some()
         || matches!(id, "text.setStyle" | "plugin.dialog")
         || (id == "window.workspace" && !crate::workspaces::is_builtin(label))
-        || (matches!(id, "effect.apply" | "effect.dialog") && vectorcraft_effects::plugin_effects().iter().any(|e| e.label == label))
+        || (matches!(id, "effect.apply" | "effect.dialog")
+            && vectorcraft_effects::plugin_effects().into_iter().chain(vectorcraft_effects::script_effects()).any(|e| e.label == label))
 }
 
 /// Does the menu item `id` with `params` list an installed plug-in (an Object › Plug-ins filter or
-/// an Effect › Plug-ins effect), by the plug-in's own name? Told by the item itself, so it holds
-/// while another thread installs or removes plug-ins.
-pub(crate) fn lists_plugin(id: &str, params: &Value) -> bool {
-    id == "plugin.dialog" || params.get("effect").and_then(Value::as_str).and_then(vectorcraft_plugins::effect::plugin_id).is_some()
+/// an Effect › Plug-ins effect) or a running script's effect (Effect › Scriptographer), by the name
+/// it gives itself? Told by the item itself, so it holds while another thread installs or removes
+/// plug-ins, or a script ends.
+pub(crate) fn lists_plugin_or_script(id: &str, params: &Value) -> bool {
+    use vectorcraft_effects::script::script_type;
+    let effect = params.get("effect").and_then(Value::as_str).unwrap_or_default();
+    id == "plugin.dialog" || vectorcraft_plugins::effect::plugin_id(effect).is_some() || script_type(effect).is_some()
 }
 
 /// The label of a menu item as drawn: [`dynamic_label`] in the UI language. Labels assembled
@@ -2464,10 +2468,11 @@ pub fn entry<'a>(app: &VectorcraftApp, it: &'a Item) -> Option<Entry<'a>> {
     })
 }
 
-/// Changes whenever a plug-in is installed or removed: Object › Plug-ins and Effect › Plug-ins
-/// list them (the command palette's cache follows it).
+/// Changes whenever a plug-in is installed or removed, or a script defines or removes an effect:
+/// Object › Plug-ins, Effect › Plug-ins and Effect › Scriptographer list them (the command
+/// palette's cache follows it).
 pub fn plugin_revision() -> u64 {
-    vectorcraft_plugins::registry::revision()
+    vectorcraft_plugins::registry::revision().wrapping_add(vectorcraft_effects::script::revision())
 }
 
 /// View → Perspective Grid → One/Two/Three Point Perspective: the saved-preset slots of each type.
@@ -4244,8 +4249,9 @@ fn effect_menu() -> Vec<Item> {
             out.push(sub(sub_name, items));
         }
     }
-    // Live-effect plug-ins close the vector effects.
+    // Live-effect plug-ins and the effects of running scripts close the vector effects.
     out.extend(crate::dialogs::plugin::effect_menu());
+    out.extend(crate::dialogs::plugin::script_effect_menu());
     let raster: Vec<Item> = RASTER_MENUS
         .iter()
         .filter_map(|(name, path)| {
@@ -4348,7 +4354,7 @@ pub const DYNAMIC_LABELS: &[&str] = &[
 pub fn menu_strings() -> std::collections::BTreeSet<String> {
     use std::collections::BTreeSet;
     fn user_data(id: &str, params: &Value) -> bool {
-        hidden_when_disabled(id) || id.starts_with("type.recentFont") || lists_plugin(id, params)
+        hidden_when_disabled(id) || id.starts_with("type.recentFont") || lists_plugin_or_script(id, params)
     }
     fn walk(items: &[Item], under: &str, out: &mut BTreeSet<String>) {
         for it in items {

@@ -26,10 +26,10 @@ pub(super) const SPEC: DialogSpec = DialogSpec {
 };
 
 /// The effect's name (`__label`, English) in the UI language: the catalog may carry it with or
-/// without its trailing ellipsis. A plug-in effect's name is shown as it is.
+/// without its trailing ellipsis. A plug-in's or script's effect's name is shown as it is.
 fn heading_label(d: &Dialog) -> String {
-    let label = d.str("__label");
-    if vectorcraft_plugins::effect::plugin_id(&d.str("__effect")).is_some() {
+    let (label, effect) = (d.str("__label"), d.str("__effect"));
+    if vectorcraft_plugins::effect::plugin_id(&effect).is_some() || vectorcraft_effects::script::script_type(&effect).is_some() {
         return label;
     }
     let dotted = format!("{label}…");
@@ -152,9 +152,10 @@ fn body(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) -> bool {
         form::preview(app, ui, d, &d.str("__label"), cmd, params);
         return false;
     }
-    // Plug-in effects get fields from their parameter schema; colour adjustments their sliders.
-    let changed = match vectorcraft_plugins::effect::installed(&id) {
-        Some(plugin) => form::schema_fields(app, ui, d, plugin.manifest()),
+    // Plug-in and script effects get fields from their parameter schema; colour adjustments their
+    // sliders.
+    let changed = match vectorcraft_effects::effect_manifest(&id) {
+        Some(manifest) => form::schema_fields(app, ui, d, &manifest),
         None if vectorcraft_effects::is_adjustment(&id) => adjust_fields(ui, d),
         None if id == GLASS => glass_fields(app, ui, d, GLASS),
         None if id == TEXTURIZER => glass_fields(app, ui, d, TEXTURIZER),
@@ -351,8 +352,8 @@ pub(super) fn own_choices(effect: &str, key: &str, cmyk: bool) -> Option<Vec<(&'
 /// dialogs translate them (`cmyk`: the document is in CMYK). `None` for a parameter that is not one
 /// of these lists.
 pub(crate) fn shown_choices(effect: &str, key: &str, params: &Map<String, Value>, cmyk: bool) -> Option<Vec<(String, String)>> {
-    if let Some(plugin) = vectorcraft_plugins::effect::installed(effect) {
-        return plugin.manifest().param(key).and_then(|p| match &p.spec {
+    if let Some(manifest) = vectorcraft_effects::effect_manifest(effect) {
+        return manifest.param(key).and_then(|p| match &p.spec {
             vectorcraft_plugins::ParamSpec::Choice { options, .. } => Some(options.iter().map(|o| (o.clone(), o.clone())).collect()),
             _ => None,
         });

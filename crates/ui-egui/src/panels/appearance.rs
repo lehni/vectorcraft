@@ -739,9 +739,10 @@ fn effect_editor(app: &mut VectorcraftApp, ui: &mut Ui, item: Option<usize>, k: 
     let mut change: Option<(String, Value)> = None;
     let mut edit = false;
     let built_in = built_in_effect(&e.id);
-    // A plug-in effect's parameters are labelled, measured and shown as its manifest says.
-    let plugin = vectorcraft_plugins::effect::installed(&e.id);
-    let manifest = plugin.as_ref().map(|p| p.manifest());
+    // A plug-in's or script's effect's parameters are labelled, measured and shown as its manifest
+    // says.
+    let manifest = vectorcraft_effects::effect_manifest(&e.id);
+    let manifest = manifest.as_deref();
     let visible = manifest.map(|m| m.visible(&params));
     let (unit, relative) = (app.session.general_unit(), params.get("relative").and_then(Value::as_bool).unwrap_or(false));
     let cmyk = app.session.active().is_some_and(|s| s.doc.color_mode == vectorcraft_doc::ColorMode::Cmyk);
@@ -851,9 +852,13 @@ fn effect_editor(app: &mut VectorcraftApp, ui: &mut Ui, item: Option<usize>, k: 
 
 /// The values [`effect_editor`] lists: the effect's own values over its defaults, with earlier keys
 /// in their current form (Scribble's one `variation` as its Path Overlap and Spacing variations).
+/// What a script keeps in its effect (`_output`, `_input`) is no parameter.
 fn editor_params(e: &Effect) -> serde_json::Map<String, Value> {
     match vectorcraft_effects::merged_params(&e.id, &e.params) {
-        Value::Object(m) => m,
+        Value::Object(mut m) => {
+            m.retain(|key, _| !key.starts_with('_'));
+            m
+        }
         _ => serde_json::Map::new(),
     }
 }
@@ -948,8 +953,8 @@ fn delete_selected(app: &mut VectorcraftApp, ui: &Ui, node: Option<&Node>, sel: 
 /// opens the effect dialog.
 pub(crate) fn fx_menu(app: &mut VectorcraftApp, ui: &mut Ui) {
     let mut groups: Vec<(String, Vec<(String, String)>)> = vec![];
-    let plugins: Vec<_> = vectorcraft_effects::plugin_effects().into_iter().map(catalog_entry).collect();
-    // Built-in effects in the UI language; a plug-in's by the name it gives.
+    let plugins: Vec<_> = vectorcraft_effects::plugin_effects().into_iter().chain(vectorcraft_effects::script_effects()).map(catalog_entry).collect();
+    // Built-in effects in the UI language; a plug-in's or script's by the name it gives.
     let built_in = catalog().iter().map(|(id, label, menu)| (id, tl!(label), menu));
     for (id, label, menu) in built_in.chain(plugins.iter().map(|(id, label, menu)| (id, label.as_str(), menu))) {
         let g = menu.get(1).cloned().unwrap_or_else(|| "Other".into());
@@ -1187,6 +1192,31 @@ mod tests {
         app.run("plugin.remove", json!({"id": "test.ui.inlinechoice"})).unwrap();
         let texts = shown_texts(&mut app, &ctx);
         assert!(texts.iter().any(|s| s == "screen") && !texts.iter().any(|s| s == "Screen"), "{texts:?}");
+    }
+
+    /// A running script's effect is in Effect › Scriptographer, and its editor follows its manifest
+    /// as a plug-in's does. What the script keeps in it isn't shown, also once the script ended.
+    #[test]
+    fn a_script_effect_s_editor_follows_its_manifest() {
+        use vectorcraft_effects::script;
+        let manifest = json!({"id": "uiwobble", "name": "Wobble", "kind": "effect",
+            "params": {"amount": {"type": "number", "min": 0, "max": 100, "default": 5, "label": "Amount", "unit": "pt"}}});
+        script::register(vectorcraft_plugins::Manifest::parse(manifest.to_string().as_bytes()).unwrap());
+        let entries = crate::menus::menu_entries(&VectorcraftApp::new(vectorcraft_engine::Session::new(), Default::default()));
+        let entry = entries.iter().find(|e| e.path == ["Effect", "Scriptographer"] && e.label == "Wobble…").expect("effect listed");
+        assert_eq!((entry.command.as_deref(), &entry.params), (Some("effect.dialog"), &json!({"effect": "script.uiwobble"})));
+        let (mut app, ctx, id) = editing("script.uiwobble");
+        // As Scriptographer keeps its output:
+        let mut node = app.run("document.node", json!({"id": id.0})).unwrap();
+        node["appearance"]["effects"][0]["params"]["_output"] = json!({"subpaths": []});
+        app.run("document.patch", json!({"replace": [node]})).unwrap();
+        let texts = shown_texts(&mut app, &ctx);
+        assert!(texts.iter().any(|s| s == "Amount") && texts.iter().any(|s| s == "5 pt"), "{texts:?}");
+        script::unregister("uiwobble");
+        let texts = shown_texts(&mut app, &ctx);
+        assert!(texts.iter().any(|s| s == "Amount"), "{texts:?}");
+        assert!(!texts.iter().any(|s| s.starts_with('_') || s.contains("Output") || s.contains("Input")), "{texts:?}");
+        assert!(!crate::menus::menu_entries(&app).iter().any(|e| e.path == ["Effect", "Scriptographer"]));
     }
 
     /// A plug-in effect's editor labels its parameters, shows their units and leaves out those whose

@@ -1040,7 +1040,7 @@ fn untranslated_report() {
     // Font names and sizes, and installed plug-ins' own names, are not interface text.
     let interface = |(label, id, p): &(&str, &str, serde_json::Value)| {
         *id != "text.setStyle"
-            && !crate::menus::lists_plugin(id, p)
+            && !crate::menus::lists_plugin_or_script(id, p)
             && strings.contains(*label)
             && !MENU_KEEP_AS_IS.contains(label)
             && !language_name(label)

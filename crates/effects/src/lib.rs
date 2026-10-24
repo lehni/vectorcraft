@@ -25,6 +25,8 @@
 //! - **Plug-in effects** (`plugin.<plug-in id>`, Effect › Plug-ins) are geometry effects run by an
 //!   installed WebAssembly plug-in (`vectorcraft-plugins`); [`effect_info`] describes them like
 //!   built-in ones, and an effect whose plug-in isn't installed leaves the geometry as it is.
+//! - **Script effects** (`script.<type>`, Effect › Scriptographer) draw what their script kept in
+//!   them ([`script`]).
 //! - **Colour adjustments** (Brightness/Contrast, Curves, Levels, Hue/Saturation, Shift to Color,
 //!   Temperature/Tint) recolour what an object paints with: [`adjust`] evaluates them for the
 //!   renderer and the exporters.
@@ -48,6 +50,7 @@ pub mod preview;
 mod raster;
 mod reshape;
 mod revolve;
+pub mod script;
 mod solids;
 pub mod stroke;
 mod stylize;
@@ -59,6 +62,8 @@ mod warp;
 mod tests;
 #[cfg(test)]
 mod tests_scale;
+#[cfg(test)]
+mod tests_script;
 #[cfg(test)]
 mod tests_transformfx;
 
@@ -195,6 +200,7 @@ const TEXTURE: &[&str] = &["Effect", "Texture"];
 const VIDEO: &[&str] = &["Effect", "Video"];
 const PATHFINDER: &[&str] = &["Effect", "Pathfinder"];
 const PLUGINS: &[&str] = &["Effect", "Plug-ins"];
+const SCRIPTS: &[&str] = &["Effect", "Scriptographer"];
 const ADJUST: &[&str] = &["Effect", "Color Adjustments"];
 
 /// The warp styles in Illustrator's Style menu order: (id suffix, label).
@@ -877,26 +883,39 @@ fn catalog_index() -> &'static std::collections::HashMap<&'static str, EffectInf
     INDEX.get_or_init(|| effect_catalog().into_iter().map(|e| (e.id, e)).collect())
 }
 
-/// Catalogue entry for `id` (built-in, or an installed plug-in effect).
+/// Catalogue entry for `id` (built-in, an installed plug-in effect, or a running script's).
 pub fn effect_info(id: &str) -> Option<EffectInfo> {
-    catalog_index().get(id).cloned().or_else(|| plugin_info(id))
+    catalog_index().get(id).cloned().or_else(|| plugin_info(id)).or_else(|| script_info(id))
+}
+
+/// The parameter schema of the plug-in or script effect `id`, which its dialog and the Appearance
+/// panel show its parameters by.
+pub fn effect_manifest(id: &str) -> Option<std::sync::Arc<vectorcraft_plugins::Manifest>> {
+    match vectorcraft_plugins::effect::installed(id) {
+        Some(plugin) => Some(std::sync::Arc::new(plugin.manifest().clone())),
+        None => script::manifest(id),
+    }
 }
 
 /// The catalogue entry of the installed effect plug-in with effect id `id` (`plugin.<id>`).
 fn plugin_info(id: &str) -> Option<EffectInfo> {
-    use vectorcraft_plugins::registry::intern;
     let p = vectorcraft_plugins::effect::installed(id)?;
-    let m = p.manifest();
+    Some(manifest_info(id, p.manifest(), PLUGINS))
+}
+
+/// The catalogue entry of the effect `id` that `m` describes, in the menu at `menu`.
+fn manifest_info(id: &str, m: &vectorcraft_plugins::Manifest, menu: &'static [&'static str]) -> EffectInfo {
+    use vectorcraft_plugins::registry::intern;
     let dots = if m.params.is_empty() || m.name.ends_with('…') { "" } else { "…" };
-    Some(EffectInfo {
+    EffectInfo {
         id: intern(id),
         label: intern(&format!("{}{dots}", m.name)),
-        menu: PLUGINS,
+        menu,
         params: intern(&m.params_doc()),
         defaults: Value::Object(m.defaults()),
         raster: false,
         lengths: Lengths::default(),
-    })
+    }
 }
 
 /// The installed effect plug-ins as catalogue entries (Effect › Plug-ins), by plug-in id.
@@ -904,11 +923,22 @@ pub fn plugin_effects() -> Vec<EffectInfo> {
     vectorcraft_plugins::registry::list().iter().filter_map(|p| plugin_info(&vectorcraft_plugins::effect::effect_id(p.id()))).collect()
 }
 
+/// The catalogue entry of the script effect `id`, while its script runs.
+fn script_info(id: &str) -> Option<EffectInfo> {
+    let m = script::manifest(id)?;
+    Some(manifest_info(id, &m, SCRIPTS))
+}
+
+/// The effects running scripts define as catalogue entries (Effect › Scriptographer).
+pub fn script_effects() -> Vec<EffectInfo> {
+    script::list().iter().map(|m| manifest_info(&script::effect_id(&m.id), m, SCRIPTS)).collect()
+}
+
 /// Dialog defaults for `id` (`None` for unknown effects).
 pub fn default_params(id: &str) -> Option<Value> {
     match catalog_index().get(id) {
         Some(e) => Some(e.defaults.clone()),
-        None => plugin_info(id).map(|e| e.defaults),
+        None => plugin_info(id).or_else(|| script_info(id)).map(|e| e.defaults),
     }
 }
 
@@ -919,7 +949,7 @@ pub fn merged_params(id: &str, params: &Value) -> Value {
     let mut out = match catalog_index().get(id).map(|e| &e.defaults) {
         Some(Value::Object(m)) => m.clone(),
         Some(_) => Map::new(),
-        None => vectorcraft_plugins::effect::installed(id).map(|p| p.manifest().defaults()).unwrap_or_default(),
+        None => effect_manifest(id).map(|m| m.defaults()).unwrap_or_default(),
     };
     // Upgraded before the defaults are under it: a default angle is no angle given.
     if let Value::Object(p) = upgrade_params(id, params) {
@@ -992,7 +1022,7 @@ fn upgrade_scribble(id: &str, m: &mut Map<String, Value>) {
 /// A new effect record with default parameters (overridden by `params`).
 pub fn new_effect(id: &str, params: &Value) -> Option<Effect> {
     if !catalog_index().contains_key(id) {
-        vectorcraft_plugins::effect::installed(id)?;
+        effect_manifest(id)?;
     }
     Some(Effect { id: id.to_string(), params: merged_params(id, params), visible: true })
 }
@@ -1023,14 +1053,14 @@ pub fn is_raster(id: &str) -> bool {
 
 /// Does `id` change geometry? (Crop Marks adds art of its own instead, [`crop_marks_art`]; colour
 /// adjustments recolour, [`adjust`].) Plug-in effects do, installed or not (a missing plug-in
-/// leaves the geometry as it is).
+/// leaves the geometry as it is), and so do script effects, running or not.
 pub fn is_geometry(id: &str) -> bool {
     !is_raster(id)
         && !is_pathfinder(id)
         && !is_adjustment(id)
         && id != CROP_MARKS
         && !is_three_d(id)
-        && (catalog_index().contains_key(id) || vectorcraft_plugins::effect::plugin_id(id).is_some())
+        && (catalog_index().contains_key(id) || vectorcraft_plugins::effect::plugin_id(id).is_some() || script::script_type(id).is_some())
 }
 
 /// Any visible geometry effect in the list?
@@ -1217,6 +1247,9 @@ fn builds_within(id: &str) -> bool {
 /// [`apply_one`] whose result may pass `max` when the effect doesn't build within it.
 fn apply_unchecked(id: &str, p: &Value, path: &PathData, b: Rect, ctx: &GeomContext, max: usize) -> PathData {
     use util::*;
+    if script::script_type(id).is_some() {
+        return script::apply(p, path).unwrap_or_else(|| path.clone());
+    }
     if let Some(plugin) = vectorcraft_plugins::effect::plugin_id(id) {
         let paints = vectorcraft_plugins::effect::Paints { appearance: ctx.appearance, item: ctx.item };
         return vectorcraft_plugins::effect::apply(plugin, p, path, b, ctx.rule, paints).unwrap_or_else(|| path.clone());

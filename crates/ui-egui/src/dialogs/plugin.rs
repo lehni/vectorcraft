@@ -56,17 +56,27 @@ pub fn object_menu() -> Vec<Item> {
     items
 }
 
-/// Effect › Plug-ins: the live-effect plug-ins (`None` while none is installed). Effects without
-/// options apply at once, as built-in ones do.
+/// Effect › Plug-ins: the live-effect plug-ins (`None` while none is installed).
 pub fn effect_menu() -> Option<Item> {
-    let items: Vec<Item> = vectorcraft_effects::plugin_effects()
+    effects_menu("Plug-ins", vectorcraft_effects::plugin_effects())
+}
+
+/// Effect › Scriptographer: the effects running scripts define (`None` while none does).
+pub fn script_effect_menu() -> Option<Item> {
+    effects_menu("Scriptographer", vectorcraft_effects::script_effects())
+}
+
+/// The submenu `name` of `effects` (`None` without any). Effects without options apply at once, as
+/// built-in ones do.
+fn effects_menu(name: &'static str, effects: Vec<vectorcraft_effects::EffectInfo>) -> Option<Item> {
+    let items: Vec<Item> = effects
         .into_iter()
         .map(|e| match e.defaults.as_object().is_some_and(|o| o.is_empty()) {
             true => Item::Cmd(e.label, "effect.apply", json!({ "effect": e.id })),
             false => Item::Cmd(e.label, "effect.dialog", json!({ "effect": e.id })),
         })
         .collect();
-    (!items.is_empty()).then_some(Item::Sub("Plug-ins", items))
+    (!items.is_empty()).then_some(Item::Sub(name, items))
 }
 
 /// `plugin.dialog {id, params?}`: run filter `id` at once when it takes no parameters or `params`
